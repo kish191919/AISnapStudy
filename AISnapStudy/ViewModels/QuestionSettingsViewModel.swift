@@ -62,8 +62,18 @@ class QuestionSettingsViewModel: ObservableObject {
         error = nil
 
         // Use homeViewModel
-        homeViewModel.loadData()
-        homeViewModel.selectedProblemSet = nil
+        Task {
+            await homeViewModel.loadData()
+            clearSelectedProblemSet()
+        }
+    }
+
+    func updateSelectedProblemSet(_ problemSet: ProblemSet?) {
+        homeViewModel.setSelectedProblemSet(problemSet)
+    }
+
+    private func clearSelectedProblemSet() {
+        homeViewModel.clearSelectedProblemSet()
     }
 
     var hasValidQuestionCount: Bool {
@@ -151,42 +161,44 @@ class QuestionSettingsViewModel: ObservableObject {
 
     @MainActor
     func generateQuestions(from imageData: Data, subject: Subject) async {
-        guard let openAIService = openAIService else { return }
+        if let openAIService = openAIService {
+            isLoading = true
 
-        isLoading = true
+            do {
+                let questionTypes: [QuestionType: Int] = [
+                    .multipleChoice: multipleChoiceCount,
+                    .fillInBlanks: fillInBlanksCount,
+                    .matching: matchingCount
+                ]
 
-        do {
-            let questionTypes: [QuestionType: Int] = [
-                .multipleChoice: multipleChoiceCount,
-                .fillInBlanks: fillInBlanksCount,
-                .matching: matchingCount
-            ]
+                let questions = try await openAIService.generateQuestions(
+                    from: imageData,
+                    subject: subject,
+                    difficulty: difficulty,
+                    questionTypes: questionTypes
+                )
 
-            let questions = try await openAIService.generateQuestions(
-                from: imageData,
-                subject: subject,
-                difficulty: difficulty,
-                questionTypes: questionTypes
-            )
-
-            isLoading = false
-            processGeneratedQuestions(questions)
-
-        } catch {
-            self.error = error
-            isLoading = false
-            showError(error)
-            print("Question generation error:", error)
+                isLoading = false
+                processGeneratedQuestions(questions)
+            } catch {
+                self.error = error
+                isLoading = false
+                showError(error)
+                print("Question generation error:", error)
+            }
+        } else {
+            print("OpenAI service not initialized")
         }
     }
 
     @MainActor
     private func processGeneratedQuestions(_ questions: [Question]) {
         do {
+            let subject = questions.first?.subject ?? self.subject
             let problemSet = ProblemSet(
                 id: UUID().uuidString,
                 title: "Generated Questions",
-                subject: questions.first?.subject ?? .math,
+                subject: subject,
                 difficulty: difficulty,
                 questions: questions,
                 createdAt: Date()
@@ -195,10 +207,9 @@ class QuestionSettingsViewModel: ObservableObject {
             try StorageService().saveProblemSet(problemSet)
 
             homeViewModel.loadData()
-            homeViewModel.selectedProblemSet = problemSet
+            homeViewModel.setSelectedProblemSet(problemSet)
 
             showSuccess()
-
         } catch {
             self.error = error
             showError(error)

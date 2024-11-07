@@ -1,6 +1,8 @@
 // Views/Components/QuestionTypeCounter.swift
 import SwiftUI
 
+import SwiftUI
+
 struct QuestionTypeCounter: View {
     let title: String
     @Binding var count: Int
@@ -14,11 +16,11 @@ struct QuestionTypeCounter: View {
             Spacer()
             
             HStack(spacing: 16) {
-                Button {
+                Button(action: {
                     withAnimation {
                         count = max(0, count - 1)
                     }
-                } label: {
+                }) {
                     Image(systemName: "minus.circle.fill")
                         .foregroundColor(.red)
                         .imageScale(.large)
@@ -29,11 +31,11 @@ struct QuestionTypeCounter: View {
                     .font(.headline)
                     .frame(width: 30)
                 
-                Button {
+                Button(action: {
                     withAnimation {
                         count = min(maximum, count + 1)
                     }
-                } label: {
+                }) {
                     Image(systemName: "plus.circle.fill")
                         .foregroundColor(.green)
                         .imageScale(.large)
