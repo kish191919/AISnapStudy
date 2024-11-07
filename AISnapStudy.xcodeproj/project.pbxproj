@@ -10,9 +10,22 @@
 		98ABAA572CDD066400355B6F /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		98ABAB142CDD451E00355B6F /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 98ABAA562CDD066400355B6F /* AISnapStudy */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		98ABAA592CDD066400355B6F /* AISnapStudy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				98ABAB142CDD451E00355B6F /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */,
+			);
 			path = AISnapStudy;
 			sourceTree = "<group>";
 		};
@@ -255,6 +268,9 @@
 				DEVELOPMENT_TEAM = 7F4M4ATHP5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AISnapStudy/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to take pictures and create learning question\nCamera access is required to take pictures and create learning questions.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Photo access is required to create learning questions by selecting a photo from user's gallery.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -284,6 +300,9 @@
 				DEVELOPMENT_TEAM = 7F4M4ATHP5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AISnapStudy/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to take pictures and create learning question\nCamera access is required to take pictures and create learning questions.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Photo access is required to create learning questions by selecting a photo from user's gallery.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
