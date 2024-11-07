@@ -1,1 +1,17 @@
+# Xcode
+.DS_Store
+xcuserdata/
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Configuration files containing sensitive data
+Configuration.plist
+*.plist
+
+# Other
+*.log
 .env
