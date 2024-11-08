@@ -8,26 +8,41 @@ class QuestionSettingsViewModel: ObservableObject {
     private let homeViewModel: HomeViewModel
 
     @Published var difficulty: Difficulty = .medium
-    @Published var multipleChoiceCount = 0
-    @Published var fillInBlanksCount = 0
-    @Published var matchingCount = 0
+    @Published var multipleChoiceCount: Int = 0 {
+        didSet {
+            print("ViewModel - Multiple Choice Count updated to: \(multipleChoiceCount)")
+        }
+    }
+    @Published var fillInBlanksCount: Int = 0 {
+        didSet {
+            print("ViewModel - Fill in Blanks Count updated to: \(fillInBlanksCount)")
+        }
+    }
+    @Published var matchingCount: Int = 0 {
+        didSet {
+            print("ViewModel - Matching Count updated to: \(matchingCount)")
+        }
+    }
+    
     @Published var isLoading = false
     @Published var error: Error?
     @Published var showImagePicker = false
     @Published var showCamera = false
-    @Published var selectedImage: UIImage? {
-        didSet {
-            if let image = selectedImage {
-                Task {
-                    await processImage(image)
-                }
-            }
-        }
-    }
+    @Published var selectedImages: [UIImage] = []  // 추가: 이미지 배열
     @Published var showAlert = false
     @Published var alertTitle = ""
     @Published var alertMessage = ""
-
+    // selectedImage didSet 추가
+    @Published var selectedImage: UIImage? {
+            didSet {
+                if let image = selectedImage {
+                    Task { @MainActor in
+                        await addImage(image)
+                        selectedImage = nil
+                    }
+                }
+            }
+        }
     private var openAIService: OpenAIService?
     private let imageService = ImageService.shared
     let subject: Subject
@@ -35,37 +50,79 @@ class QuestionSettingsViewModel: ObservableObject {
     init(subject: Subject, homeViewModel: HomeViewModel) {
         self.subject = subject
         self.homeViewModel = homeViewModel
-        setupInitialState()
+        
+        // OpenAI 서비스 초기화
+        do {
+            self.openAIService = try OpenAIService()
+        } catch {
+            self.error = error
+            print("Failed to initialize OpenAI service:", error)
+        }
     }
 
-    private func setupInitialState() {
-        // Initialize OpenAI service
-        DispatchQueue.main.async { [weak self] in
+    // 추가: 이미지를 배열에 추가하는 메서드
+    @MainActor
+        func addImage(_ image: UIImage) async {
             do {
-                self?.openAIService = try OpenAIService()
+                let compressedData = try await Task {
+                    try ImageCompressor.shared.compressForAPI(image)
+                }.value
+                
+                if let compressedImage = UIImage(data: compressedData) {
+                    selectedImages.append(compressedImage)
+                    print("Image added. Total images: \(selectedImages.count)")
+                }
             } catch {
-                self?.error = error
-                print("Failed to initialize OpenAI service:", error)
+                self.error = error
+                showError(error)
             }
         }
 
-        // Reset all counters
+    // 추가: 이미지를 배열에서 제거하는 메서드
+    func removeImage(at index: Int) {
+        selectedImages.remove(at: index)
+    }
+
+    // 추가: 모든 이미지를 OpenAI로 전송하는 메서드
+    @MainActor
+    func sendAllImages() async {
+        guard !selectedImages.isEmpty else { return }
+        
+        isLoading = true
+        var processedCount = 0
+        
+        do {
+            for image in selectedImages {
+                let compressedData = try await Task {
+                    try ImageCompressor.shared.compressForAPI(image)
+                }.value
+                
+                await generateQuestions(from: compressedData, subject: subject)
+                processedCount += 1
+            }
+            
+            // 모든 처리가 완료되면 이미지 배열 비우기
+            selectedImages.removeAll()
+            showSuccess()
+        } catch {
+            self.error = error
+            showError(error)
+        }
+        
+        isLoading = false
+    }
+
+    // 기존 메서드들...
+    func loadData() {
+        Task {
+            await homeViewModel.loadData()
+        }
+    }
+
+    func resetCounts() {
         multipleChoiceCount = 0
         fillInBlanksCount = 0
         matchingCount = 0
-
-        // Reset other states
-        isLoading = false
-        showImagePicker = false
-        showCamera = false
-        selectedImage = nil
-        error = nil
-
-        // Use homeViewModel
-        Task {
-            await homeViewModel.loadData()
-            clearSelectedProblemSet()
-        }
     }
 
     func updateSelectedProblemSet(_ problemSet: ProblemSet?) {
@@ -122,42 +179,14 @@ class QuestionSettingsViewModel: ObservableObject {
         }
     }
 
+    // selectedImage didSet 처리를 별도 메서드로 수정
     @MainActor
-    func processImage(_ image: UIImage) async {
-        isLoading = true
-        do {
-            // Log original image size
-            print("Original image size:", image.size)
-
-            let compressedData = try await Task {
-                try ImageCompressor.shared.compressForAPI(image)
-            }.value
-
-            // Log compressed image data size
-            print("Compressed image data size:", compressedData.count)
-
-            // Validate image data
-            guard compressedData.count > 0 else {
-                throw ImageCompressorError.compressionFailed
-            }
-
-            // Validate OpenAI service
-            guard let openAIService = self.openAIService else {
-                throw NSError(domain: "OpenAIService", code: -1, userInfo: [NSLocalizedDescriptionKey: "OpenAI service not initialized"])
-            }
-
-            await generateQuestions(from: compressedData, subject: .math)
-        } catch {
-            await MainActor.run {
-                self.error = error
-                self.showError(error)
-                print("Image processing error:", error)
+        func processSelectedImage() async {
+            if let image = selectedImage {
+                await addImage(image)
+                selectedImage = nil
             }
         }
-        await MainActor.run {
-            self.isLoading = false
-        }
-    }
 
     @MainActor
     func generateQuestions(from imageData: Data, subject: Subject) async {
@@ -191,65 +220,65 @@ class QuestionSettingsViewModel: ObservableObject {
         }
     }
 
-    @MainActor
-    private func processGeneratedQuestions(_ questions: [Question]) {
-        do {
-            let subject = questions.first?.subject ?? self.subject
-            let problemSet = ProblemSet(
-                id: UUID().uuidString,
-                title: "Generated Questions",
-                subject: subject,
-                difficulty: difficulty,
-                questions: questions,
-                createdAt: Date()
-            )
+   @MainActor
+   private func processGeneratedQuestions(_ questions: [Question]) {
+       do {
+           let subject = questions.first?.subject ?? self.subject
+           let problemSet = ProblemSet(
+               id: UUID().uuidString,
+               title: "Generated Questions",
+               subject: subject,
+               difficulty: difficulty,
+               questions: questions,
+               createdAt: Date()
+           )
 
-            try StorageService().saveProblemSet(problemSet)
+           try StorageService().saveProblemSet(problemSet)
 
-            homeViewModel.loadData()
-            homeViewModel.setSelectedProblemSet(problemSet)
+           homeViewModel.loadData()
+           homeViewModel.setSelectedProblemSet(problemSet)
 
-            showSuccess()
-        } catch {
-            self.error = error
-            showError(error)
-            print("Problem set saving error:", error)
-        }
-    }
+           showSuccess()
+       } catch {
+           self.error = error
+           showError(error)
+           print("Problem set saving error:", error)
+       }
+   }
 
-    @MainActor
-    private func showError(_ error: Error) {
-        print("Error details:", error.localizedDescription)
+   @MainActor
+   private func showError(_ error: Error) {
+       print("Error details:", error.localizedDescription)
 
-        if let imageError = error as? ImageServiceError {
-            switch imageError {
-            case .permissionDenied:
-                alertTitle = "Permission Error"
-                alertMessage = "Camera or photo library access is not authorized. Please enable access in Settings."
-            case .unavailable:
-                alertTitle = "Unavailable"
-                alertMessage = "This feature is not available on your device."
-            case .compressionFailed:
-                alertTitle = "Compression Error"
-                alertMessage = "Failed to compress the image. Please try another image."
-            case .unknown(let underlyingError):
-                alertTitle = "Error"
-                alertMessage = underlyingError.localizedDescription
-            }
-        } else if let networkError = error as? NetworkError {
-            alertTitle = "Network Error"
-            alertMessage = networkError.localizedDescription
-        } else {
-            alertTitle = "Error"
-            alertMessage = "An error occurred while processing the image. Please try again. (\(error.localizedDescription))"
-        }
-        showAlert = true
-    }
+       if let imageError = error as? ImageServiceError {
+           switch imageError {
+           case .permissionDenied:
+               alertTitle = "Permission Error"
+               alertMessage = "Camera or photo library access is not authorized. Please enable access in Settings."
+           case .unavailable:
+               alertTitle = "Unavailable"
+               alertMessage = "This feature is not available on your device."
+           case .compressionFailed:
+               alertTitle = "Compression Error"
+               alertMessage = "Failed to compress the image. Please try another image."
+           case .unknown(let underlyingError):
+               alertTitle = "Error"
+               alertMessage = underlyingError.localizedDescription
+           }
+       } else if let networkError = error as? NetworkError {
+           alertTitle = "Network Error"
+           alertMessage = networkError.localizedDescription
+       } else {
+           alertTitle = "Error"
+           alertMessage = "An error occurred while processing the image. Please try again. (\(error.localizedDescription))"
+       }
+       showAlert = true
+   }
 
-    @MainActor
-    func showSuccess() {
-        alertTitle = "Success"
-        alertMessage = "Questions have been successfully generated."
-        showAlert = true
-    }
+   @MainActor
+   func showSuccess() {
+       alertTitle = "Success"
+       alertMessage = "Questions have been successfully generated."
+       showAlert = true
+   }
 }
