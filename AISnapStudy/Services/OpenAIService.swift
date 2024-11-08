@@ -1,7 +1,6 @@
-// Services/OpenAIService.swift
-import Foundation
 
 // Services/OpenAIService.swift
+
 import Foundation
 
 class OpenAIService {
@@ -107,6 +106,7 @@ class OpenAIService {
             throw NetworkError.parsingError(error)
         }
     }
+
     
     private func parseQuestionsFromResponse(
         _ response: OpenAIResponse,
@@ -137,7 +137,7 @@ class OpenAIService {
                     question: rawQuestion.question,
                     options: rawQuestion.processedOptions,
                     matchingOptions: rawQuestion.matchingPairs ?? [],
-                    correctAnswer: rawQuestion.correctAnswer,
+                    correctAnswer: rawQuestion.formattedCorrectAnswer,
                     explanation: rawQuestion.explanation,
                     hint: rawQuestion.hint,
                     isSaved: false,
@@ -151,6 +151,35 @@ class OpenAIService {
     }
 }
 
+private enum OptionsType: Codable {
+    case array([String])
+    case dictionary([String: [String]])
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let array = try? container.decode([String].self) {
+            self = .array(array)
+        } else if let dict = try? container.decode([String: [String]].self) {
+            self = .dictionary(dict)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected array or dictionary"
+            )
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .array(let array):
+            try container.encode(array)
+        case .dictionary(let dict):
+            try container.encode(dict)
+        }
+    }
+}
+
 private struct RawQuestion: Codable {
     let type: QuestionType?
     let question: String
@@ -158,87 +187,84 @@ private struct RawQuestion: Codable {
     let matchingPairs: [String]?
     let explanation: String
     let hint: String?
-    let correct_answer: AnyCodable
+    let pairs: [MatchingPair]?
+    let correctAnswer: AnyCodable?
     
-    // options를 위한 타입 정의
-    enum OptionsType: Codable {
-        case array([String])
-        case dictionary([String: [String]])
-        
-        init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            if let arrayValue = try? container.decode([String].self) {
-                self = .array(arrayValue)
-            } else if let dictValue = try? container.decode([String: [String]].self) {
-                self = .dictionary(dictValue)
-            } else {
-                throw DecodingError.typeMismatch(
-                    OptionsType.self,
-                    DecodingError.Context(
-                        codingPath: decoder.codingPath,
-                        debugDescription: "Expected either array or dictionary of options"
-                    )
-                )
-            }
-        }
+    struct MatchingPair: Codable {
+        let phrase: String
+        let verse: String
     }
     
     enum CodingKeys: String, CodingKey {
-        case type, question, options, explanation, hint
-        case correct_answer = "correct_answer"
+        case type, question, options, explanation, hint, pairs
+        case correctAnswer = "correctAnswer"
+        case matchingPairs
     }
     
-    // Decodable 초기화 구문 추가
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         
         type = try? container.decode(QuestionType?.self, forKey: .type)
         question = try container.decode(String.self, forKey: .question)
         options = try? container.decode(OptionsType?.self, forKey: .options)
-        matchingPairs = try? container.decode([String]?.self, forKey: .options)
+        pairs = try? container.decode([MatchingPair]?.self, forKey: .pairs)
         explanation = try container.decode(String.self, forKey: .explanation)
         hint = try? container.decode(String?.self, forKey: .hint)
-        correct_answer = try container.decode(AnyCodable.self, forKey: .correct_answer)
+        correctAnswer = try? container.decode(AnyCodable.self, forKey: .correctAnswer)
+        matchingPairs = pairs?.map { $0.phrase }
     }
     
-    var correctAnswer: String {
-        switch correct_answer.value {
-        case let string as String:
+    // Encodable 준수를 위한 encode 메서드 추가
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        
+        try container.encode(type, forKey: .type)
+        try container.encode(question, forKey: .question)
+        try container.encodeIfPresent(options, forKey: .options)
+        try container.encode(explanation, forKey: .explanation)
+        try container.encodeIfPresent(hint, forKey: .hint)
+        try container.encodeIfPresent(pairs, forKey: .pairs)
+        try container.encodeIfPresent(correctAnswer, forKey: .correctAnswer)
+        try container.encodeIfPresent(matchingPairs, forKey: .matchingPairs)
+    }
+    
+    // 기존의 계산 속성들은 그대로 유지
+    var formattedCorrectAnswer: String {
+        if let correctAnswerDict = correctAnswer?.value as? [String: String] {
+            return correctAnswerDict.map { "\($0.key):\($0.value)" }.joined(separator: ",")
+        } else if let string = correctAnswer?.value as? String {
             return string
-        case let dict as [String: String]:
-            return dict.map { "\($0.key):\($0.value)" }.joined(separator: ",")
-        default:
-            return String(describing: correct_answer.value)
         }
+        return ""
     }
     
-    // options 처리를 위한 계산 속성
     var processedOptions: [String] {
-        switch options {
-        case .array(let array):
-            return array
-        case .dictionary(let dict):
-            // 딕셔너리 형태의 options를 배열로 변환
-            var result: [String] = []
-            for (key, values) in dict {
-                result.append(key)
-                result.append(contentsOf: values)
+        if let pairs = pairs {
+            return pairs.map { $0.phrase }
+        } else if let options = options {
+            switch options {
+            case .array(let array):
+                return array
+            case .dictionary(let dict):
+                var result: [String] = []
+                for (key, values) in dict {
+                    result.append(key)
+                    result.append(contentsOf: values)
+                }
+                return result
             }
-            return result
-        case nil:
-            return []
         }
+        return []
     }
 }
 
-
 struct AnyCodable: Codable {
     let value: Any
-
+    
     init(_ value: Any) {
         self.value = value
     }
-
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         
@@ -263,7 +289,7 @@ struct AnyCodable: Codable {
             )
         }
     }
-
+    
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         
@@ -301,3 +327,4 @@ private struct OpenAIErrorResponse: Codable {
         let code: String?
     }
 }
+

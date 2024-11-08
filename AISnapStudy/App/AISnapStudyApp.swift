@@ -6,7 +6,10 @@ struct AISnapStudyApp: App {
     init() {
         setupAppearance()
         
-        // Check if API key is properly configured
+        // Initialize CoreData stack
+        _ = CoreDataService.shared
+        
+        // Check API key
         do {
             _ = try ConfigurationManager.shared.getValue(for: "OpenAIAPIKey")
         } catch {

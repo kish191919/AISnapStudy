@@ -162,7 +162,9 @@ struct QuestionSettingsView: View {
            }
        }
        .onAppear {
-           viewModel.loadData()
+           Task {
+               await viewModel.loadData()
+           }
        }
    }
    
@@ -217,7 +219,7 @@ struct QuestionSettingsView: View {
    }
 }
 
-// ImagePicker struct
+// MARK: - ImagePicker
 struct ImagePicker: UIViewControllerRepresentable {
    @Environment(\.presentationMode) private var presentationMode
    @Binding var image: UIImage?
@@ -257,7 +259,7 @@ struct ImagePicker: UIViewControllerRepresentable {
    }
 }
 
-// LoadingView struct
+// MARK: - LoadingView
 struct LoadingView: View {
    var body: some View {
        ZStack {

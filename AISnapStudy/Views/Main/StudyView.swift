@@ -2,6 +2,8 @@
 
 import SwiftUI
 
+import SwiftUI
+
 struct StudyView: View {
     @EnvironmentObject var homeViewModel: HomeViewModel
     @StateObject private var viewModel = StudyViewModel()
@@ -10,6 +12,15 @@ struct StudyView: View {
         NavigationView {
             if let problemSet = homeViewModel.selectedProblemSet {
                 VStack {
+                    // Progress Indicator
+                    ProgressView(value: viewModel.questionProgress)
+                        .progressViewStyle(.linear)
+                        .padding()
+                    
+                    Text(viewModel.progress)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
                     // 현재 문제 표시
                     if let currentQuestion = viewModel.currentQuestion {
                         Group {
@@ -35,44 +46,85 @@ struct StudyView: View {
                                     showExplanation: viewModel.showExplanation
                                 )
                             }
+                            
+                            // Explanation View when shown
+                            if viewModel.showExplanation {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Explanation")
+                                        .font(.headline)
+                                    Text(currentQuestion.explanation)
+                                        .font(.body)
+                                }
+                                .padding()
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(10)
+                                .padding()
+                            }
                         }
                         .padding()
+                        .onAppear {
+                            debugPrint("Question view appeared")
+                        }
                         
                         Spacer()
                         
-                        // 제출/다음 버튼
+                        // Submit/Next Button
                         Button(action: {
                             if viewModel.showExplanation {
-                                viewModel.nextQuestion()
+                                if viewModel.isLastQuestion {
+                                    // Save progress and return
+                                    viewModel.saveProgress()
+                                    homeViewModel.clearSelectedProblemSet()
+                                } else {
+                                    viewModel.nextQuestion()
+                                }
                             } else {
                                 viewModel.submitAnswer()
                             }
                         }) {
-                            Text(viewModel.showExplanation ? "Next Question" : "Submit Answer")
+                            Text(viewModel.showExplanation ?
+                                (viewModel.isLastQuestion ? "Finish" : "Next Question") :
+                                "Submit Answer")
                                 .font(.headline)
                                 .foregroundColor(.white)
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.accentColor)
+                                .background(viewModel.canSubmit ? Color.accentColor : Color.gray)
                                 .cornerRadius(10)
                         }
                         .disabled(!viewModel.canSubmit)
                         .padding()
+                        
+                    } else {
+                        Text("No questions loaded")
+                            .foregroundColor(.secondary)
                     }
                 }
                 .navigationTitle("Study")
                 .onAppear {
+                    debugPrint("StudyView appeared with problem set: \(problemSet.id)")
+                    debugPrint("Questions count: \(problemSet.questionCount)")
                     viewModel.loadQuestions(problemSet.questions)
                 }
             } else {
-                VStack {
+                VStack(spacing: 16) {
+                    Image(systemName: "book.closed")
+                        .font(.system(size: 50))
+                        .foregroundColor(.secondary)
+                    
                     Text("No questions available")
                         .font(.headline)
+                    
                     Text("Create new questions from the Home screen")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
+                .padding()
                 .navigationTitle("Study")
+                .onAppear {
+                    debugPrint("StudyView - No problem set selected")
+                }
             }
         }
     }

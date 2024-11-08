@@ -112,11 +112,9 @@ class QuestionSettingsViewModel: ObservableObject {
         isLoading = false
     }
 
-    // 기존 메서드들...
-    func loadData() {
-        Task {
-            await homeViewModel.loadData()
-        }
+    // loadData 메서드도 async로 수정
+    func loadData() async {
+        await homeViewModel.loadData()
     }
 
     func resetCounts() {
@@ -189,6 +187,51 @@ class QuestionSettingsViewModel: ObservableObject {
         }
 
     @MainActor
+    private func processGeneratedQuestions(_ questions: [Question]) async {
+        do {
+            print("🔵 Processing generated questions:")
+            print("Number of questions: \(questions.count)")
+            print("Questions details: \(questions.map { "[\($0.type): \($0.question)]" }.joined(separator: "\n"))")
+            
+            let subject = questions.first?.subject ?? self.subject
+            let problemSet = ProblemSet(
+                id: UUID().uuidString,
+                title: "Generated Questions",
+                subject: subject,
+                difficulty: difficulty,
+                questions: questions,
+                createdAt: Date()
+            )
+            
+            print("🔵 Created ProblemSet:")
+            print("ID: \(problemSet.id)")
+            print("Subject: \(problemSet.subject)")
+            print("Question count: \(problemSet.questionCount)")
+
+            // CoreData를 사용하여 저장
+            try await Task.detached {
+                try CoreDataService.shared.saveProblemSet(problemSet)
+            }.value
+            print("✅ Successfully saved ProblemSet to CoreData")
+
+            // 데이터 다시 로드
+            await homeViewModel.loadData()
+            print("✅ Called homeViewModel.loadData()")
+            
+            homeViewModel.setSelectedProblemSet(problemSet)
+            print("✅ Set selected ProblemSet in homeViewModel")
+            print("Selected ProblemSet ID: \(problemSet.id)")
+
+            showSuccess()
+        } catch {
+            self.error = error
+            print("❌ Error in processGeneratedQuestions: \(error)")
+            showError(error)
+        }
+    }
+
+    // generateQuestions 메서드도 수정 필요
+    @MainActor
     func generateQuestions(from imageData: Data, subject: Subject) async {
         if let openAIService = openAIService {
             isLoading = true
@@ -208,7 +251,7 @@ class QuestionSettingsViewModel: ObservableObject {
                 )
 
                 isLoading = false
-                processGeneratedQuestions(questions)
+                await processGeneratedQuestions(questions)
             } catch {
                 self.error = error
                 isLoading = false
@@ -219,32 +262,6 @@ class QuestionSettingsViewModel: ObservableObject {
             print("OpenAI service not initialized")
         }
     }
-
-   @MainActor
-   private func processGeneratedQuestions(_ questions: [Question]) {
-       do {
-           let subject = questions.first?.subject ?? self.subject
-           let problemSet = ProblemSet(
-               id: UUID().uuidString,
-               title: "Generated Questions",
-               subject: subject,
-               difficulty: difficulty,
-               questions: questions,
-               createdAt: Date()
-           )
-
-           try StorageService().saveProblemSet(problemSet)
-
-           homeViewModel.loadData()
-           homeViewModel.setSelectedProblemSet(problemSet)
-
-           showSuccess()
-       } catch {
-           self.error = error
-           showError(error)
-           print("Problem set saving error:", error)
-       }
-   }
 
    @MainActor
    private func showError(_ error: Error) {

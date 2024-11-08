@@ -50,10 +50,17 @@ class StudyViewModel: ObservableObject {
     
     // MARK: - Public Methods
     func loadQuestions(_ questions: [Question]) {
+        print("🔵 StudyViewModel - Loading questions")
+        print("Number of questions received: \(questions.count)")
+        
         self.questions = questions
         currentIndex = 0
         answers.removeAll()
         score = nil
+        
+        print("Reset current index to 0")
+        print("Cleared previous answers and score")
+        
         updateCurrentQuestion()
     }
     
@@ -80,14 +87,27 @@ class StudyViewModel: ObservableObject {
         updateCurrentQuestion()
     }
     
-    // MARK: - Private Methods
+    // updateCurrentQuestion 메소드 수정
     private func updateCurrentQuestion() {
+        print("🔵 StudyViewModel - Updating current question")
+        print("Current index: \(currentIndex)")
+        print("Total questions: \(questions.count)")
+        
         guard currentIndex < questions.count else {
+            print("❌ Current index exceeds questions count")
             currentQuestion = nil
             calculateFinalScore()
             return
         }
+        
         currentQuestion = questions[currentIndex]
+        if let question = currentQuestion {
+            print("✅ Set current question:")
+            print("ID: \(question.id)")
+            print("Type: \(question.type)")
+            print("Question: \(question.question)")
+        }
+        
         resetAnswers()
     }
     

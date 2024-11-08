@@ -21,6 +21,7 @@ public struct Question: Identifiable, Codable {
     public let hint: String?
     public var isSaved: Bool
     public let createdAt: Date
+    public let matchingPairs: [String: String] // 매칭 쌍 저장을 위한 필드 추가
     
     public init(
         id: String,
@@ -30,6 +31,7 @@ public struct Question: Identifiable, Codable {
         question: String,
         options: [String] = [],
         matchingOptions: [String] = [],
+        matchingPairs: [String: String] = [:], // 초기화 구문에도 추가
         correctAnswer: String,
         explanation: String,
         hint: String? = nil,
@@ -43,6 +45,7 @@ public struct Question: Identifiable, Codable {
         self.question = question
         self.options = options
         self.matchingOptions = matchingOptions
+        self.matchingPairs = matchingPairs
         self.correctAnswer = correctAnswer
         self.explanation = explanation
         self.hint = hint

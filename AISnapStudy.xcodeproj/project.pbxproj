@@ -6,7 +6,22 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		989B29DA2CDDE263005D1034 /* CDProblemSet+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989B29D52CDDE263005D1034 /* CDProblemSet+CoreDataProperties.swift */; };
+		989B29DB2CDDE263005D1034 /* CDStudySession+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989B29D92CDDE263005D1034 /* CDStudySession+CoreDataProperties.swift */; };
+		989B29DC2CDDE263005D1034 /* CDQuestion+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989B29D62CDDE263005D1034 /* CDQuestion+CoreDataClass.swift */; };
+		989B29DD2CDDE263005D1034 /* CDStudySession+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989B29D82CDDE263005D1034 /* CDStudySession+CoreDataClass.swift */; };
+		989B29DE2CDDE263005D1034 /* CDQuestion+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989B29D72CDDE263005D1034 /* CDQuestion+CoreDataProperties.swift */; };
+		989B29DF2CDDE263005D1034 /* CDProblemSet+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989B29D42CDDE263005D1034 /* CDProblemSet+CoreDataClass.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		989B29D42CDDE263005D1034 /* CDProblemSet+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift"; sourceTree = "<group>"; };
+		989B29D52CDDE263005D1034 /* CDProblemSet+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		989B29D62CDDE263005D1034 /* CDQuestion+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataClass.swift"; sourceTree = "<group>"; };
+		989B29D72CDDE263005D1034 /* CDQuestion+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		989B29D82CDDE263005D1034 /* CDStudySession+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift"; sourceTree = "<group>"; };
+		989B29D92CDDE263005D1034 /* CDStudySession+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		98ABAA572CDD066400355B6F /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -45,6 +60,12 @@
 		98ABAA4E2CDD066400355B6F = {
 			isa = PBXGroup;
 			children = (
+				989B29D42CDDE263005D1034 /* CDProblemSet+CoreDataClass.swift */,
+				989B29D52CDDE263005D1034 /* CDProblemSet+CoreDataProperties.swift */,
+				989B29D62CDDE263005D1034 /* CDQuestion+CoreDataClass.swift */,
+				989B29D72CDDE263005D1034 /* CDQuestion+CoreDataProperties.swift */,
+				989B29D82CDDE263005D1034 /* CDStudySession+CoreDataClass.swift */,
+				989B29D92CDDE263005D1034 /* CDStudySession+CoreDataProperties.swift */,
 				98ABAA592CDD066400355B6F /* AISnapStudy */,
 				98ABAA582CDD066400355B6F /* Products */,
 			);
@@ -132,6 +153,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				989B29DA2CDDE263005D1034 /* CDProblemSet+CoreDataProperties.swift in Sources */,
+				989B29DB2CDDE263005D1034 /* CDStudySession+CoreDataProperties.swift in Sources */,
+				989B29DC2CDDE263005D1034 /* CDQuestion+CoreDataClass.swift in Sources */,
+				989B29DD2CDDE263005D1034 /* CDStudySession+CoreDataClass.swift in Sources */,
+				989B29DE2CDDE263005D1034 /* CDQuestion+CoreDataProperties.swift in Sources */,
+				989B29DF2CDDE263005D1034 /* CDProblemSet+CoreDataClass.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
