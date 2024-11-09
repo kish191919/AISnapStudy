@@ -3,25 +3,39 @@ import Foundation
 
 class HistoryViewModel: ObservableObject {
     @Published var studySessions: [StudySession] = []
+    @Published var problemSets: [ProblemSet] = []  // 추가
     @Published var isLoading = false
     @Published var error: Error?
     
     private let storageService: StorageService
+    private let coreDataService: CoreDataService
     
-    init(storageService: StorageService = StorageService()) {
+    init(storageService: StorageService = StorageService(),
+         coreDataService: CoreDataService = .shared) {
         self.storageService = storageService
-        loadStudySessions()
+        self.coreDataService = coreDataService
+        loadData()
     }
     
-    func loadStudySessions() {
+    func loadData() {
         isLoading = true
         
         do {
+            // Load study sessions
             studySessions = try storageService.getStudySessions()
-            // 최신 세션이 위로 오도록 정렬
             studySessions.sort { $0.startTime > $1.startTime }
+            
+            // Load problem sets
+            problemSets = try coreDataService.fetchProblemSets()
+            
+            print("""
+            📚 History Data Loaded:
+            • Study Sessions: \(studySessions.count)
+            • Problem Sets: \(problemSets.count)
+            """)
         } catch {
             self.error = error
+            print("❌ Failed to load history data: \(error)")
         }
         
         isLoading = false
@@ -31,21 +45,22 @@ class HistoryViewModel: ObservableObject {
         if let index = studySessions.firstIndex(where: { $0.id == session.id }) {
             let deletedSession = studySessions.remove(at: index)
             
-            // 스토리지에서도 삭제
             Task {
                 do {
                     try await Task.detached {
                         try self.storageService.deleteStudySession(session)
                     }.value
                 } catch {
-                    // UI 업데이트는 메인 스레드에서
                     await MainActor.run {
                         self.error = error
-                        // 삭제 실패 시 배열에 다시 추가
                         self.studySessions.insert(deletedSession, at: index)
                     }
                 }
             }
         }
+    }
+    
+    func refreshData() {
+        loadData()
     }
 }

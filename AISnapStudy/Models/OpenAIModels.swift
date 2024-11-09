@@ -1,3 +1,4 @@
+
 // Models/OpenAIModels.swift
 
 import Foundation
@@ -25,6 +26,7 @@ struct Choice: Codable {
 struct Message: Codable {
     let role: String
     let content: String
+    let refusal: String? // 추가: Structured Outputs의 refusal 처리를 위해
 }
 
 struct Usage: Codable {
@@ -39,24 +41,38 @@ struct Usage: Codable {
     }
 }
 
-// MARK: - Network Error
-enum NetworkError: Error {
-    case invalidResponse
-    case invalidData
-    case apiError(String)
-    case parsingError(Error)
+// MARK: - Error Response Models
+struct OpenAIErrorResponse: Codable {
+    let error: OpenAIError
     
-    var localizedDescription: String {
-        switch self {
-        case .invalidResponse:
-            return "Invalid response from server"
-        case .invalidData:
-            return "Invalid data received"
-        case .apiError(let message):
-            return "API Error: \(message)"
-        case .parsingError(let error):
-            return "Parsing error: \(error.localizedDescription)"
-        }
+    struct OpenAIError: Codable {
+        let message: String
+        let type: String?
+        let code: String?
     }
 }
 
+// MARK: - Question Generation Schema
+struct QuestionGenerationSchema: Codable {
+    let questions: [QuestionData]
+    
+    struct QuestionData: Codable {
+        let type: String
+        let question: String
+        let options: [String]
+        let matchingOptions: [String]
+        let correctAnswer: String
+        let explanation: String
+        let hint: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case type
+            case question
+            case options
+            case matchingOptions = "matchingOptions"
+            case correctAnswer
+            case explanation
+            case hint
+        }
+    }
+}

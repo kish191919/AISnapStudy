@@ -8,7 +8,12 @@ import PhotosUI
 
 class QuestionSettingsViewModel: ObservableObject {
     private let homeViewModel: HomeViewModel
-
+    private let networkMonitor = NetworkMonitor.shared
+    private var openAIService: OpenAIService?
+    private let imageService = ImageService.shared
+    let subject: Subject
+    
+    // MARK: - Published Properties
     @Published var difficulty: Difficulty = .medium
     @Published var multipleChoiceCount: Int = 0 {
         didSet {
@@ -28,30 +33,32 @@ class QuestionSettingsViewModel: ObservableObject {
     
     @Published var isLoading = false
     @Published var error: Error?
+    @Published var networkError: NetworkError?
+    @Published var isNetworkAvailable = true
     @Published var showImagePicker = false
     @Published var showCamera = false
-    @Published var selectedImages: [UIImage] = []  // 추가: 이미지 배열
+    @Published var selectedImages: [UIImage] = []
     @Published var showAlert = false
     @Published var alertTitle = ""
     @Published var alertMessage = ""
-    // selectedImage didSet 추가
     @Published var selectedImage: UIImage? {
-            didSet {
-                if let image = selectedImage {
-                    Task { @MainActor in
-                        await addImage(image)
-                        selectedImage = nil
-                    }
+        didSet {
+            if let image = selectedImage {
+                Task { @MainActor in
+                    await addImage(image)
+                    selectedImage = nil
                 }
             }
         }
-    private var openAIService: OpenAIService?
-    private let imageService = ImageService.shared
-    let subject: Subject
-
+    }
+    
+    // MARK: - Initialization
     init(subject: Subject, homeViewModel: HomeViewModel) {
         self.subject = subject
         self.homeViewModel = homeViewModel
+        
+        // 네트워크 상태 옵저빙
+        setupNetworkMonitoring()
         
         // OpenAI 서비스 초기화
         do {
@@ -61,37 +68,61 @@ class QuestionSettingsViewModel: ObservableObject {
             print("Failed to initialize OpenAI service:", error)
         }
     }
-
-    // 추가: 이미지를 배열에 추가하는 메서드
+    
+    // MARK: - Network Monitoring
+    private func setupNetworkMonitoring() {
+        isNetworkAvailable = networkMonitor.isReachable
+    }
+    
+    // MARK: - Public Methods
+    func resetCounts() {
+        multipleChoiceCount = 0
+        fillInBlanksCount = 0
+        matchingCount = 0
+    }
+    
+    var hasValidQuestionCount: Bool {
+        multipleChoiceCount + fillInBlanksCount + matchingCount > 0
+    }
+    
     @MainActor
-        func addImage(_ image: UIImage) async {
-            do {
-                let compressedData = try await Task {
-                    try ImageCompressor.shared.compressForAPI(image)
-                }.value
-                
-                if let compressedImage = UIImage(data: compressedData) {
-                    selectedImages.append(compressedImage)
-                    print("Image added. Total images: \(selectedImages.count)")
-                }
-            } catch {
-                self.error = error
-                showError(error)
+    func loadData() async {
+        await homeViewModel.loadData()
+    }
+    
+    // MARK: - Image Management
+    @MainActor
+    func addImage(_ image: UIImage) async {
+        do {
+            let compressedData = try await Task {
+                try ImageCompressor.shared.compressForAPI(image)
+            }.value
+            
+            if let compressedImage = UIImage(data: compressedData) {
+                selectedImages.append(compressedImage)
+                print("Image added. Total images: \(selectedImages.count)")
             }
+        } catch {
+            self.error = error
+            showError(error)
         }
-
-    // 추가: 이미지를 배열에서 제거하는 메서드
+    }
+    
     func removeImage(at index: Int) {
         selectedImages.remove(at: index)
     }
-
-    // 추가: 모든 이미지를 OpenAI로 전송하는 메서드
+    
     @MainActor
     func sendAllImages() async {
         guard !selectedImages.isEmpty else { return }
         
+        // 네트워크 연결 확인
+        guard networkMonitor.isReachable else {
+            showError(NetworkError.noConnection as Error)
+            return
+        }
+        
         isLoading = true
-        var processedCount = 0
         
         do {
             for image in selectedImages {
@@ -100,10 +131,8 @@ class QuestionSettingsViewModel: ObservableObject {
                 }.value
                 
                 await generateQuestions(from: compressedData, subject: subject)
-                processedCount += 1
             }
             
-            // 모든 처리가 완료되면 이미지 배열 비우기
             selectedImages.removeAll()
             showSuccess()
         } catch {
@@ -113,32 +142,8 @@ class QuestionSettingsViewModel: ObservableObject {
         
         isLoading = false
     }
-
-    // 기존 메서드들...
-    func loadData() {
-        Task {
-            await homeViewModel.loadData()
-        }
-    }
-
-    func resetCounts() {
-        multipleChoiceCount = 0
-        fillInBlanksCount = 0
-        matchingCount = 0
-    }
-
-    func updateSelectedProblemSet(_ problemSet: ProblemSet?) {
-        homeViewModel.setSelectedProblemSet(problemSet)
-    }
-
-    private func clearSelectedProblemSet() {
-        homeViewModel.clearSelectedProblemSet()
-    }
-
-    var hasValidQuestionCount: Bool {
-        multipleChoiceCount + fillInBlanksCount + matchingCount > 0
-    }
-
+    
+    // MARK: - Image Capture Methods
     @MainActor
     func takePhoto() {
         Task {
@@ -159,7 +164,7 @@ class QuestionSettingsViewModel: ObservableObject {
             }
         }
     }
-
+    
     @MainActor
     func selectFromGallery() {
         Task {
@@ -180,123 +185,126 @@ class QuestionSettingsViewModel: ObservableObject {
             }
         }
     }
-
-    // selectedImage didSet 처리를 별도 메서드로 수정
+    
+    // MARK: - Question Generation
     @MainActor
-        func processSelectedImage() async {
-            if let image = selectedImage {
-                await addImage(image)
-                selectedImage = nil
-            }
-        }
-
-    @MainActor
-    func generateQuestions(from imageData: Data, subject: Subject) async {
-        if let openAIService = openAIService {
-            isLoading = true
-
-            do {
-                let questionTypes: [QuestionType: Int] = [
-                    .multipleChoice: multipleChoiceCount,
-                    .fillInBlanks: fillInBlanksCount,
-                    .matching: matchingCount
-                ]
-
-                let questions = try await openAIService.generateQuestions(
-                    from: imageData,
-                    subject: subject,
-                    difficulty: difficulty,
-                    questionTypes: questionTypes
-                )
-
-                isLoading = false
-                processGeneratedQuestions(questions)
-            } catch {
-                self.error = error
-                isLoading = false
-                showError(error)
-                print("Question generation error:", error)
-            }
-        } else {
+    private func generateQuestions(from imageData: Data, subject: Subject) async {
+        guard let openAIService = openAIService else {
             print("OpenAI service not initialized")
+            return
         }
-    }
-
-    @MainActor
-    private func processGeneratedQuestions(_ questions: [Question]) {
+        
+        isLoading = true
+        
         do {
-            print("🔵 Processing generated questions:")
-            print("Number of questions: \(questions.count)")
-            print("Questions details: \(questions.map { "[\($0.type): \($0.question)]" }.joined(separator: "\n"))")
+            let questionTypes: [QuestionType: Int] = [
+                .multipleChoice: multipleChoiceCount,
+                .fillInBlanks: fillInBlanksCount,
+                .matching: matchingCount
+            ]
             
-            let subject = questions.first?.subject ?? self.subject
-            let problemSet = ProblemSet(
-                id: UUID().uuidString,
-                title: "Generated Questions",
+            let questions = try await openAIService.generateQuestions(
+                from: imageData,
                 subject: subject,
                 difficulty: difficulty,
-                questions: questions,
-                createdAt: Date()
+                questionTypes: questionTypes
             )
             
-            print("🔵 Created ProblemSet:")
-            print("ID: \(problemSet.id)")
-            print("Subject: \(problemSet.subject)")
-            print("Question count: \(problemSet.questionCount)")
-
-            try StorageService().saveProblemSet(problemSet)
-            print("✅ Successfully saved ProblemSet to storage")
-
-            homeViewModel.loadData()
-            print("✅ Called homeViewModel.loadData()")
-            
-            homeViewModel.setSelectedProblemSet(problemSet)
-            print("✅ Set selected ProblemSet in homeViewModel")
-            print("Selected ProblemSet ID: \(problemSet.id)")
-
-            showSuccess()
+            isLoading = false
+            await processGeneratedQuestions(questions)
         } catch {
             self.error = error
-            print("❌ Error in processGeneratedQuestions: \(error)")
+            isLoading = false
             showError(error)
+            print("Question generation error:", error)
         }
     }
+    
+    @MainActor
+    private func processGeneratedQuestions(_ questions: [Question]) async {
+        print("\n🔄 Processing Generated Questions:")
+        print("Number of questions by type:")
+        let questionsByType = Dictionary(grouping: questions, by: { $0.type })
+        questionsByType.forEach { type, questions in
+            print("- \(type.rawValue): \(questions.count) questions")
+        }
+        
+        let subject = questions.first?.subject ?? self.subject
+        let problemSet = ProblemSet(
+            id: UUID().uuidString,
+            title: "Generated Questions",
+            subject: subject,
+            difficulty: difficulty,
+            questions: questions,
+            createdAt: Date()
+        )
+        
+        print("\n📦 Setting ProblemSet in HomeViewModel")
+        await homeViewModel.setSelectedProblemSet(problemSet)
+        
+        // Save the problem set
+        await homeViewModel.saveProblemSet(problemSet)
+    }
 
-   @MainActor
-   private func showError(_ error: Error) {
-       print("Error details:", error.localizedDescription)
+    @MainActor
+    private func showSuccess() {
+        alertTitle = "Success"
+        alertMessage = "Questions have been successfully generated."
+        showAlert = true
+        
+        // Success alert가 표시된 후 Study 탭으로 전환하기 위한 notification 발송
+        NotificationCenter.default.post(
+            name: Notification.Name("ShowStudyView"),
+            object: nil
+        )
+    }
+    
+    
+    // MARK: - Error Handling
+    @MainActor
+    private func showError(_ error: Error) {
+        print("Error details:", error.localizedDescription)
+        
+        if let networkError = error as? NetworkError {
+            alertTitle = "Network Error"
+            alertMessage = networkError.errorDescription ?? "A network error occurred"
+        } else if let imageError = error as? ImageServiceError {
+            switch imageError {
+            case .permissionDenied:
+                alertTitle = "Permission Required"
+                alertMessage = """
+                    Camera or photo library access is not authorized.
+                    Please enable access in Settings.
+                    
+                    Go to: Settings > Privacy > Camera/Photos
+                    """
+            case .unavailable:
+                alertTitle = "Feature Unavailable"
+                alertMessage = "This feature is not available on your device."
+            case .compressionFailed:
+                alertTitle = "Image Processing Error"
+                alertMessage = "Failed to process the image. Please try another image."
+            case .unknown(let underlyingError):
+                alertTitle = "Unknown Error"
+                alertMessage = "An unexpected error occurred: \(underlyingError.localizedDescription)"
+            }
+        } else {
+            alertTitle = "Error"
+            alertMessage = """
+                An error occurred. Please try again.
+                Error: \(error.localizedDescription)
+                """
+        }
+        showAlert = true
+    }
+    
+}
 
-       if let imageError = error as? ImageServiceError {
-           switch imageError {
-           case .permissionDenied:
-               alertTitle = "Permission Error"
-               alertMessage = "Camera or photo library access is not authorized. Please enable access in Settings."
-           case .unavailable:
-               alertTitle = "Unavailable"
-               alertMessage = "This feature is not available on your device."
-           case .compressionFailed:
-               alertTitle = "Compression Error"
-               alertMessage = "Failed to compress the image. Please try another image."
-           case .unknown(let underlyingError):
-               alertTitle = "Error"
-               alertMessage = underlyingError.localizedDescription
-           }
-       } else if let networkError = error as? NetworkError {
-           alertTitle = "Network Error"
-           alertMessage = networkError.localizedDescription
-       } else {
-           alertTitle = "Error"
-           alertMessage = "An error occurred while processing the image. Please try again. (\(error.localizedDescription))"
-       }
-       showAlert = true
-   }
-
-   @MainActor
-   func showSuccess() {
-       alertTitle = "Success"
-       alertMessage = "Questions have been successfully generated."
-       showAlert = true
-   }
+extension QuestionSettingsViewModel {
+    @MainActor
+    func selectMultiplePhotos() {
+        showImagePicker = true
+    }
 }
 
 
@@ -430,6 +438,7 @@ class StatViewModel: ObservableObject {
 
 
 // ViewModels/HomeViewModel.swift
+
 import Foundation
 import Combine
 
@@ -438,58 +447,58 @@ class HomeViewModel: ObservableObject {
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
-    @Published private(set) var selectedProblemSet: ProblemSet?
-
-    // setSelectedProblemSet 메소드 수정
-    func setSelectedProblemSet(_ problemSet: ProblemSet?) {
-        print("🔵 HomeViewModel - Setting selected problem set")
-        if let problemSet = problemSet {
-            print("New selected problem set ID: \(problemSet.id)")
-            print("Questions count: \(problemSet.questionCount)")
-        } else {
-            print("Clearing selected problem set")
+    @Published private(set) var selectedProblemSet: ProblemSet? {
+            didSet {
+                print("""
+                🔄 HomeViewModel - selectedProblemSet changed:
+                • Old ID: \(oldValue?.id ?? "none")
+                • New ID: \(selectedProblemSet?.id ?? "none")
+                • Questions: \(selectedProblemSet?.questions.count ?? 0)
+                • Is Published: true
+                """)
+                
+                // Notification 발송
+                if selectedProblemSet != nil {
+                    NotificationCenter.default.post(
+                        name: Notification.Name("ShowStudyView"),
+                        object: nil
+                    )
+                }
+            }
         }
-        self.selectedProblemSet = problemSet
-    }
-
-    func clearSelectedProblemSet() {
-        self.selectedProblemSet = nil
-    }
-   
-   private let storageService: StorageService
-   private var cancellables = Set<AnyCancellable>()
-   
-    init(storageService: StorageService = StorageService()) {
-        self.storageService = storageService
+    
+    private let coreDataService = CoreDataService.shared
+    private var cancellables = Set<AnyCancellable>()
+    
+    init() {
         Task {
             await loadData()
         }
     }
-
+    
+    // MARK: - Data Loading
     @MainActor
-    func loadData() {
+    func loadData() async {
         print("🔵 HomeViewModel - Loading data")
         isLoading = true
+        error = nil
         
         do {
-            problemSets = try storageService.getProblemSets()
-            print("✅ Loaded problem sets: \(problemSets.count)")
-            print("Problem sets details: \(problemSets.map { "[\($0.id): \($0.title)]" }.joined(separator: "\n"))")
+            let loadedProblemSets = try coreDataService.fetchProblemSets()
+            self.problemSets = loadedProblemSets
             
-            savedQuestions = try storageService.getSavedQuestions()
+            // Get saved questions from all problem sets
+            self.savedQuestions = loadedProblemSets
+                .flatMap { $0.questions }
+                .filter { $0.isSaved }
+            
+            if selectedProblemSet == nil, let mostRecent = problemSets.first {
+                selectedProblemSet = mostRecent
+            }
+            
+            print("✅ Loaded problem sets: \(problemSets.count)")
             print("✅ Loaded saved questions: \(savedQuestions.count)")
             
-            if let selected = selectedProblemSet {
-                print("Current selected problem set: \(selected.id)")
-            } else {
-                print("No problem set currently selected")
-            }
-            
-            // Select the most recently created problem set
-            selectedProblemSet = problemSets.first
-            if let newSelected = selectedProblemSet {
-                print("✅ Selected most recent problem set: \(newSelected.id)")
-            }
         } catch {
             self.error = error
             print("❌ Error in loadData: \(error)")
@@ -498,74 +507,96 @@ class HomeViewModel: ObservableObject {
         isLoading = false
     }
     
-   func deleteQuestion(_ question: Question) {
-       guard let index = savedQuestions.firstIndex(where: { $0.id == question.id }) else {
-           return
-       }
-       
-       let deletedQuestion = savedQuestions.remove(at: index)
-       
-       Task {
-           do {
-               try await Task.detached {
-                   var questions = try self.storageService.getSavedQuestions()
-                   questions.removeAll { $0.id == question.id }
-                   try self.storageService.saveQuestions(questions)
-               }.value
-           } catch {
-               await MainActor.run {
-                   self.error = error
-                   // Revert deletion if storage update fails
-                   self.savedQuestions.insert(deletedQuestion, at: index)
-               }
-           }
-       }
-   }
-   
-   func saveProblemSet(_ problemSet: ProblemSet) {
-       Task {
-           do {
-               try await Task.detached {
-                   try self.storageService.saveProblemSet(problemSet)
-               }.value
-               
-               await MainActor.run {
-                   self.problemSets.append(problemSet)
-                   // Update selected problem set to the newly created one
-                   self.selectedProblemSet = problemSet
-               }
-           } catch {
-               await MainActor.run {
-                   self.error = error
-               }
-           }
-       }
-   }
-   
-   func saveQuestion(_ question: Question) {
-       Task {
-           do {
-               try await Task.detached {
-                   try self.storageService.saveQuestion(question)
-               }.value
-               
-               await MainActor.run {
-                   self.savedQuestions.append(question)
-               }
-           } catch {
-               await MainActor.run {
-                   self.error = error
-               }
-           }
-       }
-   }
-   
-   // Method to update selected problem set
-    func selectProblemSet(_ problemSet: ProblemSet?) {
+    // MARK: - Problem Set Management
+    @MainActor
+    func saveProblemSet(_ problemSet: ProblemSet) async {
+        do {
+            try await Task.detached {
+                try CoreDataService.shared.saveProblemSet(problemSet)
+            }.value
+            
+            await self.loadData()
+        } catch {
+            self.error = error
+            print("❌ Error saving problem set: \(error)")
+        }
+    }
+    
+    @MainActor
+    func setSelectedProblemSet(_ problemSet: ProblemSet?) {
+        print("🔵 HomeViewModel - Setting selected problem set")
+        self.selectedProblemSet = problemSet
+        
         if let problemSet = problemSet {
-            self.selectedProblemSet = problemSet
-        } else {
-            self.selectedProblemSet = nil
+            print("""
+            ✅ ProblemSet set successfully:
+            • ID: \(problemSet.id)
+            • Questions: \(problemSet.questions.count)
+            • Types: \(Dictionary(grouping: problemSet.questions, by: { $0.type }).map { "\($0.key.rawValue): \($0.value.count)" })
+            • Memory Address: \(Unmanaged.passUnretained(self).toOpaque())
+            """)
+        }
+    }
+    func clearSelectedProblemSet() {
+        self.selectedProblemSet = nil
+    }
+    
+    func selectProblemSet(_ problemSet: ProblemSet?) {
+        self.selectedProblemSet = problemSet
+    }
+    
+    // MARK: - Question Management
+    @MainActor
+    func saveQuestion(_ question: Question) async {
+        do {
+            try await Task.detached {
+                let questions = (try? CoreDataService.shared.fetchProblemSets())?.flatMap { $0.questions } ?? []
+                var updatedQuestions = questions
+                updatedQuestions.append(question)
+                // 여기서 CoreData를 통해 question 저장 로직 구현 필요
+            }.value
+            
+            self.savedQuestions.append(question)
+        } catch {
+            self.error = error
+            print("❌ Error saving question: \(error)")
+        }
+    }
+    
+    @MainActor
+    func deleteQuestion(_ question: Question) async {
+        guard let index = savedQuestions.firstIndex(where: { $0.id == question.id }) else {
+            return
+        }
+        
+        let deletedQuestion = savedQuestions.remove(at: index)
+        
+        do {
+            try await Task.detached {
+                // 여기서 CoreData를 통해 question 삭제 로직 구현 필요
+            }.value
+        } catch {
+            self.error = error
+            self.savedQuestions.insert(deletedQuestion, at: index)
+            print("❌ Error deleting question: \(error)")
+        }
+    }
+}
+
+extension HomeViewModel {
+    @MainActor
+    func verifyProblemSetStorage() {
+        Task {
+            do {
+                let storedSets = try coreDataService.fetchProblemSets()
+                print("""
+                📝 Stored ProblemSets:
+                • Count: \(storedSets.count)
+                • Details: \(storedSets.map { "[\($0.id): \($0.questions.count) questions]" })
+                """)
+            } catch {
+                print("❌ Failed to verify storage: \(error)")
+            }
         }
     }
 }
@@ -633,25 +664,25 @@ class HistoryViewModel: ObservableObject {
 import Foundation
 
 class StudyViewModel: ObservableObject {
-    @Published var currentQuestion: Question?
+    @Published private(set) var currentQuestion: Question?
     @Published var selectedAnswer: String?
     @Published var matchingPairs: [String: String] = [:]
     @Published var showExplanation = false
-    @Published var isLoading = false
-    @Published var error: Error?
+    @Published private(set) var currentIndex = 0
     
     private var questions: [Question] = []
-    private var currentIndex = 0
-    private var answers: [String: String] = [:] // [QuestionId: UserAnswer]
-    private var score: Int?
-    
-    // MARK: - Computed Properties
-    var currentQuestionIndex: Int {
-        currentIndex
-    }
     
     var totalQuestions: Int {
         questions.count
+    }
+    
+    var progress: Double {
+        guard totalQuestions > 0 else { return 0 }
+        return Double(currentIndex + 1) / Double(totalQuestions)
+    }
+    
+    var isLastQuestion: Bool {
+        currentIndex == questions.count - 1
     }
     
     var canSubmit: Bool {
@@ -665,78 +696,50 @@ class StudyViewModel: ObservableObject {
         }
     }
     
-    var progress: String {
-        "\(currentIndex + 1)/\(questions.count)"
-    }
-    
-    var isLastQuestion: Bool {
-        currentIndex == questions.count - 1
-    }
-    
-    var questionProgress: Double {
-        guard !questions.isEmpty else { return 0 }
-        return Double(currentIndex + 1) / Double(questions.count)
-    }
-    
-    // MARK: - Public Methods
     func loadQuestions(_ questions: [Question]) {
-        print("🔵 StudyViewModel - Loading questions")
-        print("Number of questions received: \(questions.count)")
+        print("""
+        📥 StudyViewModel - Loading Questions:
+        • Total Questions: \(questions.count)
+        • Question Types: \(Dictionary(grouping: questions, by: { $0.type }).map { "\($0.key.rawValue): \($0.value.count)" })
+        """)
         
         self.questions = questions
-        currentIndex = 0
-        answers.removeAll()
-        score = nil
+        self.currentIndex = 0
         
-        print("Reset current index to 0")
-        print("Cleared previous answers and score")
-        
-        updateCurrentQuestion()
-    }
-    
-    func submitAnswer() {
-        guard let question = currentQuestion else { return }
-        
-        // Store the answer based on question type
-        switch question.type {
-        case .multipleChoice, .fillInBlanks:
-            if let answer = selectedAnswer {
-                answers[question.id] = answer
-                checkAnswer(answer, for: question)
-            }
-        case .matching:
-            checkMatchingAnswers(for: question)
-            answers[question.id] = formatMatchingAnswers()
+        DispatchQueue.main.async {
+            self.updateCurrentQuestion()
         }
-        
-        showExplanation = true
     }
     
     func nextQuestion() {
+        guard currentIndex < questions.count - 1 else { return }
         currentIndex += 1
         updateCurrentQuestion()
     }
     
-    // updateCurrentQuestion 메소드 수정
+    func submitAnswer() {
+        showExplanation = true
+    }
+    
+    func saveProgress() {
+        // 진행 상황 저장 로직 구현
+        print("Saving progress...")
+    }
+    
     private func updateCurrentQuestion() {
-        print("🔵 StudyViewModel - Updating current question")
-        print("Current index: \(currentIndex)")
-        print("Total questions: \(questions.count)")
-        
-        guard currentIndex < questions.count else {
-            print("❌ Current index exceeds questions count")
-            currentQuestion = nil
-            calculateFinalScore()
+        guard !questions.isEmpty, currentIndex < questions.count else {
+            print("❌ StudyViewModel - Invalid question index")
+            self.currentQuestion = nil
             return
         }
         
-        currentQuestion = questions[currentIndex]
-        if let question = currentQuestion {
-            print("✅ Set current question:")
-            print("ID: \(question.id)")
-            print("Type: \(question.type)")
-            print("Question: \(question.question)")
-        }
+        self.currentQuestion = questions[currentIndex]
+        print("""
+        ✅ StudyViewModel - Updated Current Question:
+        • Index: \(currentIndex + 1)/\(questions.count)
+        • Type: \(currentQuestion?.type.rawValue ?? "unknown")
+        • Question: \(currentQuestion?.question ?? "none")
+        """)
         
         resetAnswers()
     }
@@ -745,67 +748,6 @@ class StudyViewModel: ObservableObject {
         selectedAnswer = nil
         matchingPairs.removeAll()
         showExplanation = false
-    }
-    
-    private func checkAnswer(_ answer: String, for question: Question) {
-        // 답변 체크 로직 구현
-        // 여기서는 단순히 정답과 비교만 하지만,
-        // 실제로는 더 복잡한 로직이 들어갈 수 있습니다.
-        if answer == question.correctAnswer {
-            // 정답 처리
-        }
-    }
-    
-    private func checkMatchingAnswers(for question: Question) {
-        // 매칭 문제 답변 체크 로직 구현
-        // matchingPairs의 각 쌍이 올바른지 확인
-    }
-    
-    private func formatMatchingAnswers() -> String {
-        // 매칭 답변을 저장 가능한 형태로 변환
-        // 예: "A:1,B:2,C:3"
-        return matchingPairs.map { "\($0.key):\($0.value)" }.joined(separator: ",")
-    }
-    
-    private func calculateFinalScore() {
-        // 최종 점수 계산 로직
-        var correctCount = 0
-        for (questionId, userAnswer) in answers {
-            if let question = questions.first(where: { $0.id == questionId }),
-               userAnswer == question.correctAnswer {
-                correctCount += 1
-            }
-        }
-        
-        score = Int((Double(correctCount) / Double(questions.count)) * 100)
-    }
-    
-    // MARK: - Session Management
-    func saveProgress() {
-        guard !questions.isEmpty else { return }
-        
-        // StudySession 생성 및 저장 로직
-        let session = StudySession(
-            problemSet: ProblemSet(
-                id: UUID().uuidString,
-                title: "Study Session",
-                subject: questions.first?.subject ?? .math,
-                difficulty: questions.first?.difficulty ?? .medium,
-                questions: questions,
-                createdAt: Date()
-            ),
-            startTime: Date(),
-            endTime: Date(),
-            answers: answers,
-            score: score
-        )
-        
-        // StorageService를 통해 세션 저장
-        do {
-            try StorageService().saveStudySession(session)
-        } catch {
-            self.error = error
-        }
     }
 }
 
@@ -867,37 +809,616 @@ class ProfileViewModel: ObservableObject {
 
 ## ./AISnapStudy/App/AISnapStudyApp.swift
 
-// App/AISnapStudyApp.swift
+// File: ./AISnapStudy/App/AISnapStudyApp.swift
+
 import SwiftUI
+import CoreData
 
 @main
 struct AISnapStudyApp: App {
-    init() {
-        setupAppearance()
-        
-        // Check if API key is properly configured
-        do {
-            _ = try ConfigurationManager.shared.getValue(for: "OpenAIAPIKey")
-        } catch {
-            fatalError("OpenAI API key is not properly configured: \(error)")
-        }
-    }
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
         WindowGroup {
             MainTabView()
+                .environment(\.managedObjectContext, CoreDataService.shared.viewContext)
+        }
+    }
+}
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        validateCoreDataSetup()
+        return true
+    }
+    
+    private func validateCoreDataSetup() {
+        let container = CoreDataService.shared.persistentContainer
+        
+        print("""
+        📊 CoreData Configuration:
+        • Store Descriptions: \(container.persistentStoreDescriptions.count)
+        • View Context: \(container.viewContext)
+        """)
+        
+        if let storeURL = container.persistentStoreDescriptions.first?.url {
+            print("• Store URL: \(storeURL)")
+            
+            let fileManager = FileManager.default
+            if let parentDirectory = storeURL.deletingLastPathComponent().path as String? {
+                if !fileManager.fileExists(atPath: parentDirectory) {
+                    do {
+                        try fileManager.createDirectory(
+                            atPath: parentDirectory,
+                            withIntermediateDirectories: true,
+                            attributes: nil
+                        )
+                        print("✅ Created CoreData directory")
+                    } catch {
+                        print("❌ Failed to create CoreData directory: \(error)")
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+## ./AISnapStudy/CoreData/CoreDataService.swift
+
+// CoreData/CoreDataService.swift
+
+import CoreData
+import Foundation
+
+// File: ./AISnapStudy/CoreData/CoreDataService.swift
+
+class CoreDataService {
+    static let shared = CoreDataService()
+    
+    // private -> public으로 변경
+    public var persistentContainer: NSPersistentContainer = {
+        let container = NSPersistentContainer(name: "AISnapStudy")
+        
+        // 저장소 설명 생성
+        let storeDescription = NSPersistentStoreDescription()
+        
+        // URL 설정 및 안전한 처리
+        if let storeURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("AISnapStudy.sqlite") {
+            
+            // 개발 중 스키마 변경 시 기존 저장소 삭제
+            #if DEBUG
+            try? FileManager.default.removeItem(at: storeURL)
+            #endif
+            
+            storeDescription.url = storeURL
+            print("📁 CoreData store URL: \(storeURL.path)")
+        } else {
+            print("⚠️ Failed to create store URL")
+        }
+        
+        // 마이그레이션 옵션 개별 설정
+        storeDescription.setOption(true as NSNumber,
+                                 forKey: NSMigratePersistentStoresAutomaticallyOption)
+        storeDescription.setOption(true as NSNumber,
+                                 forKey: NSInferMappingModelAutomaticallyOption)
+        storeDescription.setOption(["journal_mode": "WAL"] as NSDictionary,
+                                 forKey: NSSQLitePragmasOption)
+        storeDescription.setOption(FileProtectionType.complete as NSString,
+                                 forKey: NSPersistentStoreFileProtectionKey)
+        
+        container.persistentStoreDescriptions = [storeDescription]
+        
+        container.loadPersistentStores { description, error in
+            if let error = error {
+                print("""
+                ❌ CoreData Error:
+                • Error: \(error.localizedDescription)
+                • Description: \(description)
+                • Store URL: \(description.url?.absoluteString ?? "unknown")
+                """)
+                
+                #if DEBUG
+                print("⚠️ CoreData store failed to load. In DEBUG mode, old store will be deleted.")
+                if let storeURL = description.url {
+                    try? FileManager.default.removeItem(at: storeURL)
+                    // 저장소 재생성 시도
+                    do {
+                        let options: [String: Any] = [
+                            NSMigratePersistentStoresAutomaticallyOption: true,
+                            NSInferMappingModelAutomaticallyOption: true,
+                            NSSQLitePragmasOption: ["journal_mode": "WAL"],
+                            NSPersistentStoreFileProtectionKey: FileProtectionType.complete
+                        ]
+                        
+                        try container.persistentStoreCoordinator.addPersistentStore(
+                            ofType: NSSQLiteStoreType,
+                            configurationName: nil,
+                            at: storeURL,
+                            options: options
+                        )
+                        print("✅ Store recreated successfully")
+                    } catch {
+                        print("❌ Failed to recreate store: \(error)")
+                        fatalError("Failed to recreate store: \(error)")
+                    }
+                }
+                #else
+                fatalError("CoreData store failed to load: \(error.localizedDescription)")
+                #endif
+            } else {
+                print("""
+                ✅ CoreData Store Loaded Successfully:
+                • URL: \(description.url?.absoluteString ?? "unknown")
+                • Configuration: \(description.configuration ?? "default")
+                """)
+            }
+        }
+        
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        container.viewContext.shouldDeleteInaccessibleFaults = true
+        
+        return container
+    }()
+    
+    // viewContext에 대한 public 접근자 추가
+    public var viewContext: NSManagedObjectContext {
+        persistentContainer.viewContext
+    }
+    
+    private init() {}
+    
+    // 공개 메서드들...
+    public func saveContext() {
+        if viewContext.hasChanges {
+            do {
+                try viewContext.save()
+                print("✅ CoreData context saved successfully")
+            } catch {
+                print("❌ CoreData context save error: \(error)")
+                viewContext.rollback()
+            }
         }
     }
     
-    private func setupAppearance() {
-        // Configure global UI appearance
-        if #available(iOS 15.0, *) {
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithOpaqueBackground()
-            UINavigationBar.appearance().standardAppearance = appearance
-            UINavigationBar.appearance().scrollEdgeAppearance = appearance
+    public func newBackgroundContext() -> NSManagedObjectContext {
+        let context = persistentContainer.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        return context
+    }
+    
+    // MARK: - ProblemSet Operations
+    // File: ./AISnapStudy/CoreData/CoreDataService.swift
+
+    public func fetchProblemSets() throws -> [ProblemSet] {
+        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        
+        do {
+            let cdProblemSets = try viewContext.fetch(request)
+            
+            let problemSets = try cdProblemSets.map { cdProblemSet -> ProblemSet in
+                let questions = (cdProblemSet.questions?.allObjects as? [CDQuestion])?.compactMap { cdQuestion -> Question? in
+                    guard let id = cdQuestion.id,
+                          let type = cdQuestion.type,
+                          let questionText = cdQuestion.question,
+                          let correctAnswer = cdQuestion.correctAnswer,
+                          let explanation = cdQuestion.explanation else {
+                        return nil
+                    }
+                    
+                    // options와 matchingOptions를 직접 사용
+                    let options = cdQuestion.options as? [String] ?? []
+                    let matchingOptions = cdQuestion.matchingOptions as? [String] ?? []
+                    
+                    print("""
+                    📖 Loading Question:
+                    • ID: \(id)
+                    • Type: \(type)
+                    • Options Count: \(options.count)
+                    • Matching Options Count: \(matchingOptions.count)
+                    """)
+                    
+                    return Question(
+                        id: id,
+                        type: QuestionType(rawValue: type) ?? .multipleChoice,
+                        subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                        difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
+                        question: questionText,
+                        options: options,
+                        matchingOptions: matchingOptions,
+                        correctAnswer: correctAnswer,
+                        explanation: explanation,
+                        hint: cdQuestion.hint,
+                        isSaved: cdQuestion.isSaved,
+                        createdAt: cdQuestion.createdAt ?? Date()
+                    )
+                } ?? []
+                
+                return ProblemSet(
+                    id: cdProblemSet.id ?? UUID().uuidString,
+                    title: cdProblemSet.title ?? "",
+                    subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                    difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
+                    questions: questions,
+                    createdAt: cdProblemSet.createdAt ?? Date(),
+                    lastAttempted: cdProblemSet.lastAttempted
+                )
+            }
+            
+            return problemSets
+        } catch {
+            print("❌ Failed to fetch ProblemSets: \(error)")
+            throw error
         }
     }
+    
+    public func saveProblemSet(_ problemSet: ProblemSet) throws {
+        print("📝 Saving ProblemSet: \(problemSet.id) with \(problemSet.questions.count) questions")
+        
+        let cdProblemSet = CDProblemSet(context: viewContext)
+        cdProblemSet.id = problemSet.id
+        cdProblemSet.title = problemSet.title
+        cdProblemSet.subject = problemSet.subject.rawValue
+        cdProblemSet.difficulty = problemSet.difficulty.rawValue
+        cdProblemSet.createdAt = problemSet.createdAt
+        cdProblemSet.lastAttempted = problemSet.lastAttempted
+        
+        for question in problemSet.questions {
+            let cdQuestion = CDQuestion(context: viewContext)
+            cdQuestion.id = question.id
+            cdQuestion.type = question.type.rawValue
+            cdQuestion.question = question.question
+            
+            // options 배열 변환 및 저장
+            let optionsArray = NSArray(array: question.options)
+            cdQuestion.options = optionsArray
+            
+            // matchingOptions 배열 변환 및 저장
+            let matchingOptionsArray = NSArray(array: question.matchingOptions)
+            cdQuestion.matchingOptions = matchingOptionsArray
+            
+            cdQuestion.correctAnswer = question.correctAnswer
+            cdQuestion.explanation = question.explanation
+            cdQuestion.hint = question.hint
+            cdQuestion.isSaved = question.isSaved
+            cdQuestion.createdAt = question.createdAt
+            cdQuestion.problemSet = cdProblemSet
+            
+            print("""
+            ✏️ Saving Question:
+            • ID: \(question.id)
+            • Type: \(question.type.rawValue)
+            • Options: \(optionsArray)
+            • Matching Options: \(matchingOptionsArray)
+            """)
+        }
+        
+        do {
+            try viewContext.save()
+            print("✅ Successfully saved ProblemSet with \(problemSet.questions.count) questions")
+        } catch {
+            print("❌ Failed to save ProblemSet: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    
+    // MARK: - Question Operations
+    public func saveQuestion(_ question: Question) throws {
+        let cdQuestion = CDQuestion(context: viewContext)
+        updateCDQuestion(cdQuestion, with: question)
+        
+        do {
+            try viewContext.save()
+            print("✅ Saved Question: \(question.id)")
+        } catch {
+            print("❌ Failed to save Question: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    
+    public func deleteQuestion(_ question: Question) throws {
+        let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", question.id)
+        
+        do {
+            let questions = try viewContext.fetch(request)
+            if let cdQuestion = questions.first {
+                viewContext.delete(cdQuestion)
+                try viewContext.save()
+                print("✅ Deleted Question: \(question.id)")
+            }
+        } catch {
+            print("❌ Failed to delete Question: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    
+    // MARK: - Helper Methods
+    // 조회 로직도 수정
+    private func updateCDQuestion(_ cdQuestion: CDQuestion, with question: Question) {
+        cdQuestion.id = question.id
+        cdQuestion.type = question.type.rawValue
+        cdQuestion.question = question.question
+        cdQuestion.options = question.options  // 직접 배열 할당
+        cdQuestion.matchingOptions = question.matchingOptions  // 직접 배열 할당
+        cdQuestion.correctAnswer = question.correctAnswer
+        cdQuestion.explanation = question.explanation
+        cdQuestion.hint = question.hint
+        cdQuestion.isSaved = question.isSaved
+        cdQuestion.createdAt = question.createdAt
+    }
+}
+
+// CDQuestion+Extension 수정
+extension CDQuestion {
+    func toDomain() -> Question? {
+        guard let id = self.id,
+              let type = self.type,
+              let question = self.question,
+              let correctAnswer = self.correctAnswer,
+              let explanation = self.explanation else {
+            return nil
+        }
+        
+        // NSArray를 [String]으로 변환
+        let options = (self.options as? [String]) ?? []
+        let matchingOptions = (self.matchingOptions as? [String]) ?? []
+        
+        return Question(
+            id: id,
+            type: QuestionType(rawValue: type) ?? .multipleChoice,
+            subject: Subject(rawValue: self.problemSet?.subject ?? "") ?? .math,
+            difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
+            question: question,
+            options: options,
+            matchingOptions: matchingOptions,
+            correctAnswer: correctAnswer,
+            explanation: explanation,
+            hint: self.hint,
+            isSaved: self.isSaved,
+            createdAt: self.createdAt ?? Date()
+        )
+    }
+}
+
+
+## ./AISnapStudy/CoreData/CoreDataModels+Extensions.swift
+
+// CoreData/CoreDataModels+Extensions.swift
+
+import Foundation
+import CoreData
+
+// MARK: - CDProblemSet Extension
+extension CDProblemSet {
+    func toDomain() -> ProblemSet {
+        let questions = (self.questions?.allObjects as? [CDQuestion])?.compactMap { question -> Question? in
+            question.toDomain()
+        } ?? []
+
+        return ProblemSet(
+            id: self.id ?? UUID().uuidString,
+            title: self.title ?? "",
+            subject: Subject(rawValue: self.subject ?? "") ?? .math,
+            difficulty: Difficulty(rawValue: self.difficulty ?? "") ?? .medium,
+            questions: questions,
+            createdAt: self.createdAt ?? Date(),
+            lastAttempted: self.lastAttempted
+        )
+    }
+}
+
+// MARK: - CDQuestion Extension
+extension CDQuestion {
+    func toDomain() -> Question {
+        Question(
+            id: self.id ?? UUID().uuidString,
+            type: QuestionType(rawValue: self.type ?? "") ?? .multipleChoice,
+            subject: Subject(rawValue: self.problemSet?.subject ?? "") ?? .math,
+            difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
+            question: self.question ?? "",
+            options: self.options as? [String] ?? [],
+            matchingOptions: self.matchingOptions as? [String] ?? [],
+            correctAnswer: self.correctAnswer ?? "",
+            explanation: self.explanation ?? "",
+            hint: self.hint,
+            isSaved: self.isSaved,
+            createdAt: self.createdAt ?? Date()
+        )
+    }
+}
+
+// MARK: - CDStudySession Extension
+extension CDStudySession {
+    func toDomain() -> StudySession {
+        StudySession(
+            id: self.id ?? UUID().uuidString,
+            problemSet: self.problemSet?.toDomain() ?? ProblemSet(
+                id: UUID().uuidString,
+                title: "Unknown",
+                subject: .math,
+                difficulty: .medium,
+                questions: [],
+                createdAt: Date()
+            ),
+            startTime: self.startTime ?? Date(),
+            endTime: self.endTime,
+            answers: self.answers as? [String: String] ?? [:],
+            score: Int(self.score)
+        )
+    }
+}
+
+
+## ./AISnapStudy/CoreData/CDQuestion+CoreDataClass.swift
+
+//
+//  CDQuestion+CoreDataClass.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/8/24.
+//
+//
+
+import Foundation
+import CoreData
+
+@objc(CDQuestion)
+public class CDQuestion: NSManagedObject {
+
+}
+
+
+## ./AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift
+
+//
+//  CDStudySession+CoreDataClass.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/8/24.
+//
+//
+
+import Foundation
+import CoreData
+
+@objc(CDStudySession)
+public class CDStudySession: NSManagedObject {
+
+}
+
+
+## ./AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift
+
+//
+//  CDProblemSet+CoreDataProperties.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/8/24.
+//
+//
+
+import Foundation
+import CoreData
+
+
+extension CDProblemSet {
+
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDProblemSet> {
+        return NSFetchRequest<CDProblemSet>(entityName: "CDProblemSet")
+    }
+
+    @NSManaged public var id: String?
+    @NSManaged public var title: String?
+    @NSManaged public var subject: String?
+    @NSManaged public var difficulty: String?
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var lastAttempted: Date?
+    @NSManaged public var questions: NSSet?
+
+}
+
+// MARK: Generated accessors for questions
+extension CDProblemSet {
+
+    @objc(addQuestionsObject:)
+    @NSManaged public func addToQuestions(_ value: CDQuestion)
+
+    @objc(removeQuestionsObject:)
+    @NSManaged public func removeFromQuestions(_ value: CDQuestion)
+
+    @objc(addQuestions:)
+    @NSManaged public func addToQuestions(_ values: NSSet)
+
+    @objc(removeQuestions:)
+    @NSManaged public func removeFromQuestions(_ values: NSSet)
+
+}
+
+extension CDProblemSet : Identifiable {
+
+}
+
+
+## ./AISnapStudy/CoreData/CDQuestion+CoreDataProperties.swift
+
+// File: ./AISnapStudy/CoreData/CDQuestion+CoreDataProperties.swift
+
+import Foundation
+import CoreData
+
+extension CDQuestion {
+    @NSManaged public var id: String?
+    @NSManaged public var type: String?
+    @NSManaged public var question: String?
+    @NSManaged public var options: NSArray?         // NSObject 대신 NSArray 사용
+    @NSManaged public var matchingOptions: NSArray? // NSObject 대신 NSArray 사용
+    @NSManaged public var correctAnswer: String?
+    @NSManaged public var explanation: String?
+    @NSManaged public var hint: String?
+    @NSManaged public var isSaved: Bool
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var problemSet: CDProblemSet?
+}
+
+
+## ./AISnapStudy/CoreData/CDStudySession+CoreDataProperties.swift
+
+//
+//  CDStudySession+CoreDataProperties.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/8/24.
+//
+//
+
+import Foundation
+import CoreData
+
+
+extension CDStudySession {
+
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDStudySession> {
+        return NSFetchRequest<CDStudySession>(entityName: "CDStudySession")
+    }
+
+    @NSManaged public var id: String?
+    @NSManaged public var startTime: Date?
+    @NSManaged public var endTime: Date?
+    @NSManaged public var answers: NSObject?
+    @NSManaged public var score: Int16
+    @NSManaged public var problemSet: CDProblemSet?
+
+}
+
+extension CDStudySession : Identifiable {
+
+}
+
+
+## ./AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift
+
+//
+//  CDProblemSet+CoreDataClass.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/8/24.
+//
+//
+
+import Foundation
+import CoreData
+
+@objc(CDProblemSet)
+public class CDProblemSet: NSManagedObject {
+
 }
 
 
@@ -1035,6 +1556,7 @@ extension View {
 
 ## ./AISnapStudy/Utils/Helpers/ImageCompressor.swift
 
+// Utils/Helpers/ImageCompressor.swift
 import UIKit
 
 enum ImageCompressorError: Error {
@@ -1045,84 +1567,89 @@ enum ImageCompressorError: Error {
 class ImageCompressor {
     static let shared = ImageCompressor()
     
+    private enum Constraints {
+        static let targetFileSize = 800 * 1024  // 800KB
+        static let minDimension: CGFloat = 640
+        static let maxDimension: CGFloat = 800
+        static let minimumQuality: CGFloat = 0.5
+    }
+    
     private init() {}
     
-    /// Compresses an image while trying to maintain reasonable quality
-    /// - Parameters:
-    ///   - image: Original UIImage
-    ///   - maxSize: Maximum size in bytes (default: 1MB)
-    ///   - maxDimension: Maximum width/height (default: 2048)
-    /// - Returns: Compressed image data
     func compress(
         image: UIImage,
-        maxSize: Int = 1024 * 1024, // 1MB
-        maxDimension: CGFloat = 2048
+        maxSize: Int = Constraints.targetFileSize,
+        maxDimension: CGFloat = Constraints.maxDimension
     ) throws -> Data {
-        // Step 1: Resize image if necessary
-        let resized = resizeImage(image, maxDimension: maxDimension)
+        let startTime = Date()
         
-        // Step 2: Compress with decreasing quality until size is acceptable
+        // 원본 이미지 크기 로깅
+        if let originalData = image.jpegData(compressionQuality: 1.0) {
+            print("📸 Original image size: \(formatFileSize(originalData.count))")
+            print("📐 Original dimensions: \(Int(image.size.width))x\(Int(image.size.height))")
+        }
+        
+        // 리사이징
+        let resizedImage = resizeImage(image, maxDimension: maxDimension)
+        print("✂️ Resized dimensions: \(Int(resizedImage.size.width))x\(Int(resizedImage.size.height))")
+        
+        // 압축
         var compression: CGFloat = 1.0
-        var data = resized.jpegData(compressionQuality: compression)
+        var compressedData = resizedImage.jpegData(compressionQuality: compression)!
         
-        while (data?.count ?? 0) > maxSize && compression > 0.1 {
+        while compressedData.count > maxSize && compression > Constraints.minimumQuality {
             compression -= 0.1
-            data = resized.jpegData(compressionQuality: compression)
+            if let newData = resizedImage.jpegData(compressionQuality: compression) {
+                compressedData = newData
+                print("🔄 Trying compression quality: \(String(format: "%.1f", compression))")
+                print("📦 Current size: \(formatFileSize(compressedData.count))")
+            }
         }
         
-        guard let compressedData = data else {
-            throw ImageCompressorError.compressionFailed
-        }
+        print("""
+        ✅ Compression completed:
+        • Duration: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s
+        • Final size: \(formatFileSize(compressedData.count))
+        • Compression ratio: \(String(format: "%.1f", Float(compressedData.count) / Float(image.jpegData(compressionQuality: 1.0)?.count ?? 1) * 100))%
+        """)
         
         return compressedData
     }
     
-    /// Compresses an image specifically for OpenAI API requirements
-    /// - Parameter image: Original UIImage
-    /// - Returns: Compressed image data suitable for API transmission
     func compressForAPI(_ image: UIImage) throws -> Data {
-        // OpenAI recommends images under 20MB
         return try compress(
             image: image,
-            maxSize: 10 * 1024 * 1024, // 10MB to be safe
-            maxDimension: 2048
+            maxSize: Constraints.targetFileSize,
+            maxDimension: Constraints.maxDimension
         )
     }
     
-    // MARK: - Private Methods
-    
     private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
         let originalSize = image.size
-        var newSize = originalSize
+        var targetSize = originalSize
         
+        // 최소/최대 크기 제한 적용
         if originalSize.width > maxDimension || originalSize.height > maxDimension {
             let widthRatio = maxDimension / originalSize.width
             let heightRatio = maxDimension / originalSize.height
             let ratio = min(widthRatio, heightRatio)
-            
-            newSize = CGSize(
-                width: originalSize.width * ratio,
-                height: originalSize.height * ratio
+            targetSize = CGSize(
+                width: max(Constraints.minDimension, originalSize.width * ratio),
+                height: max(Constraints.minDimension, originalSize.height * ratio)
             )
         }
         
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         
-        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
-        let resized = renderer.image { context in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
-        
-        return resized
     }
     
-    /// Estimates the file size of an image in bytes
-    /// - Parameter image: Image to check
-    /// - Returns: Estimated size in bytes
-    func estimatedSize(_ image: UIImage) -> Int {
-        guard let data = image.jpegData(compressionQuality: 1.0) else { return 0 }
-        return data.count
+    private func formatFileSize(_ bytes: Int) -> String {
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
 
@@ -1239,6 +1766,7 @@ struct DailyProgress: Identifiable {
 
 ## ./AISnapStudy/Models/OpenAIModels.swift
 
+
 // Models/OpenAIModels.swift
 
 import Foundation
@@ -1266,6 +1794,7 @@ struct Choice: Codable {
 struct Message: Codable {
     let role: String
     let content: String
+    let refusal: String? // 추가: Structured Outputs의 refusal 처리를 위해
 }
 
 struct Usage: Codable {
@@ -1280,27 +1809,41 @@ struct Usage: Codable {
     }
 }
 
-// MARK: - Network Error
-enum NetworkError: Error {
-    case invalidResponse
-    case invalidData
-    case apiError(String)
-    case parsingError(Error)
+// MARK: - Error Response Models
+struct OpenAIErrorResponse: Codable {
+    let error: OpenAIError
     
-    var localizedDescription: String {
-        switch self {
-        case .invalidResponse:
-            return "Invalid response from server"
-        case .invalidData:
-            return "Invalid data received"
-        case .apiError(let message):
-            return "API Error: \(message)"
-        case .parsingError(let error):
-            return "Parsing error: \(error.localizedDescription)"
-        }
+    struct OpenAIError: Codable {
+        let message: String
+        let type: String?
+        let code: String?
     }
 }
 
+// MARK: - Question Generation Schema
+struct QuestionGenerationSchema: Codable {
+    let questions: [QuestionData]
+    
+    struct QuestionData: Codable {
+        let type: String
+        let question: String
+        let options: [String]
+        let matchingOptions: [String]
+        let correctAnswer: String
+        let explanation: String
+        let hint: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case type
+            case question
+            case options
+            case matchingOptions = "matchingOptions"
+            case correctAnswer
+            case explanation
+            case hint
+        }
+    }
+}
 
 
 ## ./AISnapStudy/Models/ProblemSet.swift
@@ -1392,8 +1935,9 @@ struct User: Codable, Identifiable {
 
 ## ./AISnapStudy/Models/Question.swift
 
+
 // Models/Question.swift
-import Foundation
+
 import Foundation
 
 public enum QuestionType: String, Codable {
@@ -1415,7 +1959,7 @@ public struct Question: Identifiable, Codable {
     public let hint: String?
     public var isSaved: Bool
     public let createdAt: Date
-    public let matchingPairs: [String: String] // 매칭 쌍 저장을 위한 필드 추가
+    public let matchingPairs: [String: String]
     
     public init(
         id: String,
@@ -1425,7 +1969,7 @@ public struct Question: Identifiable, Codable {
         question: String,
         options: [String] = [],
         matchingOptions: [String] = [],
-        matchingPairs: [String: String] = [:], // 초기화 구문에도 추가
+        matchingPairs: [String: String] = [:],
         correctAnswer: String,
         explanation: String,
         hint: String? = nil,
@@ -1448,6 +1992,74 @@ public struct Question: Identifiable, Codable {
     }
 }
 
+// MARK: - QuestionData for NSSecureCoding
+public class QuestionData: NSObject, NSSecureCoding {
+    public static var supportsSecureCoding: Bool {
+        return true
+    }
+    
+    let question: Question
+    
+    init(question: Question) {
+        self.question = question
+        super.init()
+    }
+    
+    public func encode(with coder: NSCoder) {
+        coder.encode(question.id, forKey: "id")
+        coder.encode(question.type.rawValue, forKey: "type")
+        coder.encode(question.subject.rawValue, forKey: "subject")
+        coder.encode(question.difficulty.rawValue, forKey: "difficulty")
+        coder.encode(question.question, forKey: "question")
+        coder.encode(question.options, forKey: "options")
+        coder.encode(question.matchingOptions, forKey: "matchingOptions")
+        coder.encode(question.matchingPairs, forKey: "matchingPairs")
+        coder.encode(question.correctAnswer, forKey: "correctAnswer")
+        coder.encode(question.explanation, forKey: "explanation")
+        coder.encode(question.hint, forKey: "hint")
+        coder.encode(question.isSaved, forKey: "isSaved")
+        coder.encode(question.createdAt, forKey: "createdAt")
+    }
+    
+    public required init?(coder: NSCoder) {
+        guard let id = coder.decodeObject(of: NSString.self, forKey: "id") as String?,
+              let typeRaw = coder.decodeObject(of: NSString.self, forKey: "type") as String?,
+              let subjectRaw = coder.decodeObject(of: NSString.self, forKey: "subject") as String?,
+              let difficultyRaw = coder.decodeObject(of: NSString.self, forKey: "difficulty") as String?,
+              let questionText = coder.decodeObject(of: NSString.self, forKey: "question") as String?,
+              let options = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "options") as? [String],
+              let matchingOptions = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "matchingOptions") as? [String],
+              let matchingPairs = coder.decodeObject(of: [NSDictionary.self, NSString.self], forKey: "matchingPairs") as? [String: String],
+              let correctAnswer = coder.decodeObject(of: NSString.self, forKey: "correctAnswer") as String?,
+              let explanation = coder.decodeObject(of: NSString.self, forKey: "explanation") as String? else {
+            return nil
+        }
+        
+        let hint = coder.decodeObject(of: NSString.self, forKey: "hint") as String?
+        let isSaved = coder.decodeBool(forKey: "isSaved")
+        let createdAt = coder.decodeObject(of: NSDate.self, forKey: "createdAt") as Date? ?? Date()
+        
+        let question = Question(
+            id: id,
+            type: QuestionType(rawValue: typeRaw) ?? .multipleChoice,
+            subject: Subject(rawValue: subjectRaw) ?? .math,
+            difficulty: Difficulty(rawValue: difficultyRaw) ?? .medium,
+            question: questionText,
+            options: options,
+            matchingOptions: matchingOptions,
+            matchingPairs: matchingPairs,
+            correctAnswer: correctAnswer,
+            explanation: explanation,
+            hint: hint,
+            isSaved: isSaved,
+            createdAt: createdAt
+        )
+        
+        self.question = question
+        super.init()
+    }
+}
+
 // MARK: - Hashable
 extension Question: Hashable {
     public func hash(into hasher: inout Hasher) {
@@ -1458,6 +2070,10 @@ extension Question: Hashable {
         lhs.id == rhs.id
     }
 }
+
+
+## ./AISnapStudy/Models/Untitled.swift
+
 
 
 ## ./AISnapStudy/Models/Subject.swift
@@ -1619,6 +2235,41 @@ extension StudySession: Hashable {
 }
 
 
+## ./AISnapStudy/Models/NetworkError.swift
+
+// Models/NetworkError.swift
+import Foundation
+
+enum NetworkError: LocalizedError {
+    case noConnection
+    case timeout
+    case connectionLost
+    case invalidResponse
+    case invalidData
+    case apiError(String)
+    case unknown(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .noConnection:
+            return "No internet connection available. Please check your connection and try again."
+        case .timeout:
+            return "The request timed out. Please try again."
+        case .connectionLost:
+            return "The network connection was lost. Please try again."
+        case .invalidResponse:
+            return "Invalid response received from the server."
+        case .invalidData:
+            return "Invalid data received from the server."
+        case .apiError(let message):
+            return "API Error: \(message)"
+        case .unknown(let error):
+            return "An unexpected error occurred: \(error.localizedDescription)"
+        }
+    }
+}
+
+
 ## ./AISnapStudy/Views/Shared/CustomNavigationBar.swift
 
 // Shared/CustomNavigationBar.swift
@@ -1742,6 +2393,10 @@ struct MatchingView: View {
                                 NSItemProvider(object: item as NSString)
                             }
                     }
+                }.onAppear {
+                    print("\n🔄 Rendering MatchingView:")
+                    print("• Question: \(question.question)")
+                    print("• Matching Options: \(question.matchingOptions)")
                 }
                 
                 // Right Column (Items to match to)
@@ -1757,6 +2412,10 @@ struct MatchingView: View {
                                 selectedPairs: $selectedPairs
                             ))
                     }
+                }.onAppear {
+                    print("\n🔄 Rendering MatchingView:")
+                    print("• Question: \(question.question)")
+                    print("• Matching Options: \(question.matchingOptions)")
                 }
             }
         }
@@ -1848,278 +2507,327 @@ import SwiftUI
 import PhotosUI
 
 struct QuestionSettingsView: View {
-   let subject: Subject
-   @StateObject private var viewModel: QuestionSettingsViewModel
-   @Environment(\.dismiss) private var dismiss
+    let subject: Subject
+    @StateObject private var viewModel: QuestionSettingsViewModel
+    @Environment(\.dismiss) private var dismiss
 
-   init(subject: Subject, homeViewModel: HomeViewModel) {
-       self.subject = subject
-       self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(subject: subject, homeViewModel: homeViewModel))
-   }
-   
-   var body: some View {
-       NavigationView {
-           Form {
-               // Difficulty Selection
-               Section("Difficulty Level") {
-                   Picker("Difficulty", selection: $viewModel.difficulty) {
-                       ForEach(Difficulty.allCases, id: \.self) { difficulty in
-                           Text(difficulty.rawValue.capitalized)
-                               .tag(difficulty)
-                       }
-                   }
-                   .pickerStyle(.segmented)
-               }
-               
-               // Question Types
-               Section("Question Types") {
-                   VStack(spacing: 10) {
-                       QuestionTypeCounter(
-                           title: "Multiple Choice",
-                           count: $viewModel.multipleChoiceCount
-                       )
-                       
-                       QuestionTypeCounter(
-                           title: "Fill in the Blanks",
-                           count: $viewModel.fillInBlanksCount
-                       )
-                       
-                       QuestionTypeCounter(
-                           title: "Matching",
-                           count: $viewModel.matchingCount
-                       )
-                   }
-               }
-               
-               // Image Selection
-               if viewModel.hasValidQuestionCount {
-                   Section(header: Text("Select Images"), footer: imagesSectionFooter) {
-                       // Camera Button
-                       Button {
-                           Task {
-                               await viewModel.takePhoto()
-                           }
-                       } label: {
-                           HStack {
-                               Label("Take Photo", systemImage: "camera")
-                               Spacer()
-                               Image(systemName: "chevron.right")
-                                   .foregroundColor(.gray)
-                           }
-                       }
-                       
-                       // Gallery Button
-                       Button {
-                           Task {
-                               await viewModel.selectFromGallery()
-                           }
-                       } label: {
-                           HStack {
-                               Label("Choose from Gallery", systemImage: "photo")
-                               Spacer()
-                               Image(systemName: "chevron.right")
-                                   .foregroundColor(.gray)
-                           }
-                       }
-                       
-                       // Selected Images Display
-                       if !viewModel.selectedImages.isEmpty {
-                           VStack(alignment: .leading, spacing: 10) {
-                               Text("Selected Images")
-                                   .font(.subheadline)
-                                   .foregroundColor(.secondary)
-                               
-                               ScrollView(.horizontal, showsIndicators: false) {
-                                   HStack(spacing: 12) {
-                                       ForEach(viewModel.selectedImages.indices, id: \.self) { index in
-                                           imageCell(for: index)
-                                       }
-                                   }
-                                   .padding(.vertical, 8)
-                               }
-                               
-                               generateQuestionsButton
-                           }
-                           .padding(.top, 8)
-                       }
-                   }
-               } else {
-                   Section {
-                       Text("Please select at least one question type")
-                           .foregroundColor(.secondary)
-                           .font(.footnote)
-                   }
-               }
-           }
-           .navigationBarItems(
-               leading: Button("Cancel") {
-                   viewModel.resetCounts()
-                   dismiss()
-               }
-           )
-           .navigationTitle("\(subject.displayName)")
-           .navigationBarTitleDisplayMode(.inline)
-       }
-       .sheet(isPresented: $viewModel.showImagePicker) {
-           ImagePicker(image: $viewModel.selectedImage, sourceType: .photoLibrary)
-               .ignoresSafeArea()
-               .onChange(of: viewModel.selectedImage) { newImage in
-                   if let image = newImage {
-                       Task {
-                           await viewModel.addImage(image)
-                           await MainActor.run {
-                               viewModel.selectedImage = nil
-                           }
-                       }
-                   }
-               }
-       }
-       .sheet(isPresented: $viewModel.showCamera) {
-           ImagePicker(image: $viewModel.selectedImage, sourceType: .camera)
-               .ignoresSafeArea()
-               .onChange(of: viewModel.selectedImage) { newImage in
-                   if let image = newImage {
-                       Task {
-                           await viewModel.addImage(image)
-                           await MainActor.run {
-                               viewModel.selectedImage = nil
-                           }
-                       }
-                   }
-               }
-       }
-       .alert(isPresented: $viewModel.showAlert) {
-           Alert(
-               title: Text(viewModel.alertTitle),
-               message: Text(viewModel.alertMessage),
-               dismissButton: .default(Text("OK")) {
-                   if viewModel.alertTitle == "Success" {
-                       dismiss()
-                   }
-               }
-           )
-       }
-       .overlay {
-           if viewModel.isLoading {
-               LoadingView()
-           }
-       }
-       .onAppear {
-           viewModel.loadData()
-       }
-   }
-   
-   // MARK: - View Components
-   
-   private var imagesSectionFooter: some View {
-       Text(viewModel.selectedImages.isEmpty ? "No images selected" : "\(viewModel.selectedImages.count) images selected")
-           .font(.caption)
-           .foregroundColor(.secondary)
-   }
-   
-   private func imageCell(for index: Int) -> some View {
-       VStack {
-           Image(uiImage: viewModel.selectedImages[index])
-               .resizable()
-               .scaledToFill()
-               .frame(width: 100, height: 100)
-               .clipShape(RoundedRectangle(cornerRadius: 8))
-               .overlay(
-                   Button(action: {
-                       viewModel.removeImage(at: index)
-                   }) {
-                       Image(systemName: "xmark.circle.fill")
-                           .foregroundColor(.white)
-                           .background(Circle().fill(Color.black.opacity(0.5)))
-                   }
-                   .padding(4),
-                   alignment: .topTrailing
-               )
-       }
-   }
-   
-   private var generateQuestionsButton: some View {
-       Button {
-           Task {
-               await viewModel.sendAllImages()
-           }
-       } label: {
-           HStack {
-               Spacer()
-               Label("Generate Questions", systemImage: "paperplane.fill")
-                   .font(.headline)
-               Spacer()
-           }
-           .padding()
-           .background(Color.accentColor)
-           .foregroundColor(.white)
-           .cornerRadius(10)
-       }
-       .buttonStyle(BorderlessButtonStyle())
-       .padding(.vertical, 8)
-   }
+    init(subject: Subject, homeViewModel: HomeViewModel) {
+        self.subject = subject
+        self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(subject: subject, homeViewModel: homeViewModel))
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                // Difficulty Selection
+                Section("Difficulty Level") {
+                    Picker("Difficulty", selection: $viewModel.difficulty) {
+                        ForEach(Difficulty.allCases, id: \.self) { difficulty in
+                            Text(difficulty.rawValue.capitalized)
+                                .tag(difficulty)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                // Question Types
+                Section("Question Types") {
+                    VStack(spacing: 10) {
+                        QuestionTypeCounter(
+                            title: "Multiple Choice",
+                            count: $viewModel.multipleChoiceCount
+                        )
+                        
+                        QuestionTypeCounter(
+                            title: "Fill in the Blanks",
+                            count: $viewModel.fillInBlanksCount
+                        )
+                        
+                        QuestionTypeCounter(
+                            title: "Matching",
+                            count: $viewModel.matchingCount
+                        )
+                    }
+                }
+                
+                // Image Selection
+                if viewModel.hasValidQuestionCount {
+                    Section(header: Text("Select Images"), footer: imagesSectionFooter) {
+                        // Multiple Photo Selection Button
+                        Button {
+                            Task {
+                                await viewModel.selectMultiplePhotos()
+                            }
+                        } label: {
+                            HStack {
+                                Label("Select Multiple Photos", systemImage: "photo.on.rectangle")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        
+                        // Camera Button
+                        Button {
+                            Task {
+                                await viewModel.takePhoto()
+                            }
+                        } label: {
+                            HStack {
+                                Label("Take Photo", systemImage: "camera")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        
+                        // Gallery Button
+                        Button {
+                            Task {
+                                await viewModel.selectFromGallery()
+                            }
+                        } label: {
+                            HStack {
+                                Label("Choose from Gallery", systemImage: "photo")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        
+                        // Selected Images Display
+                        if !viewModel.selectedImages.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Selected Images")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(viewModel.selectedImages.indices, id: \.self) { index in
+                                            imageCell(for: index)
+                                        }
+                                    }
+                                    .padding(.vertical, 8)
+                                }
+                                
+                                generateQuestionsButton
+                            }
+                            .padding(.top, 8)
+                        }
+                    }
+                } else {
+                    Section {
+                        Text("Please select at least one question type")
+                            .foregroundColor(.secondary)
+                            .font(.footnote)
+                    }
+                }
+            }
+            .navigationBarItems(
+                leading: Button("Cancel") {
+                    viewModel.resetCounts()
+                    dismiss()
+                }
+            )
+            .navigationTitle("\(subject.displayName)")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $viewModel.showImagePicker) {
+            PhotoPicker(selectedImages: $viewModel.selectedImages)
+                .ignoresSafeArea()
+        }
+        .sheet(isPresented: $viewModel.showCamera) {
+            ImagePicker(image: $viewModel.selectedImage, sourceType: .camera)
+                .ignoresSafeArea()
+                .onChange(of: viewModel.selectedImage) { newImage in
+                    if let image = newImage {
+                        Task {
+                            await viewModel.addImage(image)
+                            await MainActor.run {
+                                viewModel.selectedImage = nil
+                            }
+                        }
+                    }
+                }
+        }
+        .alert(isPresented: $viewModel.showAlert) {
+            Alert(
+                title: Text(viewModel.alertTitle),
+                message: Text(viewModel.alertMessage),
+                dismissButton: .default(Text("OK")) {
+                    if viewModel.alertTitle == "Success" {
+                        dismiss()
+                    }
+                }
+            )
+        }
+        .overlay {
+            if viewModel.isLoading {
+                LoadingView()
+            }
+        }
+        .onAppear {
+            Task {
+                await viewModel.loadData()
+            }
+        }
+    }
+    
+    // MARK: - View Components
+    private var imagesSectionFooter: some View {
+        Text(viewModel.selectedImages.isEmpty ? "No images selected" : "\(viewModel.selectedImages.count) images selected")
+            .font(.caption)
+            .foregroundColor(.secondary)
+    }
+    
+    private func imageCell(for index: Int) -> some View {
+        VStack {
+            Image(uiImage: viewModel.selectedImages[index])
+                .resizable()
+                .scaledToFill()
+                .frame(width: 100, height: 100)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    Button(action: {
+                        viewModel.removeImage(at: index)
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.white)
+                            .background(Circle().fill(Color.black.opacity(0.5)))
+                    }
+                    .padding(4),
+                    alignment: .topTrailing
+                )
+        }
+    }
+    
+    private var generateQuestionsButton: some View {
+        Button {
+            Task {
+                await viewModel.sendAllImages()
+            }
+        } label: {
+            HStack {
+                Spacer()
+                Label("Generate Questions", systemImage: "paperplane.fill")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding()
+            .background(Color.accentColor)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+        }
+        .buttonStyle(BorderlessButtonStyle())
+        .padding(.vertical, 8)
+    }
 }
 
-// ImagePicker struct
+// MARK: - PhotoPicker
+struct PhotoPicker: UIViewControllerRepresentable {
+    @Binding var selectedImages: [UIImage]
+    @Environment(\.presentationMode) var presentationMode
+    
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.selectionLimit = 10 // 최대 10장까지 선택 가능
+        config.filter = .images
+        
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: PhotoPicker
+        
+        init(_ parent: PhotoPicker) {
+            self.parent = parent
+        }
+        
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            parent.presentationMode.wrappedValue.dismiss()
+            
+            for result in results {
+                result.itemProvider.loadObject(ofClass: UIImage.self) { image, error in
+                    if let image = image as? UIImage {
+                        DispatchQueue.main.async {
+                            self.parent.selectedImages.append(image)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - ImagePicker
 struct ImagePicker: UIViewControllerRepresentable {
-   @Environment(\.presentationMode) private var presentationMode
-   @Binding var image: UIImage?
-   let sourceType: UIImagePickerController.SourceType
-   
-   func makeUIViewController(context: UIViewControllerRepresentableContext<ImagePicker>) -> UIImagePickerController {
-       let picker = UIImagePickerController()
-       picker.sourceType = sourceType
-       picker.delegate = context.coordinator
-       return picker
-   }
-   
-   func updateUIViewController(_ uiViewController: UIImagePickerController, context: UIViewControllerRepresentableContext<ImagePicker>) {}
-   
-   func makeCoordinator() -> Coordinator {
-       Coordinator(self)
-   }
-   
-   class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-       let parent: ImagePicker
-       
-       init(_ parent: ImagePicker) {
-           self.parent = parent
-       }
-       
-       func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-           if let image = info[.originalImage] as? UIImage {
-               print("Image selection successful")
-               parent.image = image
-           }
-           parent.presentationMode.wrappedValue.dismiss()
-       }
-       
-       func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-           parent.presentationMode.wrappedValue.dismiss()
-       }
-   }
+    @Environment(\.presentationMode) private var presentationMode
+    @Binding var image: UIImage?
+    let sourceType: UIImagePickerController.SourceType
+    
+    func makeUIViewController(context: UIViewControllerRepresentableContext<ImagePicker>) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = sourceType
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: UIViewControllerRepresentableContext<ImagePicker>) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: ImagePicker
+        
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                print("Image selection successful")
+                parent.image = image
+            }
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+    }
 }
 
-// LoadingView struct
+// MARK: - LoadingView
 struct LoadingView: View {
-   var body: some View {
-       ZStack {
-           Color.black.opacity(0.4)
-               .edgesIgnoringSafeArea(.all)
-           
-           VStack(spacing: 16) {
-               ProgressView()
-                   .scaleEffect(1.5)
-                   .progressViewStyle(CircularProgressViewStyle(tint: .white))
-               Text("Processing...")
-                   .font(.headline)
-                   .foregroundColor(.white)
-           }
-           .padding()
-           .background(Color.black.opacity(0.6))
-           .cornerRadius(10)
-       }
-   }
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .edgesIgnoringSafeArea(.all)
+            
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                Text("Processing...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+            }
+            .padding()
+            .background(Color.black.opacity(0.6))
+            .cornerRadius(10)
+        }
+    }
 }
 
 
@@ -2144,6 +2852,9 @@ struct FillInBlanksView: View {
             ))
             .textFieldStyle(RoundedBorderTextFieldStyle())
             .disabled(showExplanation)
+        }.onAppear {
+            print("\n✏️ Rendering FillInBlanksView:")
+            print("• Question: \(question.question)")
         }
         .padding()
     }
@@ -2185,6 +2896,10 @@ struct MultipleChoiceView: View {
                 }
                 .disabled(showExplanation)
             }
+        }.onAppear {
+            print("\n🔤 Rendering MultipleChoiceView:")
+            print("• Question: \(question.question)")
+            print("• Options: \(question.options)")
         }
         .padding()
     }
@@ -2820,9 +3535,11 @@ class StudyPreferencesViewModel: ObservableObject {
 // Views/Main/MainTabView.swift
 import SwiftUI
 
+
+
 struct MainTabView: View {
     @StateObject private var homeViewModel = HomeViewModel()
-    @State private var selectedTab = 0
+    @State private var selectedTab = 0  // 명시적으로 0(Home)으로 설정
     
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -2838,25 +3555,38 @@ struct MainTabView: View {
                 }
                 .tag(1)
             
-            StatView()
-                .tabItem {
-                    Label("Stats", systemImage: "chart.bar.fill")
-                }
-                .tag(2)
-            
             HistoryView()
                 .tabItem {
                     Label("History", systemImage: "clock.fill")
                 }
-                .tag(3)
+                .tag(2)
             
             ProfileView()
                 .tabItem {
                     Label("Profile", systemImage: "person.fill")
                 }
-                .tag(4)
+                .tag(3)
         }
         .environmentObject(homeViewModel)
+        .onAppear {
+            setupNotifications()
+        }
+        .onDisappear {
+            NotificationCenter.default.removeObserver(self)
+        }
+    }
+    
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("ShowStudyView"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            print("🔄 Switching to Study Tab")
+            withAnimation {
+                selectedTab = 1  // Switch to Study tab
+            }
+        }
     }
 }
 
@@ -3260,8 +3990,7 @@ struct HistoryView: View {
 //  Views/Main/StudyView.swift
 
 import SwiftUI
-
-import SwiftUI
+import Foundation
 
 struct StudyView: View {
     @EnvironmentObject var homeViewModel: HomeViewModel
@@ -3269,123 +3998,197 @@ struct StudyView: View {
     
     var body: some View {
         NavigationView {
-            if let problemSet = homeViewModel.selectedProblemSet {
-                VStack {
-                    // Progress Indicator
-                    ProgressView(value: viewModel.questionProgress)
-                        .progressViewStyle(.linear)
-                        .padding()
-                    
-                    Text(viewModel.progress)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    // 현재 문제 표시
-                    if let currentQuestion = viewModel.currentQuestion {
-                        Group {
-                            switch currentQuestion.type {
-                            case .multipleChoice:
-                                MultipleChoiceView(
-                                    question: currentQuestion,
-                                    selectedAnswer: $viewModel.selectedAnswer,
-                                    showExplanation: viewModel.showExplanation
-                                )
-                                
-                            case .fillInBlanks:
-                                FillInBlanksView(
-                                    question: currentQuestion,
-                                    answer: $viewModel.selectedAnswer,
-                                    showExplanation: viewModel.showExplanation
-                                )
-                                
-                            case .matching:
-                                MatchingView(
-                                    question: currentQuestion,
-                                    selectedPairs: $viewModel.matchingPairs,
-                                    showExplanation: viewModel.showExplanation
-                                )
-                            }
-                            
-                            // Explanation View when shown
-                            if viewModel.showExplanation {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("Explanation")
-                                        .font(.headline)
-                                    Text(currentQuestion.explanation)
-                                        .font(.body)
-                                }
-                                .padding()
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(10)
-                                .padding()
-                            }
-                        }
-                        .padding()
-                        .onAppear {
-                            debugPrint("Question view appeared")
-                        }
-                        
-                        Spacer()
-                        
-                        // Submit/Next Button
-                        Button(action: {
-                            if viewModel.showExplanation {
-                                if viewModel.isLastQuestion {
-                                    // Save progress and return
-                                    viewModel.saveProgress()
-                                    homeViewModel.clearSelectedProblemSet()
+            Group {
+                let _ = debugLog("""
+                🔍 StudyView - Rendering
+                • HomeViewModel exists: \(homeViewModel != nil)
+                • Selected ProblemSet exists: \(homeViewModel.selectedProblemSet != nil)
+                • Selected ProblemSet ID: \(homeViewModel.selectedProblemSet?.id ?? "none")
+                • Questions Count: \(homeViewModel.selectedProblemSet?.questions.count ?? 0)
+                • Current Question exists: \(viewModel.currentQuestion != nil)
+                """)
+                
+                if let problemSet = homeViewModel.selectedProblemSet {
+                                    StudyContentView(problemSet: problemSet, viewModel: viewModel)
                                 } else {
-                                    viewModel.nextQuestion()
+                                    ContentUnavailableView(
+                                        "No Problem Set Selected",
+                                        systemImage: "book.closed",
+                                        description: Text("Create new questions from the Home screen")
+                                    )
                                 }
-                            } else {
-                                viewModel.submitAnswer()
                             }
-                        }) {
-                            Text(viewModel.showExplanation ?
-                                (viewModel.isLastQuestion ? "Finish" : "Next Question") :
-                                "Submit Answer")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(viewModel.canSubmit ? Color.accentColor : Color.gray)
-                                .cornerRadius(10)
-                        }
-                        .disabled(!viewModel.canSubmit)
-                        .padding()
-                        
-                    } else {
-                        Text("No questions loaded")
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .navigationTitle("Study")
-                .onAppear {
-                    debugPrint("StudyView appeared with problem set: \(problemSet.id)")
-                    debugPrint("Questions count: \(problemSet.questionCount)")
-                    viewModel.loadQuestions(problemSet.questions)
-                }
-            } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "book.closed")
-                        .font(.system(size: 50))
-                        .foregroundColor(.secondary)
-                    
-                    Text("No questions available")
-                        .font(.headline)
-                    
-                    Text("Create new questions from the Home screen")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding()
-                .navigationTitle("Study")
-                .onAppear {
-                    debugPrint("StudyView - No problem set selected")
-                }
+                            .navigationTitle("Study")
+        }
+        .onAppear {
+            print("""
+            📱 StudyView - onAppear
+            • Has HomeViewModel: \(homeViewModel != nil)
+            • Has ProblemSet: \(homeViewModel.selectedProblemSet != nil)
+            • ProblemSet ID: \(homeViewModel.selectedProblemSet?.id ?? "none")
+            • Questions Count: \(homeViewModel.selectedProblemSet?.questions.count ?? 0)
+            """)
+            
+            if let problemSet = homeViewModel.selectedProblemSet {
+                viewModel.loadQuestions(problemSet.questions)
             }
         }
+        .onChange(of: homeViewModel.selectedProblemSet) { newProblemSet in
+            print("""
+            🔄 StudyView - ProblemSet changed
+            • New ProblemSet ID: \(newProblemSet?.id ?? "none")
+            • Questions Count: \(newProblemSet?.questions.count ?? 0)
+            """)
+            
+            if let problemSet = newProblemSet {
+                viewModel.loadQuestions(problemSet.questions)
+            }
+        }
+    }
+    
+    private func debugLog(_ message: String) {
+        print(message)
+    }
+}
+
+struct StudyContentView: View {
+    let problemSet: ProblemSet
+    @ObservedObject var viewModel: StudyViewModel
+    
+    var body: some View {
+        VStack {
+            let _ = debugLog("📊 StudyContentView - Progress: \(viewModel.currentIndex + 1)/\(viewModel.totalQuestions)")
+            
+            // Progress Indicator
+            ProgressView(value: viewModel.progress)
+                .progressViewStyle(.linear)
+                .padding()
+            
+            Text("\(viewModel.currentIndex + 1) / \(viewModel.totalQuestions)")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            if let question = viewModel.currentQuestion {
+                let _ = debugLog("""
+                📝 Displaying Question:
+                • Type: \(question.type.rawValue)
+                • Question: \(question.question)
+                """)
+                
+                QuestionView(question: question, viewModel: viewModel)
+            } else {
+                let _ = debugLog("⚠️ No current question to display")
+                ProgressView("Loading questions...")
+            }
+        }
+        .onAppear {
+            let _ = debugLog("📱 StudyContentView - onAppear")
+            viewModel.loadQuestions(problemSet.questions)
+        }
+    }
+    
+    private func debugLog(_ message: String) {
+        print(message)
+    }
+}
+
+struct QuestionView: View {
+    let question: Question
+    @ObservedObject var viewModel: StudyViewModel
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                let _ = debugLog("📖 Rendering question: \(question.question)")
+                
+                Text(question.question)
+                    .font(.headline)
+                    .padding()
+                
+                switch question.type {
+                case .multipleChoice:
+                    let _ = debugLog("🔤 Rendering MultipleChoiceView")
+                    MultipleChoiceView(
+                        question: question,
+                        selectedAnswer: $viewModel.selectedAnswer,
+                        showExplanation: viewModel.showExplanation
+                    )
+                case .fillInBlanks:
+                    let _ = debugLog("✏️ Rendering FillInBlanksView")
+                    FillInBlanksView(
+                        question: question,
+                        answer: $viewModel.selectedAnswer,
+                        showExplanation: viewModel.showExplanation
+                    )
+                case .matching:
+                    let _ = debugLog("🔄 Rendering MatchingView")
+                    MatchingView(
+                        question: question,
+                        selectedPairs: $viewModel.matchingPairs,
+                        showExplanation: viewModel.showExplanation
+                    )
+                }
+                
+                if viewModel.showExplanation {
+                    ExplanationView(question: question)
+                }
+                
+                ActionButton(viewModel: viewModel)
+            }
+            .padding()
+        }
+    }
+    
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print(message)
+        #endif
+    }
+}
+
+private struct ExplanationView: View {
+    let question: Question
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Explanation")
+                .font(.headline)
+            Text(question.explanation)
+                .font(.body)
+        }
+        .padding()
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(10)
+    }
+}
+
+private struct ActionButton: View {
+    @ObservedObject var viewModel: StudyViewModel
+    
+    var body: some View {
+        Button(action: {
+            if viewModel.showExplanation {
+                if viewModel.isLastQuestion {
+                    viewModel.saveProgress()
+                } else {
+                    viewModel.nextQuestion()
+                }
+            } else {
+                viewModel.submitAnswer()
+            }
+        }) {
+            Text(viewModel.showExplanation ?
+                 (viewModel.isLastQuestion ? "Finish" : "Next Question") :
+                    "Submit Answer")
+                .font(.headline)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(viewModel.canSubmit ? Color.accentColor : Color.gray)
+                .cornerRadius(10)
+        }
+        .disabled(!viewModel.canSubmit)
+        .padding()
     }
 }
 
@@ -3427,27 +4230,58 @@ public class ImageService {
             case .notDetermined:
                 return await withCheckedContinuation { continuation in
                     PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                        continuation.resume(returning: status == .authorized || status == .limited)
+                        let isAuthorized = status == .authorized || status == .limited
+                        print("Photo Library Authorization Status: \(status), Authorized: \(isAuthorized)")
+                        continuation.resume(returning: isAuthorized)
                     }
                 }
             case .denied, .restricted:
-                // 설정으로 이동하도록 안내
-                DispatchQueue.main.async {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+                print("Photo Library Access Denied or Restricted")
+                // 설정으로 이동하는 알림 표시
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    await MainActor.run {
+                        UIApplication.shared.open(settingsUrl)
                     }
                 }
                 throw ImageServiceError.permissionDenied
             @unknown default:
+                print("Unknown Photo Library Authorization Status")
                 throw ImageServiceError.unknown(NSError(domain: "PhotoLibrary", code: -1))
             }
             
         case .camera:
-            // 기존 카메라 권한 코드 유지
-            return try await requestCameraPermission()
+            // 카메라 사용 가능 여부 확인
+            guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+                print("Camera Not Available")
+                throw ImageServiceError.unavailable
+            }
+            
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            switch status {
+            case .authorized:
+                return true
+            case .notDetermined:
+                return await withCheckedContinuation { continuation in
+                    AVCaptureDevice.requestAccess(for: .video) { granted in
+                        print("Camera Authorization Status: \(granted)")
+                        continuation.resume(returning: granted)
+                    }
+                }
+            case .denied, .restricted:
+                print("Camera Access Denied or Restricted")
+                // 설정으로 이동하는 알림 표시
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    await MainActor.run {
+                        UIApplication.shared.open(settingsUrl)
+                    }
+                }
+                throw ImageServiceError.permissionDenied
+            @unknown default:
+                print("Unknown Camera Authorization Status")
+                throw ImageServiceError.unknown(NSError(domain: "Camera", code: -1))
+            }
         }
     }
-   
    @MainActor
    private func requestCameraPermission() async throws -> Bool {
        // 먼저 카메라가 사용 가능한지 확인
@@ -3557,18 +4391,55 @@ public class StorageService {
     private let savedQuestionsKey = "savedQuestions"
     private let studySessionsKey = "studySessions"
     
+    private let fileManager = FileManager.default
+     
+     private var documentDirectory: URL? {
+         fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+     }
+     
+     private func getDirectoryURL(for type: String) -> URL? {
+         documentDirectory?.appendingPathComponent(type)
+     }
+     
+     private func handleFileOperation<T>(_ operation: () throws -> T) throws -> T {
+         do {
+             return try operation()
+         } catch let error as NSError {
+             print("""
+             ❌ File Operation Error:
+             • Error Domain: \(error.domain)
+             • Error Code: \(error.code)
+             • Description: \(error.localizedDescription)
+             """)
+             
+             // 재시도 로직
+             let retryCount = 3
+             for attempt in 1...retryCount {
+                 print("🔄 Retrying operation (attempt \(attempt)/\(retryCount))")
+                 do {
+                     return try operation()
+                 } catch {
+                     if attempt == retryCount {
+                         throw error
+                     }
+                     Thread.sleep(forTimeInterval: 0.5)
+                 }
+             }
+             throw error
+         }
+     }
+    
     // MARK: - Problem Sets
     public func saveProblemSet(_ problemSet: ProblemSet) throws {
-        var problemSets = try getProblemSets()
-        problemSets.append(problemSet)
-        
-        do {
+        try handleFileOperation {
+            var problemSets = try getProblemSets()
+            problemSets.append(problemSet)
+            
             let data = try encoder.encode(problemSets)
             defaults.set(data, forKey: problemSetsKey)
-        } catch {
-            throw StorageError.saveFailed
         }
     }
+        
     
     public func getProblemSets() throws -> [ProblemSet] {
         guard let data = defaults.data(forKey: problemSetsKey) else {
@@ -3649,14 +4520,6 @@ public class StorageService {
         }
     }
     
-    public func saveProblemSets(_ problemSets: [ProblemSet]) throws {
-        do {
-            let data = try encoder.encode(problemSets)
-            defaults.set(data, forKey: problemSetsKey)
-        } catch {
-            throw StorageError.saveFailed
-        }
-    }
 
     public func saveQuestions(_ questions: [Question]) throws {
         do {
@@ -3671,24 +4534,19 @@ public class StorageService {
 
 ## ./AISnapStudy/Services/OpenAIService.swift
 
+
 // Services/OpenAIService.swift
+import AISnapStudy // NetworkError import
 import Foundation
 
 // Services/OpenAIService.swift
-import Foundation
 
 class OpenAIService {
     private let apiKey: String
     private let baseURL = "https://api.openai.com/v1/chat/completions"
     
     init() throws {
-        // Load API key from Configuration.plist
-        do {
-            self.apiKey = try ConfigurationManager.shared.getValue(for: "OpenAIAPIKey")
-        } catch {
-            print("Failed to load OpenAI API key: \(error)")
-            throw error
-        }
+        self.apiKey = try ConfigurationManager.shared.getValue(for: "OpenAIAPIKey")
     }
     
     func generateQuestions(
@@ -3697,270 +4555,190 @@ class OpenAIService {
         difficulty: Difficulty,
         questionTypes: [QuestionType: Int]
     ) async throws -> [Question] {
+        // 네트워크 연결 확인
+        guard NetworkMonitor.shared.isReachable else {
+            throw NetworkError.noConnection
+        }
+        
+        
         let base64Image = imageData.base64EncodedString()
         
-        // Prepare messages array
-        var messages: [[String: Any]] = []
-        
-        // Add system message
-        messages.append([
-            "role": "system",
-            "content": "You are a tutor creating questions based on images. Generate questions that are clear and appropriate for the given subject and difficulty level."
-        ])
-        
-        // Add user message with image
-        messages.append([
-            "role": "user",
-            "content": [
-                [
-                    "type": "text",
-                    "text": """
-                        Generate questions based on the image with the following requirements:
-                        Subject: \(subject.rawValue)
-                        Difficulty: \(difficulty.rawValue)
-                        Question types and counts:
-                        \(questionTypes.map { "- \($0.key.rawValue): \($0.value)" }.joined(separator: "\n"))
-                        
-                        For each question, please provide:
-                        1. A clear question text
-                        2. Multiple choice options (if applicable)
-                        3. The correct answer
-                        4. An explanation
-                        5. A hint (optional)
-                        
-                        Format the response as a valid JSON array.
-                        """
-                ],
-                [
-                    "type": "image_url",
-                    "image_url": [
-                        "url": "data:image/jpeg;base64,\(base64Image)"
+        // Create schema for structured output
+        let schema: [String: Any] = [
+            "type": "object",
+            "properties": [
+                "questions": [
+                    "type": "array",
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "type": [
+                                "type": "string",
+                                "enum": ["multiple_choice", "fill_in_blanks", "matching"]
+                            ],
+                            "question": ["type": "string"],
+                            "options": [
+                                "type": "array",
+                                "items": ["type": "string"]
+                            ],
+                            "matchingOptions": [
+                                "type": "array",
+                                "items": ["type": "string"]
+                            ],
+                            "correctAnswer": ["type": "string"],
+                            "explanation": ["type": "string"],
+                            "hint": [
+                                "type": ["string", "null"]  // hint can be null
+                            ]
+                        ],
+                        "required": [
+                            "type",
+                            "question",
+                            "options",
+                            "matchingOptions",
+                            "correctAnswer",
+                            "explanation",
+                            "hint"  // added hint to required fields
+                        ],
+                        "additionalProperties": false
                     ]
                 ]
-            ]
-        ])
+            ],
+            "required": ["questions"],
+            "additionalProperties": false
+        ]
         
-        // Prepare request body
+        // System prompt for better question generation
+        let systemPrompt = """
+        You are an expert tutor creating educational questions based on images.
+        Generate questions that are clear, engaging, and appropriate for the given subject and difficulty level.
+        For each question, you must provide:
+        - A clear question text
+        - Appropriate options for the question type
+        - A correct answer
+        - A helpful explanation
+        - A hint (can be null if not applicable)
+        Ensure all responses strictly follow the provided schema format.
+        """
+        
+        // User prompt for specific requirements
+        let userPrompt = """
+        Generate questions based on the image with the following requirements:
+        Subject: \(subject.rawValue)
+        Difficulty: \(difficulty.rawValue)
+        Question counts:
+        \(questionTypes.map { "- \($0.key.rawValue): \($0.value)" }.joined(separator: "\n"))
+        """
+        
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": [
+                ["type": "text", "text": userPrompt],
+                ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(base64Image)"]]
+            ]]
+        ]
+        
         let requestBody: [String: Any] = [
             "model": "gpt-4o",
             "messages": messages,
-            "max_tokens": 4000,
-            "temperature": 0.7,
-            "response_format": ["type": "json_object"]
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "question_generation",
+                    "strict": true,
+                    "schema": schema
+                ]
+            ]
         ]
         
-        // Create request
         var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         
-        do {
-            // Make request
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw NetworkError.invalidResponse
-            }
-            
-            // Handle error responses
-            guard httpResponse.statusCode == 200 else {
-                if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
-                    throw NetworkError.apiError(errorResponse.error.message)
-                }
-                throw NetworkError.invalidResponse
-            }
-            
-            // Parse response
-            let decodedResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
-            return try parseQuestionsFromResponse(decodedResponse, subject: subject, difficulty: difficulty)
-            
-        } catch {
-            throw NetworkError.parsingError(error)
-        }
-    }
-    
-    private func parseQuestionsFromResponse(
-        _ response: OpenAIResponse,
-        subject: Subject,
-        difficulty: Difficulty
-    ) throws -> [Question] {
-        guard let content = response.choices.first?.message.content,
-              let jsonData = content.data(using: .utf8) else {
-            throw NetworkError.invalidData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.invalidResponse
         }
         
-        print("Received JSON content:", content)
-        
-        do {
-            let decoder = JSONDecoder()
-            struct APIResponse: Codable {
-                let questions: [RawQuestion]
+        guard httpResponse.statusCode == 200 else {
+            if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
+                throw NetworkError.apiError(errorResponse.error.message)
             }
+            throw NetworkError.invalidResponse
+        }
+        
+        let decodedResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        
+        if let content = decodedResponse.choices.first?.message.content,
+           let jsonData = content.data(using: .utf8) {
+            let schema = try JSONDecoder().decode(QuestionGenerationSchema.self, from: jsonData)
             
-            let apiResponse = try decoder.decode(APIResponse.self, from: jsonData)
-            
-            return apiResponse.questions.map { rawQuestion in
+            return schema.questions.map { questionData in
                 Question(
                     id: UUID().uuidString,
-                    type: rawQuestion.type ?? .multipleChoice,
+                    type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                     subject: subject,
                     difficulty: difficulty,
-                    question: rawQuestion.question,
-                    options: rawQuestion.processedOptions,
-                    matchingOptions: rawQuestion.matchingPairs ?? [],
-                    correctAnswer: rawQuestion.correctAnswer,
-                    explanation: rawQuestion.explanation,
-                    hint: rawQuestion.hint,
+                    question: questionData.question,
+                    options: questionData.options,
+                    matchingOptions: questionData.matchingOptions,
+                    correctAnswer: questionData.correctAnswer,
+                    explanation: questionData.explanation,
+                    hint: questionData.hint,
                     isSaved: false,
                     createdAt: Date()
                 )
             }
-        } catch {
-            print("JSON Parsing error:", error)
-            throw NetworkError.parsingError(error)
         }
+        
+        throw NetworkError.invalidData
     }
 }
 
-private struct RawQuestion: Codable {
-    let type: QuestionType?
-    let question: String
-    let options: OptionsType?
-    let matchingPairs: [String]?
-    let explanation: String
-    let hint: String?
-    // pairs와 correctAnswer 추가
-    let pairs: [MatchingPair]?
-    private let correctAnswer: AnyCodable?
+
+## ./AISnapStudy/Services/NetworkMonitor.swift
+
+// Services/NetworkMonitor.swift
+import Network
+import SwiftUI  // 추가
+
+class NetworkMonitor: ObservableObject {
+    static let shared = NetworkMonitor()
+    private let monitor = NWPathMonitor()
     
-    // MatchingPair 구조체 추가
-    struct MatchingPair: Codable {
-        let phrase: String
-        let verse: String
+    @Published private(set) var status: NWPath.Status = .requiresConnection
+    @Published private(set) var isReachable = false
+    @Published private(set) var isReachableOnCellular = false
+    @Published private(set) var isReachableOnWiFi = false
+    
+    private init() {
+        startMonitoring()
     }
     
-    enum CodingKeys: String, CodingKey {
-        case type, question, options, explanation, hint, pairs
-        case correctAnswer = "correctAnswer" // JSON의 correctAnswer 키와 매핑
-    }
-    
-    // Decodable 초기화 구문 수정
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        
-        type = try? container.decode(QuestionType?.self, forKey: .type)
-        question = try container.decode(String.self, forKey: .question)
-        options = try? container.decode(OptionsType?.self, forKey: .options)
-        pairs = try? container.decode([MatchingPair]?.self, forKey: .pairs)
-        explanation = try container.decode(String.self, forKey: .explanation)
-        hint = try? container.decode(String?.self, forKey: .hint)
-        correctAnswer = try? container.decode(AnyCodable.self, forKey: .correctAnswer)
-    }
-    
-    // correctAnswer 형식에 따라 String으로 변환하는 계산 속성
-    var formattedCorrectAnswer: String {
-        if let correctAnswerDict = correctAnswer?.value as? [String: String] {
-            // Matching 타입일 경우 딕셔너리를 문자열로 변환
-            return correctAnswerDict.map { "\($0.key):\($0.value)" }.joined(separator: ",")
-        } else if let string = correctAnswer?.value as? String {
-            // 일반적인 경우
-            return string
-        }
-        return "" // 기본값
-    }
-    
-    // options 처리를 위한 계산 속성
-    var processedOptions: [String] {
-        if let pairs = pairs {
-            // matching 타입일 경우 pairs에서 옵션 추출
-            return pairs.map { $0.phrase }
-        } else if let options = options {
-            switch options {
-            case .array(let array):
-                return array
-            case .dictionary(let dict):
-                var result: [String] = []
-                for (key, values) in dict {
-                    result.append(key)
-                    result.append(contentsOf: values)
-                }
-                return result
+    func startMonitoring() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.status = path.status
+                self?.isReachable = path.status == .satisfied
+                self?.isReachableOnCellular = path.usesInterfaceType(.cellular)
+                self?.isReachableOnWiFi = path.usesInterfaceType(.wifi)
+                
+                print("Network Status: \(path.status)")
+                print("Is Reachable: \(path.status == .satisfied)")
+                print("Is Cellular: \(path.usesInterfaceType(.cellular))")
+                print("Is WiFi: \(path.usesInterfaceType(.wifi))")
             }
         }
-        return []
-    }
-}
-
-
-struct AnyCodable: Codable {
-    let value: Any
-
-    init(_ value: Any) {
-        self.value = value
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
         
-        if let value = try? container.decode(String.self) {
-            self.value = value
-        } else if let value = try? container.decode([String: String].self) {
-            self.value = value
-        } else if let value = try? container.decode([String].self) {
-            self.value = value
-        } else if let value = try? container.decode(Bool.self) {
-            self.value = value
-        } else if let value = try? container.decode(Int.self) {
-            self.value = value
-        } else if let value = try? container.decode(Double.self) {
-            self.value = value
-        } else if container.decodeNil() {
-            self.value = NSNull()
-        } else {
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "AnyCodable value cannot be decoded"
-            )
-        }
+        let queue = DispatchQueue(label: "NetworkMonitor")
+        monitor.start(queue: queue)
     }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        
-        switch value {
-        case let value as String:
-            try container.encode(value)
-        case let value as [String: String]:
-            try container.encode(value)
-        case let value as [String]:
-            try container.encode(value)
-        case let value as Bool:
-            try container.encode(value)
-        case let value as Int:
-            try container.encode(value)
-        case let value as Double:
-            try container.encode(value)
-        case is NSNull:
-            try container.encodeNil()
-        default:
-            let context = EncodingError.Context(
-                codingPath: container.codingPath,
-                debugDescription: "AnyCodable value cannot be encoded"
-            )
-            throw EncodingError.invalidValue(value, context)
-        }
-    }
-}
-
-private struct OpenAIErrorResponse: Codable {
-    let error: OpenAIError
     
-    struct OpenAIError: Codable {
-        let message: String
-        let type: String?
-        let code: String?
+    func stopMonitoring() {
+        monitor.cancel()
     }
 }
 

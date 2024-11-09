@@ -3,7 +3,6 @@ import SwiftUI
 
 extension Color {
     static let mainBackground = Color("MainBackground")
-    static let secondaryBackground = Color("SecondaryBackground")
     static let customAccent = Color("AccentColor")
     
     // Custom colors for subjects

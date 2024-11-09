@@ -33,27 +33,58 @@ public class ImageService {
             case .notDetermined:
                 return await withCheckedContinuation { continuation in
                     PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                        continuation.resume(returning: status == .authorized || status == .limited)
+                        let isAuthorized = status == .authorized || status == .limited
+                        print("Photo Library Authorization Status: \(status), Authorized: \(isAuthorized)")
+                        continuation.resume(returning: isAuthorized)
                     }
                 }
             case .denied, .restricted:
-                // 설정으로 이동하도록 안내
-                DispatchQueue.main.async {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+                print("Photo Library Access Denied or Restricted")
+                // 설정으로 이동하는 알림 표시
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    await MainActor.run {
+                        UIApplication.shared.open(settingsUrl)
                     }
                 }
                 throw ImageServiceError.permissionDenied
             @unknown default:
+                print("Unknown Photo Library Authorization Status")
                 throw ImageServiceError.unknown(NSError(domain: "PhotoLibrary", code: -1))
             }
             
         case .camera:
-            // 기존 카메라 권한 코드 유지
-            return try await requestCameraPermission()
+            // 카메라 사용 가능 여부 확인
+            guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+                print("Camera Not Available")
+                throw ImageServiceError.unavailable
+            }
+            
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            switch status {
+            case .authorized:
+                return true
+            case .notDetermined:
+                return await withCheckedContinuation { continuation in
+                    AVCaptureDevice.requestAccess(for: .video) { granted in
+                        print("Camera Authorization Status: \(granted)")
+                        continuation.resume(returning: granted)
+                    }
+                }
+            case .denied, .restricted:
+                print("Camera Access Denied or Restricted")
+                // 설정으로 이동하는 알림 표시
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    await MainActor.run {
+                        UIApplication.shared.open(settingsUrl)
+                    }
+                }
+                throw ImageServiceError.permissionDenied
+            @unknown default:
+                print("Unknown Camera Authorization Status")
+                throw ImageServiceError.unknown(NSError(domain: "Camera", code: -1))
+            }
         }
     }
-   
    @MainActor
    private func requestCameraPermission() async throws -> Bool {
        // 먼저 카메라가 사용 가능한지 확인

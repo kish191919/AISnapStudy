@@ -1,8 +1,11 @@
 // Views/Main/HistoryView.swift
 import SwiftUI
 
+import SwiftUI
+
 struct HistoryView: View {
     @StateObject private var viewModel = HistoryViewModel()
+    @EnvironmentObject var homeViewModel: HomeViewModel
     @State private var selectedFilter: HistoryFilter = .all
     @State private var searchText = ""
     
@@ -27,28 +30,39 @@ struct HistoryView: View {
                 SearchBar(text: $searchText)
                     .padding(.horizontal)
                 
-                // History List
+                // Content
                 if viewModel.isLoading {
                     ProgressView()
                         .padding()
-                } else if viewModel.studySessions.isEmpty {
-                    ContentUnavailableView(
-                        "No History",
-                        systemImage: "clock",
-                        description: Text("Complete some study sessions to see them here.")
-                    )
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 16) {
-                            ForEach(filteredHistory) { session in
-                                HistoryCard(session: session)
-                                    .swipeActions {
-                                        Button(role: .destructive) {
-                                            viewModel.deleteSession(session)
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
+                            // Problem Sets Section
+                            if !viewModel.problemSets.isEmpty {
+                                Section(header: SectionHeader(title: "Problem Sets")) {
+                                    ForEach(viewModel.problemSets) { problemSet in
+                                        ProblemSetCard(problemSet: problemSet)
+                                            .onTapGesture {
+                                                homeViewModel.setSelectedProblemSet(problemSet)
+                                            }
                                     }
+                                }
+                            }
+                            
+                            // Study History Section
+                            if !filteredHistory.isEmpty {
+                                Section(header: SectionHeader(title: "Study History")) {
+                                    ForEach(filteredHistory) { session in
+                                        HistoryCard(session: session)
+                                            .swipeActions {
+                                                Button(role: .destructive) {
+                                                    viewModel.deleteSession(session)
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                            }
+                                    }
+                                }
                             }
                         }
                         .padding()
@@ -57,7 +71,7 @@ struct HistoryView: View {
             }
             .navigationTitle("History")
             .refreshable {
-                viewModel.loadStudySessions()
+                viewModel.refreshData()
             }
         }
     }
@@ -65,14 +79,14 @@ struct HistoryView: View {
     private var filteredHistory: [StudySession] {
         var sessions = viewModel.studySessions
         
-        // Apply filter
+        // Filter by type
         switch selectedFilter {
         case .all:
             break // No filtering needed
         case .languageArts:
-            sessions = sessions.filter { $0.problemSet.subject == Subject.languageArts }
+            sessions = sessions.filter { $0.problemSet.subject == .languageArts }
         case .math:
-            sessions = sessions.filter { $0.problemSet.subject == Subject.math }
+            sessions = sessions.filter { $0.problemSet.subject == .math }
         case .saved:
             sessions = sessions.filter { $0.isSaved }
         case .completed:
@@ -81,7 +95,7 @@ struct HistoryView: View {
             sessions = sessions.filter { !$0.isCompleted }
         }
         
-        // Apply search
+        // Filter by search text
         if !searchText.isEmpty {
             sessions = sessions.filter {
                 $0.problemSet.title.localizedCaseInsensitiveContains(searchText) ||
@@ -89,6 +103,20 @@ struct HistoryView: View {
             }
         }
         
-        return sessions
+        // Sort by date (newest first)
+        return sessions.sorted { $0.startTime > $1.startTime }
     }
 }
+
+struct SectionHeader: View {
+    let title: String
+    
+    var body: some View {
+        Text(title)
+            .font(.headline)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+    }
+}
+

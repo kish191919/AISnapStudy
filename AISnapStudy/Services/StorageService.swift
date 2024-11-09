@@ -18,18 +18,55 @@ public class StorageService {
     private let savedQuestionsKey = "savedQuestions"
     private let studySessionsKey = "studySessions"
     
+    private let fileManager = FileManager.default
+     
+     private var documentDirectory: URL? {
+         fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+     }
+     
+     private func getDirectoryURL(for type: String) -> URL? {
+         documentDirectory?.appendingPathComponent(type)
+     }
+     
+     private func handleFileOperation<T>(_ operation: () throws -> T) throws -> T {
+         do {
+             return try operation()
+         } catch let error as NSError {
+             print("""
+             ❌ File Operation Error:
+             • Error Domain: \(error.domain)
+             • Error Code: \(error.code)
+             • Description: \(error.localizedDescription)
+             """)
+             
+             // 재시도 로직
+             let retryCount = 3
+             for attempt in 1...retryCount {
+                 print("🔄 Retrying operation (attempt \(attempt)/\(retryCount))")
+                 do {
+                     return try operation()
+                 } catch {
+                     if attempt == retryCount {
+                         throw error
+                     }
+                     Thread.sleep(forTimeInterval: 0.5)
+                 }
+             }
+             throw error
+         }
+     }
+    
     // MARK: - Problem Sets
     public func saveProblemSet(_ problemSet: ProblemSet) throws {
-        var problemSets = try getProblemSets()
-        problemSets.append(problemSet)
-        
-        do {
+        try handleFileOperation {
+            var problemSets = try getProblemSets()
+            problemSets.append(problemSet)
+            
             let data = try encoder.encode(problemSets)
             defaults.set(data, forKey: problemSetsKey)
-        } catch {
-            throw StorageError.saveFailed
         }
     }
+        
     
     public func getProblemSets() throws -> [ProblemSet] {
         guard let data = defaults.data(forKey: problemSetsKey) else {
@@ -110,14 +147,6 @@ public class StorageService {
         }
     }
     
-    public func saveProblemSets(_ problemSets: [ProblemSet]) throws {
-        do {
-            let data = try encoder.encode(problemSets)
-            defaults.set(data, forKey: problemSetsKey)
-        } catch {
-            throw StorageError.saveFailed
-        }
-    }
 
     public func saveQuestions(_ questions: [Question]) throws {
         do {

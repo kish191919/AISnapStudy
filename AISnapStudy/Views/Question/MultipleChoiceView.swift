@@ -31,6 +31,10 @@ struct MultipleChoiceView: View {
                 }
                 .disabled(showExplanation)
             }
+        }.onAppear {
+            print("\n🔤 Rendering MultipleChoiceView:")
+            print("• Question: \(question.question)")
+            print("• Options: \(question.options)")
         }
         .padding()
     }

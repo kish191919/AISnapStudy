@@ -1,3 +1,4 @@
+// Utils/Helpers/ImageCompressor.swift
 import UIKit
 
 enum ImageCompressorError: Error {
@@ -8,84 +9,89 @@ enum ImageCompressorError: Error {
 class ImageCompressor {
     static let shared = ImageCompressor()
     
+    private enum Constraints {
+        static let targetFileSize = 800 * 1024  // 800KB
+        static let minDimension: CGFloat = 640
+        static let maxDimension: CGFloat = 800
+        static let minimumQuality: CGFloat = 0.5
+    }
+    
     private init() {}
     
-    /// Compresses an image while trying to maintain reasonable quality
-    /// - Parameters:
-    ///   - image: Original UIImage
-    ///   - maxSize: Maximum size in bytes (default: 1MB)
-    ///   - maxDimension: Maximum width/height (default: 2048)
-    /// - Returns: Compressed image data
     func compress(
         image: UIImage,
-        maxSize: Int = 1024 * 1024, // 1MB
-        maxDimension: CGFloat = 2048
+        maxSize: Int = Constraints.targetFileSize,
+        maxDimension: CGFloat = Constraints.maxDimension
     ) throws -> Data {
-        // Step 1: Resize image if necessary
-        let resized = resizeImage(image, maxDimension: maxDimension)
+        let startTime = Date()
         
-        // Step 2: Compress with decreasing quality until size is acceptable
+        // 원본 이미지 크기 로깅
+        if let originalData = image.jpegData(compressionQuality: 1.0) {
+            print("📸 Original image size: \(formatFileSize(originalData.count))")
+            print("📐 Original dimensions: \(Int(image.size.width))x\(Int(image.size.height))")
+        }
+        
+        // 리사이징
+        let resizedImage = resizeImage(image, maxDimension: maxDimension)
+        print("✂️ Resized dimensions: \(Int(resizedImage.size.width))x\(Int(resizedImage.size.height))")
+        
+        // 압축
         var compression: CGFloat = 1.0
-        var data = resized.jpegData(compressionQuality: compression)
+        var compressedData = resizedImage.jpegData(compressionQuality: compression)!
         
-        while (data?.count ?? 0) > maxSize && compression > 0.1 {
+        while compressedData.count > maxSize && compression > Constraints.minimumQuality {
             compression -= 0.1
-            data = resized.jpegData(compressionQuality: compression)
+            if let newData = resizedImage.jpegData(compressionQuality: compression) {
+                compressedData = newData
+                print("🔄 Trying compression quality: \(String(format: "%.1f", compression))")
+                print("📦 Current size: \(formatFileSize(compressedData.count))")
+            }
         }
         
-        guard let compressedData = data else {
-            throw ImageCompressorError.compressionFailed
-        }
+        print("""
+        ✅ Compression completed:
+        • Duration: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s
+        • Final size: \(formatFileSize(compressedData.count))
+        • Compression ratio: \(String(format: "%.1f", Float(compressedData.count) / Float(image.jpegData(compressionQuality: 1.0)?.count ?? 1) * 100))%
+        """)
         
         return compressedData
     }
     
-    /// Compresses an image specifically for OpenAI API requirements
-    /// - Parameter image: Original UIImage
-    /// - Returns: Compressed image data suitable for API transmission
     func compressForAPI(_ image: UIImage) throws -> Data {
-        // OpenAI recommends images under 20MB
         return try compress(
             image: image,
-            maxSize: 10 * 1024 * 1024, // 10MB to be safe
-            maxDimension: 2048
+            maxSize: Constraints.targetFileSize,
+            maxDimension: Constraints.maxDimension
         )
     }
     
-    // MARK: - Private Methods
-    
     private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
         let originalSize = image.size
-        var newSize = originalSize
+        var targetSize = originalSize
         
+        // 최소/최대 크기 제한 적용
         if originalSize.width > maxDimension || originalSize.height > maxDimension {
             let widthRatio = maxDimension / originalSize.width
             let heightRatio = maxDimension / originalSize.height
             let ratio = min(widthRatio, heightRatio)
-            
-            newSize = CGSize(
-                width: originalSize.width * ratio,
-                height: originalSize.height * ratio
+            targetSize = CGSize(
+                width: max(Constraints.minDimension, originalSize.width * ratio),
+                height: max(Constraints.minDimension, originalSize.height * ratio)
             )
         }
         
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         
-        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
-        let resized = renderer.image { context in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
-        
-        return resized
     }
     
-    /// Estimates the file size of an image in bytes
-    /// - Parameter image: Image to check
-    /// - Returns: Estimated size in bytes
-    func estimatedSize(_ image: UIImage) -> Int {
-        guard let data = image.jpegData(compressionQuality: 1.0) else { return 0 }
-        return data.count
+    private func formatFileSize(_ bytes: Int) -> String {
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
 

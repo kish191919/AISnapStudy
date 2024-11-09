@@ -17,6 +17,9 @@ struct FillInBlanksView: View {
             ))
             .textFieldStyle(RoundedBorderTextFieldStyle())
             .disabled(showExplanation)
+        }.onAppear {
+            print("\n✏️ Rendering FillInBlanksView:")
+            print("• Question: \(question.question)")
         }
         .padding()
     }

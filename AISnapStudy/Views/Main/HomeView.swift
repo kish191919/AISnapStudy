@@ -56,34 +56,6 @@ struct HomeView: View {
                         }
                     }
                     .padding(.horizontal)
-                    
-                    // Previous Problem Sets
-                    if !viewModel.problemSets.isEmpty {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Previous Problem Sets")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            
-                            ForEach(viewModel.problemSets) { problemSet in
-                                ProblemSetCard(problemSet: problemSet)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
-                    
-                    // Saved Problems
-                    if !viewModel.savedQuestions.isEmpty {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Saved Problems")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            
-                            ForEach(viewModel.savedQuestions) { question in
-                                SavedProblemCard(question: question)
-                            }
-                        }
-                        .padding(.horizontal)
-                    }
                 }
                 .padding(.vertical)
             }
