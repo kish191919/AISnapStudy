@@ -1,0 +1,320 @@
+
+// CoreData/CoreDataService.swift
+
+import CoreData
+import Foundation
+
+
+
+class CoreDataService {
+    static let shared = CoreDataService()
+    
+    // private -> public으로 변경
+    public var persistentContainer: NSPersistentContainer = {
+        let container = NSPersistentContainer(name: "AISnapStudy")
+        
+        // 저장소 설명 생성
+        let storeDescription = NSPersistentStoreDescription()
+        
+        // Application Support 디렉토리 생성 확인
+        if let applicationSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            // Application Support 디렉토리가 없다면 생성
+            if !FileManager.default.fileExists(atPath: applicationSupportURL.path) {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: applicationSupportURL,
+                        withIntermediateDirectories: true,
+                        attributes: nil
+                    )
+                    print("✅ Created Application Support directory")
+                } catch {
+                    print("❌ Failed to create Application Support directory: \(error)")
+                }
+            }
+            
+            // 데이터베이스 파일 URL 설정
+            let storeURL = applicationSupportURL.appendingPathComponent("AISnapStudy.sqlite")
+            storeDescription.url = storeURL
+            
+            print("📁 CoreData store URL: \(storeURL.path)")
+            
+            // 마이그레이션 옵션 설정
+            storeDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
+            storeDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
+            storeDescription.setOption(["journal_mode": "WAL"] as NSDictionary, forKey: NSSQLitePragmasOption)
+            storeDescription.setOption(FileProtectionType.complete as NSString, forKey: NSPersistentStoreFileProtectionKey)
+            
+            container.persistentStoreDescriptions = [storeDescription]
+        }
+        
+        // 저장소 로드
+        container.loadPersistentStores { description, error in
+            if let error = error {
+                print("""
+                ❌ CoreData Error:
+                • Error: \(error.localizedDescription)
+                • Description: \(description)
+                • Store URL: \(description.url?.absoluteString ?? "unknown")
+                """)
+                
+                // 오류 발생 시 저장소 재생성 시도
+                if let storeURL = description.url {
+                    do {
+                        try FileManager.default.removeItem(at: storeURL)
+                        print("🔄 Removed existing store file")
+                        
+                        // 저장소 재생성
+                        try container.persistentStoreCoordinator.addPersistentStore(
+                            ofType: NSSQLiteStoreType,
+                            configurationName: nil,
+                            at: storeURL,
+                            options: [
+                                NSMigratePersistentStoresAutomaticallyOption: true,
+                                NSInferMappingModelAutomaticallyOption: true
+                            ]
+                        )
+                        print("✅ Successfully recreated store")
+                    } catch {
+                        print("❌ Failed to recreate store: \(error)")
+                        fatalError("Unresolved error \(error)")
+                    }
+                }
+            } else {
+                print("✅ CoreData store loaded successfully")
+            }
+        }
+        
+        // Context 설정
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        
+        return container
+    }()
+    
+    // viewContext에 대한 public 접근자 추가
+    public var viewContext: NSManagedObjectContext {
+        persistentContainer.viewContext
+    }
+    
+    private init() {}
+    
+    // 공개 메서드들...
+    public func saveContext() {
+        if viewContext.hasChanges {
+            do {
+                try viewContext.save()
+                print("✅ CoreData context saved successfully")
+            } catch {
+                print("❌ CoreData context save error: \(error)")
+                viewContext.rollback()
+            }
+        }
+    }
+    
+    public func newBackgroundContext() -> NSManagedObjectContext {
+        let context = persistentContainer.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        return context
+    }
+    
+    // MARK: - ProblemSet Operations
+    // File: ./AISnapStudy/CoreData/CoreDataService.swift
+
+    public func fetchProblemSets() throws -> [ProblemSet] {
+        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        
+        do {
+            let cdProblemSets = try viewContext.fetch(request)
+            print("📊 Fetched \(cdProblemSets.count) ProblemSets from CoreData")
+            
+            return try cdProblemSets.map { cdProblemSet -> ProblemSet in
+                let questions = (cdProblemSet.questions?.allObjects as? [CDQuestion])?
+                    .compactMap { cdQuestion -> Question? in
+                        guard let id = cdQuestion.id,
+                              let type = cdQuestion.type,
+                              let questionText = cdQuestion.question,
+                              let correctAnswer = cdQuestion.correctAnswer,
+                              let explanation = cdQuestion.explanation else {
+                            print("⚠️ Invalid question data found")
+                            return nil
+                        }
+                        
+                        let options = cdQuestion.options as? [String] ?? []
+                        let matchingOptions = cdQuestion.matchingOptions as? [String] ?? []
+                        
+                        return Question(
+                            id: id,
+                            type: QuestionType(rawValue: type) ?? .multipleChoice,
+                            subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                            difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
+                            question: questionText,
+                            options: options,
+                            matchingOptions: matchingOptions,
+                            correctAnswer: correctAnswer,
+                            explanation: explanation,
+                            hint: cdQuestion.hint,
+                            isSaved: cdQuestion.isSaved,
+                            createdAt: cdQuestion.createdAt ?? Date()
+                        )
+                    } ?? []
+                
+                print("📚 Loaded \(questions.count) questions for ProblemSet: \(cdProblemSet.id ?? "")")
+                
+                return ProblemSet(
+                    id: cdProblemSet.id ?? UUID().uuidString,
+                    title: cdProblemSet.title ?? "",
+                    subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                    difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
+                    questions: questions,
+                    createdAt: cdProblemSet.createdAt ?? Date(),
+                    lastAttempted: cdProblemSet.lastAttempted
+                )
+            }
+        } catch {
+            print("❌ Failed to fetch ProblemSets: \(error)")
+            throw error
+        }
+    }
+    public func saveProblemSet(_ problemSet: ProblemSet) throws {
+        print("📝 Starting to save ProblemSet: \(problemSet.id)")
+        
+        let cdProblemSet = CDProblemSet(context: viewContext)
+        cdProblemSet.id = problemSet.id
+        cdProblemSet.title = problemSet.title
+        cdProblemSet.subject = problemSet.subject.rawValue
+        cdProblemSet.difficulty = problemSet.difficulty.rawValue
+        cdProblemSet.createdAt = problemSet.createdAt
+        cdProblemSet.lastAttempted = problemSet.lastAttempted
+        
+        // 문제 저장 전 로그
+        print("💾 Preparing to save \(problemSet.questions.count) questions")
+        
+        // questions 관계 설정
+        let questionSet = NSMutableSet()
+        
+        for question in problemSet.questions {
+            let cdQuestion = CDQuestion(context: viewContext)
+            cdQuestion.id = question.id
+            cdQuestion.type = question.type.rawValue
+            cdQuestion.question = question.question
+            
+            // options 배열 변환 및 저장
+            cdQuestion.options = NSArray(array: question.options)
+            cdQuestion.matchingOptions = NSArray(array: question.matchingOptions)
+            
+            cdQuestion.correctAnswer = question.correctAnswer
+            cdQuestion.explanation = question.explanation
+            cdQuestion.hint = question.hint
+            cdQuestion.isSaved = question.isSaved
+            cdQuestion.createdAt = question.createdAt
+            cdQuestion.problemSet = cdProblemSet
+            
+            questionSet.add(cdQuestion)
+            
+            print("✏️ Prepared question: \(question.id)")
+        }
+        
+        cdProblemSet.questions = questionSet
+        
+        do {
+            try viewContext.save()
+            print("✅ Successfully saved ProblemSet with \(questionSet.count) questions")
+            
+            // 저장 후 확인
+            if let savedQuestions = cdProblemSet.questions {
+                print("📚 Verified \(savedQuestions.count) questions in CoreData")
+            }
+        } catch {
+            print("❌ Failed to save ProblemSet: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    // MARK: - Question Operations
+    public func saveQuestion(_ question: Question) throws {
+        let cdQuestion = CDQuestion(context: viewContext)
+        updateCDQuestion(cdQuestion, with: question)
+        
+        do {
+            try viewContext.save()
+            print("✅ Saved Question: \(question.id)")
+        } catch {
+            print("❌ Failed to save Question: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    
+    public func deleteQuestion(_ question: Question) throws {
+        // Type annotation을 명시적으로 지정
+        let request = NSFetchRequest<CDQuestion>(entityName: "CDQuestion")
+        // 또는 아래와 같이 작성 가능
+        // let request: NSFetchRequest<CDQuestion> = NSFetchRequest(entityName: "CDQuestion")
+        
+        request.predicate = NSPredicate(format: "id == %@", question.id)
+        
+        do {
+            let questions = try viewContext.fetch(request)
+            if let cdQuestion = questions.first {
+                viewContext.delete(cdQuestion)
+                try viewContext.save()
+                print("✅ Deleted Question: \(question.id)")
+            }
+        } catch {
+            print("❌ Failed to delete Question: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    
+    // MARK: - Helper Methods
+    // 조회 로직도 수정
+    private func updateCDQuestion(_ cdQuestion: CDQuestion, with question: Question) {
+        cdQuestion.id = question.id
+        cdQuestion.type = question.type.rawValue
+        cdQuestion.question = question.question
+        
+        // Convert String arrays to NSArray
+        cdQuestion.options = NSArray(array: question.options)
+        cdQuestion.matchingOptions = NSArray(array: question.matchingOptions)
+        
+        cdQuestion.correctAnswer = question.correctAnswer
+        cdQuestion.explanation = question.explanation
+        cdQuestion.hint = question.hint
+        cdQuestion.isSaved = question.isSaved
+        cdQuestion.createdAt = question.createdAt
+    }
+}
+
+// CDQuestion+Extension 수정
+extension CDQuestion {
+    func toDomain() -> Question? {
+        guard let id = self.id,
+              let type = self.type,
+              let question = self.question,
+              let correctAnswer = self.correctAnswer,
+              let explanation = self.explanation else {
+            return nil
+        }
+        
+        // NSArray를 [String]으로 변환
+        let options = (self.options as? [String]) ?? []
+        let matchingOptions = (self.matchingOptions as? [String]) ?? []
+        
+        return Question(
+            id: id,
+            type: QuestionType(rawValue: type) ?? .multipleChoice,
+            subject: Subject(rawValue: self.problemSet?.subject ?? "") ?? .math,
+            difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
+            question: question,
+            options: options,
+            matchingOptions: matchingOptions,
+            correctAnswer: correctAnswer,
+            explanation: explanation,
+            hint: self.hint,
+            isSaved: self.isSaved,
+            createdAt: self.createdAt ?? Date()
+        )
+    }
+}
