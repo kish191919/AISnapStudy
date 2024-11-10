@@ -1,5 +1,4 @@
-
-// ViewModels/HomeViewModel.swift
+// ./AISnapStudy/ViewModels/HomeViewModel.swift
 
 import Foundation
 import Combine
@@ -9,30 +8,44 @@ class HomeViewModel: ObservableObject {
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
-    @Published private(set) var selectedProblemSet: ProblemSet? {
-            didSet {
-                print("""
-                🔄 HomeViewModel - selectedProblemSet changed:
-                • Old ID: \(oldValue?.id ?? "none")
-                • New ID: \(selectedProblemSet?.id ?? "none")
-                • Questions Count: \(selectedProblemSet?.questions.count ?? 0)
-                """)
-                objectWillChange.send()  // 명시적으로 변경 알림
-            }
+    
+    // 여기서 변경된 문제 세트를 StudyViewModel에 알리기 위해 Observable로 변경
+    @Published var selectedProblemSet: ProblemSet? {
+        didSet {
+            guard selectedProblemSet?.id != oldValue?.id else { return }
+            
+            print("""
+            🔄 HomeViewModel - selectedProblemSet changed:
+            • Old ID: \(oldValue?.id ?? "none")
+            • New ID: \(selectedProblemSet?.id ?? "none")
+            • Questions Count: \(selectedProblemSet?.questions.count ?? 0)
+            """)
+            objectWillChange.send()
         }
+    }
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
+    private var hasLoadedData = false
     
     init() {
         Task {
-            await loadData()
+            await loadInitialData()
         }
     }
     
     // MARK: - Data Loading
     @MainActor
+    private func loadInitialData() async {
+        guard !hasLoadedData else { return }
+        await loadData()
+        hasLoadedData = true
+    }
+    
+    @MainActor
     func loadData() async {
+        guard !isLoading else { return }
+        
         print("🔵 HomeViewModel - Loading data")
         isLoading = true
         error = nil
@@ -46,10 +59,9 @@ class HomeViewModel: ObservableObject {
                 .flatMap { $0.questions }
                 .filter { $0.isSaved }
             
-            // 가장 최근 ProblemSet을 selectedProblemSet으로 설정
+            // 최근 ProblemSet을 selectedProblemSet으로 설정
             if selectedProblemSet == nil && !problemSets.isEmpty {
-                selectedProblemSet = problemSets[0] // 첫 번째 ProblemSet 선택
-                print("✅ Selected ProblemSet set to: \(problemSets[0].id)")
+                setSelectedProblemSet(problemSets[0])
             }
             
             print("✅ Loaded problem sets: \(problemSets.count)")
@@ -69,11 +81,12 @@ class HomeViewModel: ObservableObject {
         do {
             print("💾 Saving ProblemSet with \(problemSet.questions.count) questions")
             try await coreDataService.saveProblemSet(problemSet)
-            await loadData() // 저장 후 데이터 리로드
             
-            if let saved = try? await coreDataService.fetchProblemSets().first {
-                print("✅ Verified saved ProblemSet: \(saved.questions.count) questions")
-            }
+            // 데이터 리로드 대신 문제 세트 직접 추가
+            problemSets.insert(problemSet, at: 0)
+            setSelectedProblemSet(problemSet)
+            
+            print("✅ Saved ProblemSet: \(problemSet.questions.count) questions")
         } catch {
             self.error = error
             print("❌ Failed to save ProblemSet: \(error)")
@@ -82,9 +95,10 @@ class HomeViewModel: ObservableObject {
     
     @MainActor
     func setSelectedProblemSet(_ problemSet: ProblemSet?) {
+        guard selectedProblemSet?.id != problemSet?.id else { return }
+        
         print("🔵 HomeViewModel - Setting selected problem set")
         self.selectedProblemSet = problemSet
-        objectWillChange.send()  // 명시적으로 변경 알림
         
         if let problemSet = problemSet {
             print("""
@@ -95,26 +109,17 @@ class HomeViewModel: ObservableObject {
         }
     }
     
+    @MainActor
     func clearSelectedProblemSet() {
-        self.selectedProblemSet = nil
-    }
-    
-    func selectProblemSet(_ problemSet: ProblemSet?) {
-        self.selectedProblemSet = problemSet
+        setSelectedProblemSet(nil)
     }
     
     // MARK: - Question Management
     @MainActor
     func saveQuestion(_ question: Question) async {
         do {
-            try await Task.detached {
-                let questions = (try? CoreDataService.shared.fetchProblemSets())?.flatMap { $0.questions } ?? []
-                var updatedQuestions = questions
-                updatedQuestions.append(question)
-                // 여기서 CoreData를 통해 question 저장 로직 구현 필요
-            }.value
-            
-            self.savedQuestions.append(question)
+            try await coreDataService.saveQuestion(question)
+            savedQuestions.append(question)
         } catch {
             self.error = error
             print("❌ Error saving question: \(error)")
@@ -130,18 +135,15 @@ class HomeViewModel: ObservableObject {
         let deletedQuestion = savedQuestions.remove(at: index)
         
         do {
-            try await Task.detached {
-                // 여기서 CoreData를 통해 question 삭제 로직 구현 필요
-            }.value
+            try await coreDataService.deleteQuestion(question)
         } catch {
             self.error = error
-            self.savedQuestions.insert(deletedQuestion, at: index)
+            savedQuestions.insert(deletedQuestion, at: index)
             print("❌ Error deleting question: \(error)")
         }
     }
-}
-
-extension HomeViewModel {
+    
+    // MARK: - Debug Helper
     @MainActor
     func verifyProblemSetStorage() {
         Task {

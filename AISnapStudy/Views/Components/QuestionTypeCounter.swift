@@ -1,6 +1,3 @@
-// Views/Components/QuestionTypeCounter.swift
-import SwiftUI
-
 
 import SwiftUI
 

@@ -1,4 +1,4 @@
-// Models/DailyProgress.swift
+
 import Foundation
 
 struct DailyProgress: Identifiable {

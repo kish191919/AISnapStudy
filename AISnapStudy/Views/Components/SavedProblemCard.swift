@@ -1,4 +1,4 @@
-// Views/Components/SavedProblemCard.swift
+
 import SwiftUI
 
 struct SavedProblemCard: View {

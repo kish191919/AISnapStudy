@@ -1,5 +1,4 @@
-//
-//  Models/HistoryFilter.swift
+
 import Foundation
 
 enum HistoryFilter: String, CaseIterable {

@@ -1,5 +1,4 @@
 
-// ViewModels/QuestionSettingsViewModel.swift
 import Foundation
 import SwiftUI
 import PhotosUI
@@ -219,7 +218,7 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     
     @MainActor
-    private func processGeneratedQuestions(_ questions: [Question]) async {
+    func processGeneratedQuestions(_ questions: [Question]) async {
         print("\n🔄 Processing Generated Questions:")
         print("Number of questions by type:")
         let questionsByType = Dictionary(grouping: questions, by: { $0.type })
@@ -238,10 +237,16 @@ class QuestionSettingsViewModel: ObservableObject {
         )
         
         print("\n📦 Setting ProblemSet in HomeViewModel")
-        // 먼저 ProblemSet 저장
+        // ProblemSet 저장
         await homeViewModel.saveProblemSet(problemSet)
-        // 저장 후 selectedProblemSet 설정
+        // 저장된 ProblemSet을 바로 선택하여 사용
         await homeViewModel.setSelectedProblemSet(problemSet)
+        
+        // Study 탭으로 자동 전환
+        NotificationCenter.default.post(
+            name: Notification.Name("ShowStudyView"),
+            object: nil
+        )
     }
 
     @MainActor

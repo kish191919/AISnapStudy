@@ -1,5 +1,3 @@
-// Views/Main/HistoryView.swift
-import SwiftUI
 
 import SwiftUI
 

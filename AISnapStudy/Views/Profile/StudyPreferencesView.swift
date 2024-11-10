@@ -1,4 +1,3 @@
-// Views/Profile/StudyPreferencesView.swift
 
 import SwiftUI
 

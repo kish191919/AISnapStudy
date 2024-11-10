@@ -1,4 +1,4 @@
-// Shared/CustomNavigationBar.swift
+
 import SwiftUI
 
 struct CustomNavigationBar: View {

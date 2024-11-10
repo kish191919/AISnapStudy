@@ -1,4 +1,4 @@
-// ViewModels/StatViewModel.swift
+
 import Foundation
 import Combine
 

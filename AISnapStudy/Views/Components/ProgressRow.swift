@@ -1,5 +1,4 @@
-//
-//  Views/Components/ProgressRow.swift
+
 import SwiftUI
 
 struct ProgressRow: View {

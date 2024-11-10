@@ -1,5 +1,4 @@
-// Views/Components/DifficultySelector.swift
-// Views/Components/DifficultySelector.swift
+
 import SwiftUI
 
 struct DifficultySelector: View {

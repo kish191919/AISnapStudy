@@ -1,4 +1,4 @@
-// Views/Main/StatView.swift
+
 import SwiftUI
 import Charts
 

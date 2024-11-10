@@ -1,4 +1,4 @@
-// Models/User.swift
+
 import Foundation
 
 struct User: Codable, Identifiable {

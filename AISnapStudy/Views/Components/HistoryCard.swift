@@ -1,5 +1,4 @@
 
-//  Views/Components/HistoryCard.swift
 
 import SwiftUI
 

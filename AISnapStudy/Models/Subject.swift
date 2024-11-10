@@ -1,6 +1,4 @@
 
-//  Models/Subject.swift
-
 import SwiftUI
 
 public enum Subject: String, Codable, CaseIterable {

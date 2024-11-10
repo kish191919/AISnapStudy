@@ -1,4 +1,4 @@
-// Views/Question/QuestionCardView.swift
+
 import SwiftUI
 
 struct QuestionCardView: View {

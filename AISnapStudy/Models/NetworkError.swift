@@ -1,4 +1,4 @@
-// Models/NetworkError.swift
+
 import Foundation
 
 enum NetworkError: LocalizedError {

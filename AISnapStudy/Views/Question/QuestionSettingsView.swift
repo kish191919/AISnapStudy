@@ -1,5 +1,4 @@
 
-// Views/Question/QuestionSettingsView.swift
 
 import SwiftUI
 import PhotosUI

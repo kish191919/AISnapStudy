@@ -1,6 +1,4 @@
 
-
-// Services/OpenAIService.swift
 import AISnapStudy // NetworkError import
 import Foundation
 

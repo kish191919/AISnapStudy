@@ -1,5 +1,5 @@
 
-// CoreData/CoreDataService.swift
+
 
 import CoreData
 import Foundation
@@ -121,6 +121,7 @@ class CoreDataService {
     // File: ./AISnapStudy/CoreData/CoreDataService.swift
 
     public func fetchProblemSets() throws -> [ProblemSet] {
+        print("📊 Fetching ProblemSets from CoreData")
         let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
         request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
         

@@ -1,9 +1,7 @@
-
-// Views/Main/HomeView.swift
 import SwiftUI
 
 struct HomeView: View {
-    @StateObject private var viewModel = HomeViewModel()
+    @ObservedObject var viewModel: HomeViewModel // 외부에서 전달받은 viewModel 사용
     @State private var sheetState: SheetState = .hidden
     
     private enum SheetState: Equatable {
@@ -56,6 +54,20 @@ struct HomeView: View {
                         }
                     }
                     .padding(.horizontal)
+                    
+                    // StudyView로 이동 버튼 추가
+                    if let selectedProblemSet = viewModel.selectedProblemSet {
+                        NavigationLink(destination: StudyView(questions: selectedProblemSet.questions, homeViewModel: viewModel)) {
+                            Text("Go to Study")
+                                .font(.headline)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.accentColor)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                                .padding(.horizontal)
+                        }
+                    }
                 }
                 .padding(.vertical)
             }

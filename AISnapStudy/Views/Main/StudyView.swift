@@ -1,189 +1,77 @@
-//  Views/Main/StudyView.swift
-
 import SwiftUI
 
 struct StudyView: View {
-    @State private var showExplanation = false
-    @State private var isCorrect: Bool? = nil // Store answer correctness
-    @State private var selectedAnswer: String? = nil // Track selected answer
-    @State private var questionIndex = 0 // Current question index
+    @StateObject private var studyViewModel: StudyViewModel
+    let questions: [Question]
     
-    var questions: [Question] // Array of questions to display
-    
-    // Initializer to receive questions array
-    init(questions: [Question]) {
+    init(questions: [Question], homeViewModel: HomeViewModel) {
+        print("🎯 StudyView initialized with \(questions.count) questions")
         self.questions = questions
+        let viewModel = StudyViewModel(homeViewModel: homeViewModel)
+        _studyViewModel = StateObject(wrappedValue: viewModel)
     }
-
+    
     var body: some View {
         VStack {
-            // Progress bar to show current question progress
-            ProgressView(value: Double(min(questionIndex + 1, questions.count)), total: Double(questions.count))
-                .progressViewStyle(LinearProgressViewStyle())
+            // Progress bar
+            ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
+                        total: Double(studyViewModel.totalQuestions))
+                .progressViewStyle(.linear)
                 .padding()
             
-            if questions.isEmpty {
+            Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            if !studyViewModel.hasQuestions {
                 Text("No questions available")
                     .font(.headline)
                     .foregroundColor(.gray)
             } else {
-                VStack(alignment: .leading, spacing: 20) {
-                    if questionIndex < questions.count {
-                        QuestionCardView(
-                            question: questions[questionIndex],
-                            selectedAnswer: $selectedAnswer,
-                            isCorrect: $isCorrect,
-                            onAnswerSelected: handleAnswerSelected
-                        )
-                        
-                        if let isCorrect = isCorrect {
-                            Text(isCorrect ? "Correct!" : "Wrong!")
-                                .foregroundColor(isCorrect ? .green : .red)
-                                .font(.headline)
-                                .padding()
+                if let currentQuestion = studyViewModel.currentQuestion {
+                    VStack(alignment: .leading, spacing: 20) {
+                        switch currentQuestion.type {
+                        case .multipleChoice:
+                            MultipleChoiceView(
+                                question: currentQuestion,
+                                selectedAnswer: $studyViewModel.selectedAnswer,
+                                showExplanation: studyViewModel.showExplanation
+                            )
+                        case .fillInBlanks:
+                            FillInBlanksView(
+                                question: currentQuestion,
+                                answer: $studyViewModel.selectedAnswer,
+                                showExplanation: studyViewModel.showExplanation
+                            )
+                        case .matching:
+                            MatchingView(
+                                question: currentQuestion,
+                                selectedPairs: $studyViewModel.matchingPairs,
+                                showExplanation: studyViewModel.showExplanation
+                            )
                         }
-                    }
-                    
-                    Spacer()
-                }
-                .padding()
-            }
-        }
-    }
-    
-    // Handle answer selection and move to next question after a delay
-    private func handleAnswerSelected(isCorrect: Bool) {
-        self.isCorrect = isCorrect
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { // Wait 1 second before moving
-            nextQuestion()
-        }
-    }
-    
-    private func nextQuestion() {
-        guard questionIndex < questions.count - 1 else {
-            return
-        }
-        questionIndex += 1
-        resetAnswer()
-    }
-    
-    private func resetAnswer() {
-        isCorrect = nil
-        selectedAnswer = nil
-    }
-}
-
-
-
-
-
-
-struct StudyContentView: View {
-    let problemSet: ProblemSet
-    @ObservedObject var viewModel: StudyViewModel
-    
-    private var progress: Double {
-        // 문제가 없을 경우 0을 반환
-        guard viewModel.totalQuestions > 0 else { return 0 }
-        // currentIndex는 0-based이므로 1을 더하고, total로 나누어 비율 계산
-        return Double(min(viewModel.currentIndex + 1, viewModel.totalQuestions)) / Double(viewModel.totalQuestions)
-    }
-    
-    var body: some View {
-        VStack {
-            // Progress Indicator - 수정된 부분
-            ProgressView(value: progress)
-                .progressViewStyle(.linear)
-                .padding()
-            
-            Text("\(viewModel.currentIndex + 1) / \(viewModel.totalQuestions)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            if let question = viewModel.currentQuestion {
-                VStack {
-                    switch question.type {
-                    case .multipleChoice:
-                        MultipleChoiceView(
-                            question: question,
-                            selectedAnswer: $viewModel.selectedAnswer,
-                            showExplanation: viewModel.showExplanation
-                        )
                         
-                    case .fillInBlanks:
-                        FillInBlanksView(
-                            question: question,
-                            answer: $viewModel.selectedAnswer,
-                            showExplanation: viewModel.showExplanation
-                        )
+                        if studyViewModel.showExplanation {
+                            ExplanationView(question: currentQuestion)
+                        }
                         
-                    case .matching:
-                        MatchingView(
-                            question: question,
-                            selectedPairs: $viewModel.matchingPairs,
-                            showExplanation: viewModel.showExplanation
-                        )
+                        ActionButton(viewModel: studyViewModel)
                     }
-                }
-                .id(question.id)
-            }
-        }
-    }
-}
-
-
-
-struct QuestionView: View {
-    let question: Question
-    @ObservedObject var viewModel: StudyViewModel
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                let _ = debugLog("📖 Rendering question: \(question.question)")
-                
-                Text(question.question)
-                    .font(.headline)
                     .padding()
-                
-                switch question.type {
-                case .multipleChoice:
-                    let _ = debugLog("🔤 Rendering MultipleChoiceView")
-                    MultipleChoiceView(
-                        question: question,
-                        selectedAnswer: $viewModel.selectedAnswer,
-                        showExplanation: viewModel.showExplanation
-                    )
-                case .fillInBlanks:
-                    let _ = debugLog("✏️ Rendering FillInBlanksView")
-                    FillInBlanksView(
-                        question: question,
-                        answer: $viewModel.selectedAnswer,
-                        showExplanation: viewModel.showExplanation
-                    )
-                case .matching:
-                    let _ = debugLog("🔄 Rendering MatchingView")
-                    MatchingView(
-                        question: question,
-                        selectedPairs: $viewModel.matchingPairs,
-                        showExplanation: viewModel.showExplanation
-                    )
+                    .id(currentQuestion.id)
                 }
                 
-                if viewModel.showExplanation {
-                    ExplanationView(question: question)
-                }
-                
-                ActionButton(viewModel: viewModel)
+                Spacer()
             }
-            .padding()
         }
-    }
-    
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print(message)
-        #endif
+        .onAppear {
+            print("📝 StudyView appeared with \(questions.count) questions")
+            // 지연 로드로 변경
+            DispatchQueue.main.async {
+                studyViewModel.loadQuestions(questions)
+            }
+        }
+        .id("\(questions.hashValue)")  // View 강제 갱신을 위한 id 추가
     }
 }
 

@@ -1,4 +1,4 @@
-// Views/Question/MultipleChoiceView.swift
+
 import SwiftUI
 
 struct MultipleChoiceView: View {

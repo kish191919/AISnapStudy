@@ -1,6 +1,3 @@
-//
-// Views/Components/SearchBar.swift
-
 
 import SwiftUI
 
