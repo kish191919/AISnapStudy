@@ -3,26 +3,25 @@ import Combine
 import CoreData
 
 struct MainTabView: View {
-    @Environment(\.managedObjectContext) private var context // Core Data context 추가
-    @StateObject private var homeViewModel = HomeViewModel() // HomeViewModel 인스턴스 생성
+    @Environment(\.managedObjectContext) private var context
+    @StateObject private var homeViewModel = HomeViewModel()
     @State private var selectedTab = 0
    
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView(viewModel: homeViewModel) // HomeView에 viewModel 전달
+            HomeView(viewModel: homeViewModel, selectedTab: $selectedTab)
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
                 .tag(0)
            
             if let problemSet = homeViewModel.selectedProblemSet {
-                // StudyView를 호출하는 곳에서 context 전달
-                StudyView(questions: problemSet.questions, homeViewModel: homeViewModel, context: context)
+                StudyView(questions: problemSet.questions, homeViewModel: homeViewModel, context: context, selectedTab: $selectedTab)
                     .tabItem {
                         Label("Study", systemImage: "book.fill")
                     }
                     .tag(1)
-                    .id("\(problemSet.id)_\(problemSet.questions.count)")  // id 수정
+                    .id("\(problemSet.id)_\(problemSet.questions.count)")
             } else {
                 Text("No Problem Set Selected")
                     .tabItem {
@@ -37,24 +36,22 @@ struct MainTabView: View {
                 }
                 .tag(2)
            
-            ProfileView()
-                .tabItem {
-                    Label("Profile", systemImage: "person.fill")
-                }
-                .tag(3)
+            StatView(
+                correctAnswers: homeViewModel.correctAnswers,
+                totalQuestions: homeViewModel.totalQuestions,
+                context: context
+            )
+            .tabItem {
+                Label("Stats", systemImage: "chart.bar.fill")
+            }
+            .tag(3)
         }
         .onChange(of: homeViewModel.selectedProblemSet) { newValue in
             if selectedTab == 1 {
-                // 강제로 탭을 변경했다가 다시 돌아와서 View 갱신
                 selectedTab = 0
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     selectedTab = 1
                 }
-            }
-        }
-        .onChange(of: selectedTab) { newValue in
-            if newValue == 1 {
-                print("🔄 Study Tab selected - Refreshing view")
             }
         }
         .environmentObject(homeViewModel)
@@ -75,7 +72,6 @@ struct MainTabView: View {
             print("🔄 Switching to Study Tab")
             if let problemSet = homeViewModel.selectedProblemSet {
                 withAnimation {
-                    // 강제로 탭을 변경했다가 다시 돌아와서 View 갱신
                     selectedTab = 0
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         selectedTab = 1

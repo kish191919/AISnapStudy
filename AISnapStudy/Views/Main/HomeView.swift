@@ -3,8 +3,9 @@ import Combine
 import CoreData
 
 struct HomeView: View {
-    @ObservedObject var viewModel: HomeViewModel // 외부에서 전달받은 viewModel 사용
-    @Environment(\.managedObjectContext) private var context // Core Data context 추가
+    @ObservedObject var viewModel: HomeViewModel
+    @Environment(\.managedObjectContext) private var context
+    @Binding var selectedTab: Int // selectedTab을 Binding으로 받음
     @State private var sheetState: SheetState = .hidden
     
     private enum SheetState: Equatable {
@@ -32,7 +33,6 @@ struct HomeView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Create New Questions Section
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Create New Questions")
                             .font(.title2)
@@ -64,7 +64,8 @@ struct HomeView: View {
                             destination: StudyView(
                                 questions: selectedProblemSet.questions,
                                 homeViewModel: viewModel,
-                                context: context // context 전달
+                                context: context,
+                                selectedTab: $selectedTab // selectedTab 전달
                             )
                         ) {
                             Text("Go to Study")

@@ -1,13 +1,12 @@
 import SwiftUI
 import Charts
-import CoreData // Core Data 모듈을 import
+import CoreData
 
 struct StatView: View {
-    @Environment(\.managedObjectContext) private var context // Core Data context
     @StateObject private var viewModel: StatViewModel
     let correctAnswers: Int
     let totalQuestions: Int
-    
+
     init(correctAnswers: Int, totalQuestions: Int, context: NSManagedObjectContext) {
         self.correctAnswers = correctAnswers
         self.totalQuestions = totalQuestions
@@ -44,29 +43,26 @@ struct StatView: View {
                     GridItem(.flexible()),
                     GridItem(.flexible())
                 ], spacing: 20) {
-                    StatCard(title: "총 점수",
-                             value: "\(viewModel.totalPoints)점",
-                             icon: "star.fill",
-                             color: .yellow)
-                    
-                    StatCard(title: "완료한 문제",
-                             value: "\(viewModel.completedQuestions)개",
-                             icon: "checkmark.circle.fill",
-                             color: .green)
-                    
-                    StatCard(title: "정답률",
-                             value: String(format: "%.1f%%", viewModel.accuracyRate),
-                             icon: "percent",
-                             color: .blue)
-                    
-                    StatCard(title: "정답 수",
-                             value: "\(viewModel.correctAnswers)개",
-                             icon: "target",
-                             color: .red)
+                    StatCard(title: "총 점수", value: "\(viewModel.totalPoints)점", icon: "star.fill", color: .yellow)
+                    StatCard(title: "완료한 문제", value: "\(viewModel.completedQuestions)개", icon: "checkmark.circle.fill", color: .green)
+                    StatCard(title: "정답률", value: String(format: "%.1f%%", viewModel.accuracyRate), icon: "percent", color: .blue)
+                    StatCard(title: "정답 수", value: "\(viewModel.correctAnswers)개", icon: "target", color: .red)
                 }
                 .padding()
                 
-                Spacer()
+                // 다시 풀기 버튼
+                Button(action: {
+                    viewModel.resetProgress() // 학습 진행 상황 초기화
+                }) {
+                    Text("다시 풀기")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                }
+                .padding()
             }
             .padding()
         }
@@ -75,3 +71,5 @@ struct StatView: View {
         }
     }
 }
+
+

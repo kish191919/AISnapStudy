@@ -80,4 +80,12 @@ class StatViewModel: ObservableObject {
     func formatProgress(_ progress: Double) -> String {
         return String(format: "%.1f%%", progress)
     }
+    
+    func resetProgress() {
+        // Progress 초기화 로직 추가 (예시)
+        // CoreData 또는 앱 내부 상태 초기화 및 필요한 곳에서 다시 시작할 수 있도록 설정
+        correctAnswers = 0
+        totalQuestions = 0
+        loadStats() // 다시 통계를 로드하도록 호출
+    }
 }

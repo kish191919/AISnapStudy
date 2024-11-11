@@ -8,6 +8,8 @@ class HomeViewModel: ObservableObject {
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
+    @Published var correctAnswers: Int = 0
+    @Published var totalQuestions: Int = 0
     
     // 여기서 변경된 문제 세트를 StudyViewModel에 알리기 위해 Observable로 변경
     @Published var selectedProblemSet: ProblemSet? {
