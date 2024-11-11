@@ -31,6 +31,11 @@ class OpenAIService {
             throw NetworkError.noConnection
         }
         
+        print("🚀 Generating questions:")
+        print("• Subject: \(subject.rawValue)")
+        print("• Difficulty: \(difficulty.rawValue)")
+        print("• Question Types: \(questionTypes)")
+        
         let base64Image = imageData.base64EncodedString()
         
         // Create schema for structured output

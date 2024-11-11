@@ -25,9 +25,22 @@
 		989CC9FD2CE135CA00E25D14 /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		98E728422CE1CCCA00C90F73 /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 989CC9FC2CE135CA00E25D14 /* AISnapStudy */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		989CC9FF2CE135CA00E25D14 /* AISnapStudy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				98E728422CE1CCCA00C90F73 /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */,
+			);
 			path = AISnapStudy;
 			sourceTree = "<group>";
 		};
@@ -282,8 +295,11 @@
 				DEVELOPMENT_TEAM = 7F4M4ATHP5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "";
+				INFOPLIST_FILE = AISnapStudy/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to take pictures and create learning questions";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Photo access is required to create learning problems by selecting photos from the gallery";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -313,8 +329,11 @@
 				DEVELOPMENT_TEAM = 7F4M4ATHP5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "";
+				INFOPLIST_FILE = AISnapStudy/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to take pictures and create learning questions";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Photo access is required to create learning problems by selecting photos from the gallery";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
