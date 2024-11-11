@@ -102,7 +102,7 @@ class OpenAIService {
         - A correct answer
         - A helpful explanation
         - A hint (can be null if not applicable)
-        Ensure all responses strictly follow the provided schema format.
+        Ensure all responses strictly follow the provided schema format and create questions using the language written in the photo
         """
 
         // User prompt for specific requirements
