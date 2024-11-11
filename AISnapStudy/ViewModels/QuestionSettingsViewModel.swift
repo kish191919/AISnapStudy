@@ -249,7 +249,7 @@ class QuestionSettingsViewModel: ObservableObject {
                         try ImageCompressor.shared.compressForAPI(image)
                     }.value
                     
-                    await generateQuestions(from: compressedData, subject: subject)
+                    await generateQuestions(from: compressedData, subject: selectedSubject)
                 }
                 
                 selectedImages.removeAll()
@@ -350,10 +350,19 @@ class QuestionSettingsViewModel: ObservableObject {
                    .trueFalse: trueFalseCount
                ].filter { $0.value > 0 }
                
+               // 요청 데이터 준비 직전 로그 출력
+               print("🚀 Preparing to send data to OpenAI API:")
+               print("• Subject: \(subject.rawValue)")
+               print("• Difficulty: \(difficulty.rawValue)")
+               print("• Education Level: \(educationLevel.rawValue)")
+               print("• Question Types: \(questionTypes)")
+               print("• Image Data Size: \(imageData.count) bytes")
+               
                let questions = try await openAIService.generateQuestions(
                    from: imageData,
                    subject: subject,
                    difficulty: difficulty,
+                   educationLevel: educationLevel, // 추가
                    questionTypes: questionTypes
                )
                
@@ -382,8 +391,11 @@ class QuestionSettingsViewModel: ObservableObject {
             subject: subject,
             difficulty: difficulty,
             questions: questions,
-            createdAt: Date()
+            createdAt: Date(),
+            educationLevel: self.educationLevel, // 추가
+            name: "Default Name" // 추가
         )
+
         
         print("\n📦 Setting ProblemSet in HomeViewModel")
         // ProblemSet 저장

@@ -169,8 +169,11 @@ class CoreDataService {
                     difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
                     questions: questions,
                     createdAt: cdProblemSet.createdAt ?? Date(),
-                    lastAttempted: cdProblemSet.lastAttempted
+                    lastAttempted: cdProblemSet.lastAttempted,
+                    educationLevel: EducationLevel(rawValue: cdProblemSet.educationLevel ?? "") ?? .elementary, // 추가
+                    name: cdProblemSet.name ?? "Default Name" // 추가
                 )
+
             }
         } catch {
             print("❌ Failed to fetch ProblemSets: \(error)")

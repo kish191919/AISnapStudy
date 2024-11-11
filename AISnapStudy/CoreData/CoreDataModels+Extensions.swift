@@ -17,7 +17,12 @@ extension CDProblemSet {
             difficulty: Difficulty(rawValue: self.difficulty ?? "") ?? .medium,
             questions: questions,
             createdAt: self.createdAt ?? Date(),
-            lastAttempted: self.lastAttempted
+            lastAttempted: self.lastAttempted,
+            educationLevel: EducationLevel(rawValue: self.educationLevel ?? "") ?? .elementary, // 추가
+            name: self.name ?? "", // 추가
+            tags: self.tags as? [String] ?? [], // 추가
+            problemSetDescription: self.problemSetDescription,
+            isFavorite: self.isFavorite
         )
     }
 }
@@ -43,6 +48,7 @@ extension CDQuestion {
 }
 
 // MARK: - CDStudySession Extension
+// MARK: - CDStudySession Extension
 extension CDStudySession {
     func toDomain() -> StudySession {
         StudySession(
@@ -53,7 +59,9 @@ extension CDStudySession {
                 subject: .math,
                 difficulty: .medium,
                 questions: [],
-                createdAt: Date()
+                createdAt: Date(),
+                educationLevel: .elementary, // 추가
+                name: "Default Name" // 추가
             ),
             startTime: self.startTime ?? Date(),
             endTime: self.endTime,

@@ -19,6 +19,8 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var isTextInputActive: Bool = false
     @Published var hasSelectedCamera: Bool = false    // Add this
     @Published var hasSelectedGallery: Bool = false   // Add this
+    @Published var shouldCollapseQuestionTypes = false
+
     
     let subject: Subject
     
@@ -79,6 +81,14 @@ class QuestionSettingsViewModel: ObservableObject {
         return selectedImages.isEmpty // 실제 선택된 이미지가 없을 때만 체크
     }
     
+    func collapseQuestionTypes() {
+        shouldCollapseQuestionTypes = true
+        // 다음 상태 변경을 위해 리셋
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.shouldCollapseQuestionTypes = false
+        }
+    }
+
     var canUseImageInput: Bool {
         return !isTextInputActive || questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -91,8 +101,12 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     
     func onImageOptionSelected() {
-        NotificationCenter.default.post(name: Notification.Name("CollapseQuestionTypes"), object: nil)
-    }
+            shouldCollapseQuestionTypes = true
+            // 상태 리셋
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.shouldCollapseQuestionTypes = false
+            }
+        }
 
     var totalQuestionCount: Int {
         multipleChoiceCount + fillInBlanksCount + matchingCount + trueFalseCount
@@ -206,55 +220,101 @@ class QuestionSettingsViewModel: ObservableObject {
     
     @MainActor
     func sendAllImages() async {
-        guard !selectedImages.isEmpty else { return }
+        print("\n🚀 Starting sendAllImages")
+        print("Current state:")
+        print("• Selected Images: \(selectedImages.count)")
+        print("• Question Text: \(questionText.isEmpty ? "Empty" : "Has content")")
+        print("• Is Loading: \(isLoading)")
+        
+        // 입력 검증
+        guard !selectedImages.isEmpty || !questionText.isEmpty else {
+            print("❌ No content to generate questions from")
+            return
+        }
         
         // 네트워크 연결 확인
         guard networkMonitor.isReachable else {
+            print("❌ No network connection")
             showError(NetworkError.noConnection as Error)
             return
         }
         
         isLoading = true
+        print("🔄 Started loading state")
         
         do {
-            for image in selectedImages {
-                let compressedData = try await Task {
-                    try ImageCompressor.shared.compressForAPI(image)
-                }.value
+            if !selectedImages.isEmpty {
+                print("📸 Processing \(selectedImages.count) images")
+                for (index, image) in selectedImages.enumerated() {
+                    print("🖼️ Processing image \(index + 1) of \(selectedImages.count)")
+                    let compressedData = try await Task {
+                        try ImageCompressor.shared.compressForAPI(image)
+                    }.value
+                    
+                    await generateQuestions(from: compressedData, subject: subject)
+                }
                 
-                await generateQuestions(from: compressedData, subject: subject)
+                selectedImages.removeAll()
+                print("✅ All images processed and cleared")
+            } else if !questionText.isEmpty {
+                print("📝 Processing text input")
+                // 텍스트 기반 문제 생성 로직
             }
             
-            selectedImages.removeAll()
+            print("✅ Successfully generated questions")
             showSuccess()
         } catch {
+            print("❌ Error in sendAllImages: \(error.localizedDescription)")
             self.error = error
             showError(error)
         }
         
         isLoading = false
+        print("✅ Finished loading state\n")
     }
     
     // MARK: - Image Capture Methods
     @MainActor
-     func takePhoto() async {
-         do {
-             let hasPermission = try await imageService.requestPermission(for: .camera)
-             if hasPermission {
-                 showCamera = true
-                 hasCameraImage = true
-             } else {
-                 self.error = ImageServiceError.permissionDenied
-                 showError(ImageServiceError.permissionDenied)
-             }
-         } catch {
-             if let imageError = error as? ImageServiceError {
-                 showError(imageError)
-             } else {
-                 showError(error)
-             }
-         }
-     }
+    func takePhoto() async {
+        print("📸 Taking photo...")
+        do {
+            let hasPermission = try await imageService.requestPermission(for: .camera)
+            if hasPermission {
+                showCamera = true
+                hasCameraImage = true
+            } else {
+                self.error = ImageServiceError.permissionDenied
+                showError(ImageServiceError.permissionDenied)
+            }
+        } catch {
+            if let imageError = error as? ImageServiceError {
+                showError(imageError)
+            } else {
+                showError(error)
+            }
+        }
+    }
+    
+    @MainActor
+    func handleCameraImage(_ image: UIImage?) {
+        print("📸 Processing camera image...")
+        guard let image = image else {
+            print("❌ No image captured")
+            return
+        }
+
+        Task {
+            do {
+                await addImage(image)
+                hasCameraImage = true
+                hasSelectedCamera = true
+                print("✅ Camera image added successfully")
+            } catch {
+                print("❌ Failed to add camera image: \(error)")
+                showError(error)
+            }
+        }
+    }
      
      @MainActor
      func selectFromGallery() async {
@@ -278,37 +338,35 @@ class QuestionSettingsViewModel: ObservableObject {
     
     // MARK: - Question Generation
     @MainActor
-    private func generateQuestions(from imageData: Data, subject: Subject) async {
-        guard let openAIService = openAIService else {
-            print("OpenAI service not initialized")
-            return
-        }
-        
-        isLoading = true
-        
-        do {
-            let questionTypes: [QuestionType: Int] = [
-                .multipleChoice: multipleChoiceCount,
-                .fillInBlanks: fillInBlanksCount,
-                .matching: matchingCount
-            ]
-            
-            let questions = try await openAIService.generateQuestions(
-                from: imageData,
-                subject: subject,
-                difficulty: difficulty,
-                questionTypes: questionTypes
-            )
-            
-            isLoading = false
-            await processGeneratedQuestions(questions)
-        } catch {
-            self.error = error
-            isLoading = false
-            showError(error)
-            print("Question generation error:", error)
-        }
-    }
+       private func generateQuestions(from imageData: Data, subject: Subject) async {
+           guard let openAIService = openAIService else {
+               print("❌ OpenAI service not initialized")
+               return
+           }
+           
+           do {
+               let questionTypes: [QuestionType: Int] = [
+                   .multipleChoice: multipleChoiceCount,
+                   .fillInBlanks: fillInBlanksCount,
+                   .matching: matchingCount,
+                   .trueFalse: trueFalseCount
+               ].filter { $0.value > 0 }
+               
+               let questions = try await openAIService.generateQuestions(
+                   from: imageData,
+                   subject: subject,
+                   difficulty: difficulty,
+                   questionTypes: questionTypes
+               )
+               
+               print("✅ Generated \(questions.count) questions")
+               await processGeneratedQuestions(questions)
+           } catch {
+               print("❌ Question generation error: \(error)")
+               self.error = error
+               showError(error)
+           }
+       }
     
     @MainActor
     func processGeneratedQuestions(_ questions: [Question]) async {
@@ -1472,27 +1530,42 @@ public class CDStudySession: NSManagedObject {
 
 ## ./AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift
 
-
+//
+//  CDProblemSet+CoreDataProperties.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/11/24.
+//
+//
 
 import Foundation
 import CoreData
 
+
 extension CDProblemSet {
+
     @nonobjc public class func fetchRequest() -> NSFetchRequest<CDProblemSet> {
         return NSFetchRequest<CDProblemSet>(entityName: "CDProblemSet")
     }
 
-    @NSManaged public var id: String?
-    @NSManaged public var title: String?
-    @NSManaged public var subject: String?
-    @NSManaged public var difficulty: String?
     @NSManaged public var createdAt: Date?
+    @NSManaged public var difficulty: String?
+    @NSManaged public var educationLevel: String?
+    @NSManaged public var id: String?
+    @NSManaged public var isFavorite: Bool
     @NSManaged public var lastAttempted: Date?
+    @NSManaged public var name: String?
+    @NSManaged public var problemSetDescription: String?
+    @NSManaged public var subject: String?
+    @NSManaged public var tags: NSArray?
+    @NSManaged public var title: String?
     @NSManaged public var questions: NSSet?
+
 }
 
 // MARK: Generated accessors for questions
 extension CDProblemSet {
+
     @objc(addQuestionsObject:)
     @NSManaged public func addToQuestions(_ value: CDQuestion)
 
@@ -1504,6 +1577,11 @@ extension CDProblemSet {
 
     @objc(removeQuestions:)
     @NSManaged public func removeFromQuestions(_ values: NSSet)
+
+}
+
+extension CDProblemSet : Identifiable {
+
 }
 
 
@@ -1603,8 +1681,13 @@ extension CDStudySession : Identifiable {
 
 ## ./AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift
 
-
-
+//
+//  CDProblemSet+CoreDataClass.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/11/24.
+//
+//
 
 import Foundation
 import CoreData
@@ -2079,27 +2162,44 @@ public struct ProblemSet: Identifiable, Codable {
     public let createdAt: Date
     public var lastAttempted: Date?
     
+    // 새로 추가할 속성들
+    public let educationLevel: EducationLevel
+    public var name: String
+    public var tags: [String]
+    public var problemSetDescription: String?
+    public var isFavorite: Bool
+    
     public var questionCount: Int {
         questions.count
     }
     
     public init(
-        id: String,
-        title: String,
-        subject: Subject,
-        difficulty: Difficulty,
-        questions: [Question],
-        createdAt: Date,
-        lastAttempted: Date? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.subject = subject
-        self.difficulty = difficulty
-        self.questions = questions
-        self.createdAt = createdAt
-        self.lastAttempted = lastAttempted
-    }
+          id: String,
+          title: String,
+          subject: Subject,
+          difficulty: Difficulty,
+          questions: [Question],
+          createdAt: Date,
+          lastAttempted: Date? = nil,
+          educationLevel: EducationLevel,
+          name: String,
+          tags: [String] = [],
+          problemSetDescription: String? = nil,
+          isFavorite: Bool = false
+      ) {
+          self.id = id
+          self.title = title
+          self.subject = subject
+          self.difficulty = difficulty
+          self.questions = questions
+          self.createdAt = createdAt
+          self.lastAttempted = lastAttempted
+          self.educationLevel = educationLevel
+          self.name = name
+          self.tags = tags
+          self.problemSetDescription = problemSetDescription
+          self.isFavorite = isFavorite
+      }
 }
 
 // MARK: - Hashable
@@ -2978,7 +3078,12 @@ struct QuestionSettingsView: View {
         .sheet(isPresented: $viewModel.showCamera) {
             ImagePicker(
                 image: $viewModel.selectedImage,
-                sourceType: .camera
+                sourceType: .camera,
+                onImageSelected: { image in
+                    Task {
+                        await viewModel.handleCameraImage(image)
+                    }
+                }
             )
         }
         .alert(isPresented: $viewModel.showAlert) {
@@ -2997,21 +3102,11 @@ struct QuestionSettingsView: View {
                 LoadingView()
             }
         }
-        .onAppear {
-            setupNotifications()
-        }
-
-    }
-    // View 내에 메서드 추가
-    private func setupNotifications() {
-        NotificationCenter.default.addObserver(
-            forName: Notification.Name("CollapseQuestionTypes"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self = self else { return }
-            withAnimation {
-                self.expandedSections.remove(.questionTypes)
+        .onChange(of: viewModel.shouldCollapseQuestionTypes) { shouldCollapse in
+            if shouldCollapse {
+                withAnimation {
+                    expandedSections.remove(.questionTypes)
+                }
             }
         }
     }
@@ -3463,6 +3558,7 @@ struct ImagePicker: UIViewControllerRepresentable {
     @Environment(\.presentationMode) private var presentationMode
     @Binding var image: UIImage?
     let sourceType: UIImagePickerController.SourceType
+    var onImageSelected: ((UIImage) -> Void)? // 추가
     
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
@@ -3487,11 +3583,14 @@ struct ImagePicker: UIViewControllerRepresentable {
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             if let image = info[.originalImage] as? UIImage {
                 parent.image = image
+                parent.onImageSelected?(image)  // 콜백 호출
+                print("📸 Image captured successfully")
             }
             parent.presentationMode.wrappedValue.dismiss()
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            print("📸 Camera capture cancelled")
             parent.presentationMode.wrappedValue.dismiss()
         }
     }
@@ -3731,53 +3830,73 @@ struct ProblemSetCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // 상단 헤더
             HStack {
                 VStack(alignment: .leading) {
-                    Text(problemSet.title)
+                    Text(problemSet.name)
                         .font(.headline)
-                    
-                    Text("\(problemSet.questionCount) questions")
+                    Text(problemSet.title)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
-                
                 Spacer()
-                
-                Text(problemSet.subject.displayName)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(problemSet.subject.color.opacity(0.2))
-                    .foregroundColor(problemSet.subject.color)
-                    .cornerRadius(4)
-            }
-            
-            if let lastAttempted = problemSet.lastAttempted {
-                Text("Last attempted \(lastAttempted.timeAgo)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            // 난이도 표시
-            HStack(spacing: 4) {
-                ForEach(1...3, id: \.self) { level in
-                    Circle()
-                        .fill(level <= problemSet.difficulty.level ?
-                              problemSet.difficulty.color :
-                              Color.gray.opacity(0.3))
-                        .frame(width: 8, height: 8)
+                if problemSet.isFavorite {
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.yellow)
                 }
-                
-                Text(problemSet.difficulty.displayName)
+            }
+            
+            // 태그 목록
+            if !problemSet.tags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        ForEach(problemSet.tags, id: \.self) { tag in
+                            Text(tag)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.gray.opacity(0.2))
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+            
+            // 정보 그리드
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                InfoRow(title: "Subject", value: problemSet.subject.displayName)
+                InfoRow(title: "Level", value: problemSet.educationLevel.rawValue)
+                InfoRow(title: "Questions", value: "\(problemSet.questions.count)")
+                InfoRow(title: "Difficulty", value: problemSet.difficulty.rawValue)
+            }
+            .font(.caption)
+            
+            if let description = problemSet.problemSetDescription {
+                Text(description)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .padding(.leading, 4)
+                    .lineLimit(2)
             }
         }
         .padding()
         .background(Color.white)
         .cornerRadius(12)
         .shadow(radius: 2)
+    }
+}
+
+struct InfoRow: View {
+    let title: String
+    let value: String
+    
+    var body: some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .fontWeight(.medium)
+        }
     }
 }
 
@@ -4007,11 +4126,6 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-// File: ./AISnapStudy/Views/Components/ImageSelectionSection.swift
-
-// File: ./AISnapStudy/Views/Components/ImageSelectionSection.swift
-
-// File: ./AISnapStudy/Views/Components/ImageSelectionSection.swift
 
 struct ImageSelectionSection: View {
    @ObservedObject var viewModel: QuestionSettingsViewModel
@@ -4035,12 +4149,12 @@ struct ImageSelectionSection: View {
                                    if viewModel.canUseImageInput {
                                        viewModel.isTextInputActive = false
                                        isTextFieldFocused = false
+                                       viewModel.onImageOptionSelected()
                                        Task {
                                            await viewModel.takePhoto()
                                        }
                                    }
-                               },
-                               viewModel: viewModel
+                               }
                            )
                            .frame(maxWidth: .infinity)
                            
@@ -4053,12 +4167,12 @@ struct ImageSelectionSection: View {
                                    if viewModel.canUseImageInput {
                                        viewModel.isTextInputActive = false
                                        isTextFieldFocused = false
+                                       viewModel.onImageOptionSelected()
                                        Task {
                                            await viewModel.selectFromGallery()
                                        }
                                    }
-                               },
-                               viewModel: viewModel
+                               }
                            )
                            .frame(maxWidth: .infinity)
                            
@@ -4069,6 +4183,7 @@ struct ImageSelectionSection: View {
                                isDisabled: !viewModel.canUseTextInput,
                                action: {
                                    if viewModel.canUseTextInput {
+                                       viewModel.onImageOptionSelected()
                                        viewModel.toggleTextInput()
                                        if viewModel.isTextInputActive {
                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -4078,8 +4193,7 @@ struct ImageSelectionSection: View {
                                            isTextFieldFocused = false
                                        }
                                    }
-                               },
-                               viewModel: viewModel
+                               }
                            )
                            .frame(maxWidth: .infinity)
                        }
@@ -4099,7 +4213,10 @@ struct ImageSelectionSection: View {
                                // Generate Button for Text Input
                                if !viewModel.questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                    Button {
+                                       print("🔵 Generate Questions Button Tapped (Text Input)")
+                                       isTextFieldFocused = false
                                        Task {
+                                           print("📝 Starting question generation from text")
                                            await viewModel.sendAllImages()
                                        }
                                    } label: {
@@ -4107,14 +4224,20 @@ struct ImageSelectionSection: View {
                                            Spacer()
                                            Image(systemName: "sparkles")
                                            Text("Generate Questions")
+                                               .fontWeight(.semibold)
                                            Spacer()
                                        }
                                        .font(.headline)
                                        .foregroundColor(.white)
                                        .padding()
-                                       .background(Color.green)
-                                       .cornerRadius(12)
+                                       .background(
+                                           RoundedRectangle(cornerRadius: 12)
+                                               .fill(viewModel.isLoading ? Color.gray : Color.green)
+                                       )
+                                       .animation(.easeInOut, value: viewModel.isLoading)
                                    }
+                                   .buttonStyle(BorderlessButtonStyle())
+                                   .disabled(viewModel.isLoading)
                                }
                            }
                            .padding(.horizontal)
@@ -4141,22 +4264,40 @@ struct ImageSelectionSection: View {
                                
                                // Generate Button for Images
                                Button {
-                                   Task {
-                                       await viewModel.sendAllImages()
+                                   print("🔵 Generate Questions Button Tapped (Images)")
+                                   Task { @MainActor in
+                                       print("📝 Starting question generation from images")
+                                       print("• Number of images: \(viewModel.selectedImages.count)")
+                                       
+                                       viewModel.isLoading = true
+                                       
+                                       do {
+                                           await viewModel.sendAllImages()
+                                       } catch {
+                                           print("❌ Error generating questions: \(error)")
+                                       }
+                                       
+                                       viewModel.isLoading = false
                                    }
                                } label: {
                                    HStack {
                                        Spacer()
                                        Image(systemName: "sparkles")
                                        Text("Generate Questions")
+                                           .fontWeight(.semibold)
                                        Spacer()
                                    }
                                    .font(.headline)
                                    .foregroundColor(.white)
                                    .padding()
-                                   .background(Color.green)
-                                   .cornerRadius(12)
+                                   .background(
+                                       RoundedRectangle(cornerRadius: 12)
+                                           .fill(viewModel.isLoading ? Color.gray : Color.green)
+                                   )
+                                   .animation(.easeInOut, value: viewModel.isLoading)
                                }
+                               .buttonStyle(BorderlessButtonStyle())
+                               .disabled(viewModel.isLoading)
                                .padding(.horizontal)
                            }
                        }
@@ -5666,6 +5807,11 @@ class OpenAIService {
         guard NetworkMonitor.shared.isReachable else {
             throw NetworkError.noConnection
         }
+        
+        print("🚀 Generating questions:")
+        print("• Subject: \(subject.rawValue)")
+        print("• Difficulty: \(difficulty.rawValue)")
+        print("• Question Types: \(questionTypes)")
         
         let base64Image = imageData.base64EncodedString()
         

@@ -3,11 +3,16 @@
     <entity name="CDProblemSet" representedClassName=".CDProblemSet" syncable="YES">
         <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="difficulty" optional="YES" attributeType="String"/>
+        <attribute name="educationLevel" optional="YES" attributeType="String"/>
         <attribute name="id" optional="YES" attributeType="String"/>
+        <attribute name="isFavorite" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="lastAttempted" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="name" optional="YES" attributeType="String"/>
+        <attribute name="problemSetDescription" optional="YES" attributeType="String"/>
         <attribute name="subject" optional="YES" attributeType="String"/>
+        <attribute name="tags" optional="YES" attributeType="Transformable" valueTransformerName="SecureArrayTransformer" customClassName="NSArray"/>
         <attribute name="title" optional="YES" attributeType="String"/>
-        <relationship name="questions" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="CDQuestion"/>
+        <relationship name="questions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDQuestion"/>
     </entity>
     <entity name="CDQuestion" representedClassName=".CDQuestion" syncable="YES">
         <attribute name="attribute" optional="YES" attributeType="String"/>
