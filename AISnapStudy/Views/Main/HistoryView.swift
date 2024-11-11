@@ -81,10 +81,18 @@ struct HistoryView: View {
         switch selectedFilter {
         case .all:
             break // No filtering needed
-        case .languageArts:
-            sessions = sessions.filter { $0.problemSet.subject == .languageArts }
+        case .language:
+            sessions = sessions.filter { $0.problemSet.subject == .language }
         case .math:
             sessions = sessions.filter { $0.problemSet.subject == .math }
+        case .geography:
+            sessions = sessions.filter { $0.problemSet.subject == .geography }
+        case .history:
+            sessions = sessions.filter { $0.problemSet.subject == .history }
+        case .science:
+            sessions = sessions.filter { $0.problemSet.subject == .science }
+        case .generalKnowledge:
+            sessions = sessions.filter { $0.problemSet.subject == .generalKnowledge }
         case .saved:
             sessions = sessions.filter { $0.isSaved }
         case .completed:

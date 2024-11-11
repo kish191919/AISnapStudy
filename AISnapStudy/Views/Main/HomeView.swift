@@ -1,3 +1,5 @@
+// File: ./AISnapStudy/Views/Main/HomeView.swift
+
 import SwiftUI
 import Combine
 import CoreData
@@ -5,128 +7,46 @@ import CoreData
 struct HomeView: View {
     @ObservedObject var viewModel: HomeViewModel
     @Environment(\.managedObjectContext) private var context
-    @Binding var selectedTab: Int // selectedTab을 Binding으로 받음
-    @State private var sheetState: SheetState = .hidden
-    
-    private enum SheetState: Equatable {
-        case hidden
-        case showing(Subject)
-    }
-    
-    private var isShowingSheet: Binding<Bool> {
-        Binding(
-            get: {
-                if case .hidden = sheetState {
-                    return false
-                }
-                return true
-            },
-            set: { isShowing in
-                if !isShowing {
-                    sheetState = .hidden
-                }
-            }
-        )
-    }
+    @Binding var selectedTab: Int
+    @State private var showQuestionSettings = false
+    @State private var selectedSubject: Subject = .math
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Create New Questions")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        
-                        VStack(spacing: 12) {
-                            SubjectButton(
-                                title: "Language Arts",
-                                icon: "book.fill",
-                                color: .blue
-                            ) {
-                                sheetState = .showing(.languageArts)
-                            }
-                            
-                            SubjectButton(
-                                title: "Math",
-                                icon: "function",
-                                color: .green
-                            ) {
-                                sheetState = .showing(.math)
-                            }
-                        }
+                    // Create New Questions Button
+                    MainActionButton(
+                        title: "Create New Questions",
+                        icon: "plus.circle.fill"
+                    ) {
+                        selectedSubject = .math // Default subject
+                        showQuestionSettings = true
                     }
-                    .padding(.horizontal)
                     
-                    // StudyView로 이동 버튼 추가
-                    if let selectedProblemSet = viewModel.selectedProblemSet {
-                        NavigationLink(
-                            destination: StudyView(
-                                questions: selectedProblemSet.questions,
-                                homeViewModel: viewModel,
-                                context: context,
-                                selectedTab: $selectedTab // selectedTab 전달
-                            )
-                        ) {
-                            Text("Go to Study")
-                                .font(.headline)
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(Color.accentColor)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                                .padding(.horizontal)
+                    // Review Questions Button
+                    MainActionButton(
+                        title: "Review Questions",
+                        icon: "book.fill"
+                    ) {
+                        if let problemSet = viewModel.selectedProblemSet {
+                            viewModel.setSelectedProblemSet(problemSet)
+                            selectedTab = 1
                         }
                     }
+                    .disabled(viewModel.selectedProblemSet == nil)
+                    .opacity(viewModel.selectedProblemSet == nil ? 0.5 : 1)
                 }
-                .padding(.vertical)
+                .padding(.horizontal)
+                .padding(.vertical, 32)
             }
             .navigationTitle("Home")
         }
-        .sheet(isPresented: isShowingSheet) {
-            if case let .showing(subject) = sheetState {
-                QuestionSettingsView(subject: subject, homeViewModel: viewModel)
-                    .interactiveDismissDisabled()
-            }
-        }
-    }
-}
-
-struct SubjectButton: View {
-    let title: String
-    let icon: String
-    let color: Color
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            SubjectButtonView(
-                title: title,
-                icon: icon,
-                color: color
+        .sheet(isPresented: $showQuestionSettings) {
+            QuestionSettingsView(
+                subject: selectedSubject,
+                homeViewModel: viewModel
             )
         }
-    }
-}
-
-struct SubjectButtonView: View {
-    let title: String
-    let icon: String
-    let color: Color
-    
-    var body: some View {
-        HStack {
-            Image(systemName: icon)
-                .font(.title2)
-            Text(title)
-                .font(.title3)
-                .fontWeight(.semibold)
-            Spacer()
-            Image(systemName: "chevron.right")
-        }
-        .foregroundColor(color)
-        .padding()
-        .background(color.opacity(0.1))
-        .cornerRadius(12)
     }
 }

@@ -107,7 +107,7 @@ class StudyViewModel: ObservableObject {
         guard let question = currentQuestion else { return false }
         
         switch question.type {
-        case .multipleChoice, .fillInBlanks:
+        case .multipleChoice, .fillInBlanks, .trueFalse:  // trueFalse 케이스 추가
             return selectedAnswer != nil
         case .matching:
             return matchingPairs.count == question.matchingOptions.count

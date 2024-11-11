@@ -51,6 +51,12 @@ struct StudyView: View {
                                 selectedPairs: $studyViewModel.matchingPairs,
                                 showExplanation: studyViewModel.showExplanation
                             )
+                        case .trueFalse:
+                            TrueFalseView(
+                                question: currentQuestion,
+                                selectedAnswer: $studyViewModel.selectedAnswer,
+                                showExplanation: studyViewModel.showExplanation
+                            )
                         }
                         
                         if studyViewModel.showExplanation {

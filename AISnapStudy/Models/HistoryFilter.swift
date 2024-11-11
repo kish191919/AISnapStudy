@@ -3,9 +3,14 @@ import Foundation
 
 enum HistoryFilter: String, CaseIterable {
     case all = "All"
-    case languageArts = "Language Arts"
+    case language = "Language"
     case math = "Math"
+    case geography = "Geography"
+    case history = "History"
+    case science = "Science"
+    case generalKnowledge = "General Knowledge"
     case saved = "Saved"
     case completed = "Completed"
     case inProgress = "In Progress"
 }
+

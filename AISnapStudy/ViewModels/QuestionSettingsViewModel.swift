@@ -8,36 +8,49 @@ class QuestionSettingsViewModel: ObservableObject {
     private let networkMonitor = NetworkMonitor.shared
     private var openAIService: OpenAIService?
     private let imageService = ImageService.shared
+    
     let subject: Subject
     
     // MARK: - Published Properties
-    @Published var difficulty: Difficulty = .medium
-    @Published var multipleChoiceCount: Int = 0 {
+    @Published var selectedSubject: Subject
+    @Published var educationLevel: EducationLevel {
+            didSet {
+                print("📚 ViewModel - Education Level updated from \(oldValue) to \(educationLevel)")
+            }
+        }
+    @Published var difficulty: Difficulty
+    
+    @Published var multipleChoiceCount: Int {
         didSet {
             print("ViewModel - Multiple Choice Count updated to: \(multipleChoiceCount)")
         }
     }
-    @Published var fillInBlanksCount: Int = 0 {
+    @Published var fillInBlanksCount: Int {
         didSet {
             print("ViewModel - Fill in Blanks Count updated to: \(fillInBlanksCount)")
         }
     }
-    @Published var matchingCount: Int = 0 {
+    @Published var matchingCount: Int {
         didSet {
             print("ViewModel - Matching Count updated to: \(matchingCount)")
         }
     }
+    @Published var trueFalseCount: Int {
+            didSet {
+                print("ViewModel - True/False Count updated to: \(trueFalseCount)")
+            }
+        }
     
-    @Published var isLoading = false
+    @Published var isLoading: Bool
     @Published var error: Error?
     @Published var networkError: NetworkError?
-    @Published var isNetworkAvailable = true
-    @Published var showImagePicker = false
-    @Published var showCamera = false
-    @Published var selectedImages: [UIImage] = []
-    @Published var showAlert = false
-    @Published var alertTitle = ""
-    @Published var alertMessage = ""
+    @Published var isNetworkAvailable: Bool
+    @Published var showImagePicker: Bool
+    @Published var showCamera: Bool
+    @Published var selectedImages: [UIImage]
+    @Published var showAlert: Bool
+    @Published var alertTitle: String
+    @Published var alertMessage: String
     @Published var selectedImage: UIImage? {
         didSet {
             if let image = selectedImage {
@@ -54,10 +67,29 @@ class QuestionSettingsViewModel: ObservableObject {
         self.subject = subject
         self.homeViewModel = homeViewModel
         
-        // 네트워크 상태 옵저빙
-        setupNetworkMonitoring()
+        // Initialize all Published properties
+        self.selectedSubject = subject
+        self.educationLevel = .elementary
+        self.difficulty = .medium
+        self.multipleChoiceCount = 0
+        self.fillInBlanksCount = 0
+        self.matchingCount = 0
         
-        // OpenAI 서비스 초기화
+        self.isLoading = false
+        self.networkError = nil
+        self.isNetworkAvailable = true
+        self.showImagePicker = false
+        self.showCamera = false
+        self.selectedImages = []
+        self.showAlert = false
+        self.alertTitle = ""
+        self.alertMessage = ""
+        self.trueFalseCount = 0
+        
+        // After all properties are initialized, setup network monitoring
+        self.isNetworkAvailable = networkMonitor.isReachable
+        
+        // Initialize OpenAI service
         do {
             self.openAIService = try OpenAIService()
         } catch {
@@ -76,10 +108,11 @@ class QuestionSettingsViewModel: ObservableObject {
         multipleChoiceCount = 0
         fillInBlanksCount = 0
         matchingCount = 0
+        trueFalseCount = 0
     }
     
     var hasValidQuestionCount: Bool {
-        multipleChoiceCount + fillInBlanksCount + matchingCount > 0
+        multipleChoiceCount + fillInBlanksCount + matchingCount + trueFalseCount > 0
     }
     
     @MainActor

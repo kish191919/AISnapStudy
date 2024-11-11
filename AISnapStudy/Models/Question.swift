@@ -6,6 +6,7 @@ public enum QuestionType: String, Codable {
     case multipleChoice = "multiple_choice"
     case fillInBlanks = "fill_in_blanks"
     case matching = "matching"
+    case trueFalse = "true_false"  
 }
 
 public struct Question: Identifiable, Codable {
