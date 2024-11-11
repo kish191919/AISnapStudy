@@ -1,9 +1,6 @@
-
 import Foundation
 import Combine
-
-import Foundation
-import Combine
+import CoreData
 
 class StatViewModel: ObservableObject {
     @Published var weeklyProgress: [DailyProgress] = []
@@ -11,111 +8,75 @@ class StatViewModel: ObservableObject {
     @Published var averageScore: Double = 0.0
     @Published var languageArtsProgress: Double = 0.0
     @Published var mathProgress: Double = 0.0
-    @Published var error: Error?
+    @Published var streak: Int = 0
+    @Published var totalPoints: Int = 0
+    @Published var completedQuestions: Int = 0
+    @Published var accuracyRate: Double = 0.0
+    @Published var correctAnswers: Int = 0
     @Published var isLoading = false
     
-    private let storageService: StorageService
+    private var cancellables = Set<AnyCancellable>()
+    private let context: NSManagedObjectContext
     private let calendar = Calendar.current
-    
-    init(storageService: StorageService = StorageService()) {
-        self.storageService = storageService
+
+    init(context: NSManagedObjectContext) {
+        self.context = context
         loadStats()
     }
-    
+
     func loadStats() {
         isLoading = true
+        let request: NSFetchRequest<CDStudySession> = CDStudySession.fetchRequest()
         
         do {
-            let sessions = try storageService.getStudySessions()
+            let sessions = try context.fetch(request)
             calculateStats(from: sessions)
         } catch {
-            self.error = error
+            print("Failed to fetch study sessions:", error)
         }
         
         isLoading = false
     }
-    
-    private func calculateStats(from sessions: [StudySession]) {
-        // Calculate total questions and average score
-        totalQuestions = sessions.count
-        
-        let totalCorrect = sessions.reduce(0) { sum, session in
-            let correctCount = session.answers.filter {
-                $0.value == session.correctAnswers[$0.key]
-            }.count
-            return sum + correctCount
+
+    private func calculateStats(from sessions: [CDStudySession]) {
+        // 총 질문 수를 각 세션의 질문 수를 합산하여 계산
+        totalQuestions = sessions.reduce(0) { total, session in
+            total + (session.questions?.count ?? 0)
         }
         
-        averageScore = totalQuestions > 0 ?
-            (Double(totalCorrect) / Double(totalQuestions)) * 100 : 0
-        
-        // Calculate subject-specific progress
-        let languageArtsSessions = sessions.filter {
-            $0.problemSet.subject == .languageArts
-        }
-        let mathSessions = sessions.filter {
-            $0.problemSet.subject == .math
+        // 총 정답 수를 isCorrect 속성을 기준으로 계산
+        let totalCorrect = sessions.reduce(0) { total, session in
+            total + (session.questions?.filter { ($0 as? CDQuestion)?.isCorrect == true }.count ?? 0)
         }
         
-        languageArtsProgress = calculateProgress(for: languageArtsSessions)
-        mathProgress = calculateProgress(for: mathSessions)
+        averageScore = totalQuestions > 0 ? (Double(totalCorrect) / Double(totalQuestions)) * 100 : 0
+        correctAnswers = totalCorrect
+        completedQuestions = totalQuestions
+        totalPoints = completedQuestions * 10 // 각 문제당 10포인트
         
-        // Calculate weekly progress
-        weeklyProgress = calculateWeeklyProgress(from: sessions)
+        accuracyRate = completedQuestions > 0 ? (Double(correctAnswers) / Double(completedQuestions)) * 100 : 0
+        
+        streak = calculateStreak(from: sessions)
+    }
+
+    private func calculateStreak(from sessions: [CDStudySession]) -> Int {
+        let sortedSessions = sessions.compactMap { $0.endTime }.sorted(by: { $0 > $1 })
+        
+        var currentStreak = 0
+        var streakDate = Date()
+        
+        for date in sortedSessions {
+            if calendar.isDate(date, inSameDayAs: streakDate) || calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: streakDate)!) {
+                currentStreak += 1
+                streakDate = date
+            } else {
+                break
+            }
+        }
+        
+        return currentStreak
     }
     
-    private func calculateProgress(for sessions: [StudySession]) -> Double {
-        guard !sessions.isEmpty else { return 0 }
-        
-        let totalCorrect = sessions.reduce(0) { sum, session in
-            let correctCount = session.answers.filter {
-                $0.value == session.correctAnswers[$0.key]
-            }.count
-            return sum + correctCount
-        }
-        
-        return Double(totalCorrect) / Double(sessions.count) * 100
-    }
-    
-    private func calculateWeeklyProgress(from sessions: [StudySession]) -> [DailyProgress] {
-        let today = Date()
-        guard let weekAgo = calendar.date(byAdding: .day, value: -6, to: today) else {
-            return []
-        }
-        
-        // Create date range for the past week
-        let dates = (0...6).compactMap { offset in
-            calendar.date(byAdding: .day, value: offset, to: weekAgo)
-        }
-        
-        // Group sessions by date
-        return dates.map { date in
-            let daysSessions = sessions.filter { session in
-                calendar.isDate(session.startTime, inSameDayAs: date)
-            }
-            
-            let questionsCompleted = daysSessions.reduce(0) {
-                $0 + $1.answers.count
-            }
-            let correctAnswers = daysSessions.reduce(0) { sum, session in
-                sum + session.answers.filter {
-                    $0.value == session.correctAnswers[$0.key]
-                }.count
-            }
-            let totalTime = daysSessions.reduce(0) { sum, session in
-                sum + (session.duration ?? 0)
-            }
-            
-            return DailyProgress(
-                date: date,
-                questionsCompleted: questionsCompleted,
-                correctAnswers: correctAnswers,
-                totalTime: totalTime
-            )
-        }
-    }
-    
-    // Helper method to format progress percentage
     func formatProgress(_ progress: Double) -> String {
         return String(format: "%.1f%%", progress)
     }

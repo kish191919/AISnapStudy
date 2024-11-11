@@ -1,6 +1,9 @@
 import SwiftUI
+import Combine
+import CoreData
 
 struct MainTabView: View {
+    @Environment(\.managedObjectContext) private var context // Core Data context 추가
     @StateObject private var homeViewModel = HomeViewModel() // HomeViewModel 인스턴스 생성
     @State private var selectedTab = 0
    
@@ -13,15 +16,18 @@ struct MainTabView: View {
                 .tag(0)
            
             if let problemSet = homeViewModel.selectedProblemSet {
-                // StudyView를 호출하는 곳에서 정확한 변수 이름 사용
-                StudyView(questions: problemSet.questions, homeViewModel: homeViewModel) // 여기에서 `homeViewModel` 사용
-
-                    .tabItem { Label("Study", systemImage: "book.fill") }
+                // StudyView를 호출하는 곳에서 context 전달
+                StudyView(questions: problemSet.questions, homeViewModel: homeViewModel, context: context)
+                    .tabItem {
+                        Label("Study", systemImage: "book.fill")
+                    }
                     .tag(1)
                     .id("\(problemSet.id)_\(problemSet.questions.count)")  // id 수정
             } else {
                 Text("No Problem Set Selected")
-                    .tabItem { Label("Study", systemImage: "book.fill") }
+                    .tabItem {
+                        Label("Study", systemImage: "book.fill")
+                    }
                     .tag(1)
             }
            

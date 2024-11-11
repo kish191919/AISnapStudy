@@ -1,13 +1,16 @@
 import SwiftUI
+import CoreData
 
 struct StudyView: View {
+    @Environment(\.managedObjectContext) private var context // Core Data context
     @StateObject private var studyViewModel: StudyViewModel
+    @State private var showStatView = false // StatView 표시를 위한 플래그 추가
     let questions: [Question]
     
-    init(questions: [Question], homeViewModel: HomeViewModel) {
+    init(questions: [Question], homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
         print("🎯 StudyView initialized with \(questions.count) questions")
         self.questions = questions
-        let viewModel = StudyViewModel(homeViewModel: homeViewModel)
+        let viewModel = StudyViewModel(homeViewModel: homeViewModel, context: context)
         _studyViewModel = StateObject(wrappedValue: viewModel)
     }
     
@@ -55,7 +58,7 @@ struct StudyView: View {
                             ExplanationView(question: currentQuestion)
                         }
                         
-                        ActionButton(viewModel: studyViewModel)
+                        ActionButton(viewModel: studyViewModel, showStatView: $showStatView) // StatView 전환을 위한 바인딩 추가
                     }
                     .padding()
                     .id(currentQuestion.id)
@@ -66,10 +69,12 @@ struct StudyView: View {
         }
         .onAppear {
             print("📝 StudyView appeared with \(questions.count) questions")
-            // 지연 로드로 변경
             DispatchQueue.main.async {
                 studyViewModel.loadQuestions(questions)
             }
+        }
+        .sheet(isPresented: $showStatView) {
+            StatView(correctAnswers: studyViewModel.correctAnswers, totalQuestions: studyViewModel.totalQuestions, context: context)
         }
         .id("\(questions.hashValue)")  // View 강제 갱신을 위한 id 추가
     }
@@ -93,12 +98,14 @@ private struct ExplanationView: View {
 
 private struct ActionButton: View {
     @ObservedObject var viewModel: StudyViewModel
+    @Binding var showStatView: Bool // StatView 표시를 위한 바인딩 추가
     
     var body: some View {
         Button(action: {
             if viewModel.showExplanation {
                 if viewModel.isLastQuestion {
                     viewModel.saveProgress()
+                    showStatView = true // StatView 전환 플래그 활성화
                 } else {
                     viewModel.nextQuestion()
                 }

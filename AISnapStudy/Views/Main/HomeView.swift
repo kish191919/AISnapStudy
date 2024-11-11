@@ -1,7 +1,10 @@
 import SwiftUI
+import Combine
+import CoreData
 
 struct HomeView: View {
     @ObservedObject var viewModel: HomeViewModel // 외부에서 전달받은 viewModel 사용
+    @Environment(\.managedObjectContext) private var context // Core Data context 추가
     @State private var sheetState: SheetState = .hidden
     
     private enum SheetState: Equatable {
@@ -57,7 +60,13 @@ struct HomeView: View {
                     
                     // StudyView로 이동 버튼 추가
                     if let selectedProblemSet = viewModel.selectedProblemSet {
-                        NavigationLink(destination: StudyView(questions: selectedProblemSet.questions, homeViewModel: viewModel)) {
+                        NavigationLink(
+                            destination: StudyView(
+                                questions: selectedProblemSet.questions,
+                                homeViewModel: viewModel,
+                                context: context // context 전달
+                            )
+                        ) {
                             Text("Go to Study")
                                 .font(.headline)
                                 .padding()

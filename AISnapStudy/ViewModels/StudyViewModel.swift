@@ -1,7 +1,6 @@
-// ./AISnapStudy/ViewModels/StudyViewModel.swift
-
 import Foundation
 import Combine
+import CoreData
 
 class StudyViewModel: ObservableObject {
     @Published private(set) var currentQuestion: Question?
@@ -12,7 +11,17 @@ class StudyViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private(set) var currentIndex = 0
     
-    init(homeViewModel: HomeViewModel) {
+    @Published var correctAnswers: Int = 0 // 정답 개수
+    var totalQuestions: Int {
+        questions.count
+    }
+    
+    private let context: NSManagedObjectContext
+    private var currentSession: CDStudySession?
+    
+    init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
+        self.context = context
+        
         homeViewModel.$selectedProblemSet
             .compactMap { $0?.questions }
             .sink { [weak self] questions in
@@ -21,6 +30,8 @@ class StudyViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        
+        setupCurrentSession()
     }
     
     @MainActor
@@ -31,12 +42,56 @@ class StudyViewModel: ObservableObject {
         print("✅ First question loaded: \(self.currentQuestion?.question ?? "none")")
     }
     
-    var hasQuestions: Bool {
-        return !questions.isEmpty
+    private func setupCurrentSession() {
+        let session = CDStudySession(context: context)
+        session.startTime = Date()
+        currentSession = session
+        saveContext()
     }
     
-    var totalQuestions: Int {
-        questions.count
+    func submitAnswer() {
+        guard let currentQuestion = currentQuestion else { return }
+        
+        // Check if the answer is correct and update count
+        let isCorrect = currentQuestion.correctAnswer == selectedAnswer
+        if isCorrect {
+            correctAnswers += 1
+        }
+        
+        // Save isCorrect status in current session
+        if let session = currentSession {
+            let question = CDQuestion(context: context)
+            question.isCorrect = isCorrect
+            question.question = currentQuestion.question
+            question.session = session
+            saveContext()
+        }
+        
+        showExplanation = true
+    }
+    
+    func nextQuestion() {
+        guard currentIndex < questions.count - 1 else { return }
+        currentIndex += 1
+        currentQuestion = questions[currentIndex]
+        resetAnswers()
+    }
+    
+    func saveProgress() {
+        print("Saving progress...")
+        saveContext()
+    }
+    
+    private func saveContext() {
+        do {
+            try context.save()
+        } catch {
+            print("Failed to save context: \(error)")
+        }
+    }
+    
+    var hasQuestions: Bool {
+        return !questions.isEmpty
     }
     
     var progress: Double {
@@ -57,28 +112,6 @@ class StudyViewModel: ObservableObject {
         case .matching:
             return matchingPairs.count == question.matchingOptions.count
         }
-    }
-    
-    private func updateCurrentQuestion() {
-        guard currentIndex < questions.count else { return }
-        currentQuestion = questions[currentIndex]
-        selectedAnswer = nil
-        matchingPairs.removeAll()
-        showExplanation = false
-    }
-    
-    func nextQuestion() {
-        guard currentIndex < questions.count - 1 else { return }
-        currentIndex += 1
-        updateCurrentQuestion()
-    }
-    
-    func submitAnswer() {
-        showExplanation = true
-    }
-    
-    func saveProgress() {
-        print("Saving progress...")
     }
     
     private func resetAnswers() {

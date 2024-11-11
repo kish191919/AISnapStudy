@@ -1,28 +1,28 @@
-
-
 import SwiftUI
 
-struct StatCard<Content: View>: View {
+struct StatCard: View {
     let title: String
-    let content: () -> Content
-    
-    init(title: String, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.content = content
-    }
+    let value: String
+    let icon: String
+    let color: Color
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack {
+            Image(systemName: icon)
+                .font(.system(size: 30))
+                .foregroundColor(color)
+            
             Text(title)
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundColor(.gray)
             
-            content()
+            Text(value)
+                .font(.title3)
+                .bold()
         }
+        .frame(maxWidth: .infinity)
         .padding()
-        .background(Color.white)
-        .cornerRadius(12)
-        .shadow(radius: 2)
+        .background(Color.gray.opacity(0.1))
+        .cornerRadius(10)
     }
 }
-
