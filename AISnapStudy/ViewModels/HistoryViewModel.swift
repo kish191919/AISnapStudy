@@ -6,6 +6,7 @@ class HistoryViewModel: ObservableObject {
     @Published var problemSets: [ProblemSet] = []  // 추가
     @Published var isLoading = false
     @Published var error: Error?
+    @Published var savedQuestions: [Question] = []
     
     private let storageService: StorageService
     private let coreDataService: CoreDataService
@@ -28,17 +29,15 @@ class HistoryViewModel: ObservableObject {
             // Load problem sets
             problemSets = try coreDataService.fetchProblemSets()
             
+            // Load saved questions
+            savedQuestions = try coreDataService.fetchSavedQuestions()
+            
             print("""
             📚 History Data Loaded:
             • Study Sessions: \(studySessions.count)
             • Problem Sets: \(problemSets.count)
+            • Saved Questions: \(savedQuestions.count)
             """)
-            
-            // 각 problemSet의 제목을 출력하여 데이터 로드를 확인
-            for problemSet in problemSets {
-                print("Loaded Problem Set - Title: \(problemSet.title)")
-            }
-            
         } catch {
             self.error = error
             print("❌ Failed to load history data: \(error)")

@@ -6,7 +6,6 @@ import CoreData
 class StudyViewModel: ObservableObject {
     @Published private(set) var currentQuestion: Question?
     @Published var selectedAnswer: String?
-    @Published var matchingPairs: [String: String] = [:]
     @Published var showExplanation = false
     private var questions: [Question] = []
     private var cancellables = Set<AnyCancellable>()
@@ -50,7 +49,6 @@ class StudyViewModel: ObservableObject {
         print("🔄 Performing complete state reset")
         currentIndex = 0
         selectedAnswer = nil
-        matchingPairs.removeAll()
         showExplanation = false
         correctAnswers = 0
         
@@ -143,14 +141,30 @@ class StudyViewModel: ObservableObject {
         switch question.type {
         case .multipleChoice, .fillInBlanks, .trueFalse:  // trueFalse 케이스 추가
             return selectedAnswer != nil
-        case .matching:
-            return matchingPairs.count == question.matchingOptions.count
         }
     }
     
     private func resetAnswers() {
         selectedAnswer = nil
-        matchingPairs.removeAll()
         showExplanation = false
+    }
+}
+
+extension StudyViewModel {
+    @MainActor
+    func toggleSaveQuestion(_ question: Question) async {
+        var updatedQuestion = question
+        updatedQuestion.isSaved.toggle()
+        
+        do {
+            if updatedQuestion.isSaved {
+                try await homeViewModel.saveQuestion(updatedQuestion)
+            } else {
+                try await homeViewModel.deleteQuestion(updatedQuestion)
+            }
+            print("✅ Question save state toggled successfully")
+        } catch {
+            print("❌ Failed to toggle question save state: \(error)")
+        }
     }
 }

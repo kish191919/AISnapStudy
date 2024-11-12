@@ -93,7 +93,7 @@ struct QuestionSettingsView: View {
                             ], spacing: 12) {
                                 QuestionTypeCard(
                                     viewModel: viewModel,
-                                    title: "Multiple Choice",
+                                    title: "Multiple",
                                     icon: "list.bullet.circle.fill",
                                     count: $viewModel.multipleChoiceCount
                                 )
@@ -103,13 +103,6 @@ struct QuestionSettingsView: View {
                                     title: "Fill in Blanks",
                                     icon: "square.and.pencil",
                                     count: $viewModel.fillInBlanksCount
-                                )
-                                
-                                QuestionTypeCard(
-                                    viewModel: viewModel,
-                                    title: "Matching",
-                                    icon: "arrow.left.and.right.circle.fill",
-                                    count: $viewModel.matchingCount
                                 )
                                 
                                 QuestionTypeCard(
@@ -431,7 +424,7 @@ struct QuestionTypesSelectionSection: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     QuestionTypeCard(
                         viewModel: viewModel,
-                        title: "Multiple Choice",
+                        title: "Multiple",
                         icon: "list.bullet.circle.fill",
                         count: $viewModel.multipleChoiceCount
                     )
@@ -441,13 +434,6 @@ struct QuestionTypesSelectionSection: View {
                         title: "Fill in Blanks",
                         icon: "square.and.pencil",
                         count: $viewModel.fillInBlanksCount
-                    )
-                    
-                    QuestionTypeCard(
-                        viewModel: viewModel,
-                        title: "Matching",
-                        icon: "arrow.left.and.right.circle.fill",
-                        count: $viewModel.matchingCount
                     )
                     
                     QuestionTypeCard(
@@ -566,7 +552,7 @@ struct QuestionTypesSection: View {
         Section("Question Types") {
             VStack(spacing: 10) {
                 QuestionTypeCounter(
-                    title: "Multiple Choice",
+                    title: "Multiple",
                     count: $viewModel.multipleChoiceCount
                 )
                 
@@ -575,10 +561,6 @@ struct QuestionTypesSection: View {
                     count: $viewModel.fillInBlanksCount
                 )
                 
-                QuestionTypeCounter(
-                    title: "Matching",
-                    count: $viewModel.matchingCount
-                )
             }
         }
     }

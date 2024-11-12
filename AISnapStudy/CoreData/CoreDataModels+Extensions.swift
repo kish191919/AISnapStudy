@@ -37,7 +37,6 @@ extension CDQuestion {
             difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
             question: self.question ?? "",
             options: self.options as? [String] ?? [],
-            matchingOptions: self.matchingOptions as? [String] ?? [],
             correctAnswer: self.correctAnswer ?? "",
             explanation: self.explanation ?? "",
             hint: self.hint,

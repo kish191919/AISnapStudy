@@ -91,6 +91,87 @@ class CoreDataService {
         return container
     }()
     
+    // MARK: - Question Operations 섹션에 추가
+    // MARK: - Question Operations
+    public func fetchSavedQuestions() throws -> [Question] {
+        print("📊 Fetching Saved Questions from CoreData")
+        let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
+        request.predicate = NSPredicate(format: "isSaved == true")
+        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
+        
+        do {
+            let cdQuestions = try viewContext.fetch(request)
+            print("📊 Found \(cdQuestions.count) saved questions")
+            
+            let questions = cdQuestions.compactMap { cdQuestion -> Question? in
+                guard let id = cdQuestion.id,
+                      let type = cdQuestion.type,
+                      let questionText = cdQuestion.question,
+                      let correctAnswer = cdQuestion.correctAnswer,
+                      let explanation = cdQuestion.explanation else {
+                    print("⚠️ Invalid question data found")
+                    return nil
+                }
+                
+                let options = cdQuestion.options as? [String] ?? []
+                
+                return Question(
+                    id: id,
+                    type: QuestionType(rawValue: type) ?? .multipleChoice,
+                    subject: Subject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .math,
+                    difficulty: Difficulty(rawValue: cdQuestion.problemSet?.difficulty ?? "") ?? .medium,
+                    question: questionText,
+                    options: options,
+                    correctAnswer: correctAnswer,
+                    explanation: explanation,
+                    hint: cdQuestion.hint,
+                    isSaved: cdQuestion.isSaved,
+                    createdAt: cdQuestion.createdAt ?? Date()
+                )
+            }
+            
+            print("✅ Successfully mapped \(questions.count) saved questions")
+            return questions
+            
+        } catch {
+            print("❌ Failed to fetch saved questions: \(error)")
+            throw error
+        }
+    }
+
+    // 기존 saveQuestion 메서드 수정
+    public func saveQuestion(_ question: Question) throws {
+        print("💾 Attempting to save question: \(question.id)")
+        
+        // 먼저 이미 존재하는지 확인
+        let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", question.id)
+        
+        do {
+            let existingQuestions = try viewContext.fetch(request)
+            let cdQuestion: CDQuestion
+            
+            if let existingQuestion = existingQuestions.first {
+                print("📝 Updating existing question")
+                cdQuestion = existingQuestion
+            } else {
+                print("📝 Creating new question")
+                cdQuestion = CDQuestion(context: viewContext)
+            }
+            
+            // 질문 데이터 업데이트
+            updateCDQuestion(cdQuestion, with: question)
+            
+            try viewContext.save()
+            print("✅ Successfully saved question: \(question.id)")
+            
+        } catch {
+            print("❌ Failed to save question: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
+    
     // viewContext에 대한 public 접근자 추가
     public var viewContext: NSManagedObjectContext {
         persistentContainer.viewContext
@@ -142,7 +223,7 @@ class CoreDataService {
                         }
                         
                         let options = cdQuestion.options as? [String] ?? []
-                        let matchingOptions = cdQuestion.matchingOptions as? [String] ?? []
+                
                         
                         return Question(
                             id: id,
@@ -151,7 +232,6 @@ class CoreDataService {
                             difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
                             question: questionText,
                             options: options,
-                            matchingOptions: matchingOptions,
                             correctAnswer: correctAnswer,
                             explanation: explanation,
                             hint: cdQuestion.hint,
@@ -205,7 +285,6 @@ class CoreDataService {
             
             // options 배열 변환 및 저장
             cdQuestion.options = NSArray(array: question.options)
-            cdQuestion.matchingOptions = NSArray(array: question.matchingOptions)
             
             cdQuestion.correctAnswer = question.correctAnswer
             cdQuestion.explanation = question.explanation
@@ -231,20 +310,6 @@ class CoreDataService {
             }
         } catch {
             print("❌ Failed to save ProblemSet: \(error)")
-            viewContext.rollback()
-            throw error
-        }
-    }
-    // MARK: - Question Operations
-    public func saveQuestion(_ question: Question) throws {
-        let cdQuestion = CDQuestion(context: viewContext)
-        updateCDQuestion(cdQuestion, with: question)
-        
-        do {
-            try viewContext.save()
-            print("✅ Saved Question: \(question.id)")
-        } catch {
-            print("❌ Failed to save Question: \(error)")
             viewContext.rollback()
             throw error
         }
@@ -281,8 +346,6 @@ class CoreDataService {
         
         // Convert String arrays to NSArray
         cdQuestion.options = NSArray(array: question.options)
-        cdQuestion.matchingOptions = NSArray(array: question.matchingOptions)
-        
         cdQuestion.correctAnswer = question.correctAnswer
         cdQuestion.explanation = question.explanation
         cdQuestion.hint = question.hint
@@ -304,7 +367,6 @@ extension CDQuestion {
         
         // NSArray를 [String]으로 변환
         let options = (self.options as? [String]) ?? []
-        let matchingOptions = (self.matchingOptions as? [String]) ?? []
         
         return Question(
             id: id,
@@ -313,7 +375,6 @@ extension CDQuestion {
             difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
             question: question,
             options: options,
-            matchingOptions: matchingOptions,
             correctAnswer: correctAnswer,
             explanation: explanation,
             hint: self.hint,

@@ -1,26 +1,22 @@
-
 import SwiftUI
 import CoreData
 
 struct StudyView: View {
-    
     @Environment(\.managedObjectContext) private var context
     @Binding var selectedTab: Int
-    @ObservedObject var studyViewModel: StudyViewModel  // StateObject 대신 ObservedObject 사용
+    @ObservedObject var studyViewModel: StudyViewModel
     let questions: [Question]
     
-
     @State private var showExplanation: Bool = false
     @State private var isCorrect: Bool? = nil
-    
-
+    @State private var isSaved: Bool = false
     
     init(questions: [Question],
-         studyViewModel: StudyViewModel,  // 변경된 부분
+         studyViewModel: StudyViewModel,
          selectedTab: Binding<Int>) {
         self.questions = questions
         self._selectedTab = selectedTab
-        self.studyViewModel = studyViewModel  // 외부에서 주입받은 ViewModel 사용
+        self.studyViewModel = studyViewModel
     }
     
     var body: some View {
@@ -42,7 +38,6 @@ struct StudyView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if let currentQuestion = studyViewModel.currentQuestion {
-                            
                             switch currentQuestion.type {
                             case .multipleChoice:
                                 MultipleChoiceView(
@@ -52,31 +47,10 @@ struct StudyView: View {
                                     isCorrect: isCorrect
                                 )
                                 
-                                if showExplanation && studyViewModel.showExplanation {
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        Text(currentQuestion.explanation)
-                                            .font(.body)
-                                            .foregroundColor(.secondary)
-                                            .padding()
-                                            .background(Color.blue.opacity(0.1))
-                                            .cornerRadius(10)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                                }
-                                
                             case .fillInBlanks:
                                 FillInBlanksView(
                                     question: currentQuestion,
                                     answer: $studyViewModel.selectedAnswer,
-                                    showExplanation: studyViewModel.showExplanation,
-                                    isCorrect: isCorrect
-                                )
-                                
-                            case .matching:
-                                MatchingView(
-                                    question: currentQuestion,
-                                    selectedPairs: $studyViewModel.matchingPairs,
                                     showExplanation: studyViewModel.showExplanation,
                                     isCorrect: isCorrect
                                 )
@@ -89,6 +63,19 @@ struct StudyView: View {
                                     isCorrect: isCorrect
                                 )
                             }
+                            
+                            if showExplanation && studyViewModel.showExplanation {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(currentQuestion.explanation)
+                                        .font(.body)
+                                        .foregroundColor(.secondary)
+                                        .padding()
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(10)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
                     }
                     .padding()
@@ -100,6 +87,7 @@ struct StudyView: View {
                     
                     HStack(spacing: 12) {
                         if studyViewModel.showExplanation {
+                            // Explanation Button
                             Button(action: {
                                 withAnimation {
                                     showExplanation.toggle()
@@ -110,6 +98,24 @@ struct StudyView: View {
                                     .font(.system(size: 24))
                                     .padding(8)
                                     .background(Circle().fill(Color.yellow.opacity(0.2)))
+                            }
+                            
+                            // Save Question Button
+                            Button(action: {
+                                if let currentQuestion = studyViewModel.currentQuestion {
+                                    Task {
+                                        await studyViewModel.toggleSaveQuestion(currentQuestion)
+                                        withAnimation {
+                                            isSaved.toggle()
+                                        }
+                                    }
+                                }
+                            }) {
+                                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                                    .foregroundColor(.blue)
+                                    .font(.system(size: 24))
+                                    .padding(8)
+                                    .background(Circle().fill(Color.blue.opacity(0.2)))
                             }
                         }
                         
@@ -125,23 +131,16 @@ struct StudyView: View {
                 }
             }
         }
-        
-    }
-}
-
-private struct ExplanationView: View {
-    let question: Question
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Explanation")
-                .font(.headline)
-            Text(question.explanation)
-                .font(.body)
+        .onAppear {
+            if let currentQuestion = studyViewModel.currentQuestion {
+                isSaved = currentQuestion.isSaved
+            }
         }
-        .padding()
-        .background(Color.blue.opacity(0.1))
-        .cornerRadius(10)
+        .onChange(of: studyViewModel.currentQuestion) { newQuestion in
+            if let question = newQuestion {
+                isSaved = question.isSaved
+            }
+        }
     }
 }
 

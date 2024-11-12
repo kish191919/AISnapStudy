@@ -1,10 +1,4 @@
-//
-//  CDQuestion+CoreDataProperties.swift
-//  AISnapStudy
-//
-//  Created by sunghwan ki on 11/10/24.
-//
-//
+
 
 import Foundation
 import CoreData
@@ -24,7 +18,6 @@ extension CDQuestion {
     @NSManaged public var id: String?
     @NSManaged public var isCorrect: Bool
     @NSManaged public var isSaved: Bool
-    @NSManaged public var matchingOptions: NSArray?
     @NSManaged public var options: NSObject?
     @NSManaged public var question: String?
     @NSManaged public var type: String?

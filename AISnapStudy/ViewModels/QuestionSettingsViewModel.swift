@@ -6,51 +6,146 @@ import PhotosUI
 class QuestionSettingsViewModel: ObservableObject {
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
-    private var openAIService: OpenAIService?
     private let imageService = ImageService.shared
+    private var openAIService: OpenAIService?
     private let totalMaximumQuestions = 20
+    
+    // UserDefaults keys
+    private enum UserDefaultsKeys {
+        static let lastSubject = "lastSelectedSubject"
+        static let lastEducationLevel = "lastEducationLevel"
+        static let lastDifficulty = "lastDifficulty"
+        static let lastMultipleChoiceCount = "lastMultipleChoiceCount"
+        static let lastFillInBlanksCount = "lastFillInBlanksCount"
+        static let lastTrueFalseCount = "lastTrueFalseCount"
+    }
+    
     @Published var selectedImages: [UIImage] = []
     @Published var hasCameraImage: Bool = false
     @Published var hasGalleryImages: Bool = false
     @Published var questionText: String = ""
     @Published var isUsingTextInput: Bool = false
     @Published var isTextInputActive: Bool = false
-    @Published var hasSelectedCamera: Bool = false    // Add this
-    @Published var hasSelectedGallery: Bool = false   // Add this
+    @Published var hasSelectedCamera: Bool = false
+    @Published var hasSelectedGallery: Bool = false
     @Published var shouldCollapseQuestionTypes = false
-
     
     let subject: Subject
     
-    // MARK: - Published Properties
-    @Published var selectedSubject: Subject
-    @Published var educationLevel: EducationLevel {
-        didSet {
-            print("📚 ViewModel - Education Level updated from \(oldValue) to \(educationLevel)")
-        }
-    }
-    @Published var difficulty: Difficulty
+    // MARK: - Published Properties with UserDefaults persistence
+     @Published var selectedSubject: Subject {
+         didSet {
+             UserDefaults.standard.set(selectedSubject.rawValue, forKey: UserDefaultsKeys.lastSubject)
+         }
+     }
+     
+     @Published var educationLevel: EducationLevel {
+         didSet {
+             UserDefaults.standard.set(educationLevel.rawValue, forKey: UserDefaultsKeys.lastEducationLevel)
+             print("📚 ViewModel - Education Level updated from \(oldValue) to \(educationLevel)")
+         }
+     }
+     
+     @Published var difficulty: Difficulty {
+         didSet {
+             UserDefaults.standard.set(difficulty.rawValue, forKey: UserDefaultsKeys.lastDifficulty)
+         }
+     }
+     
+     @Published var multipleChoiceCount: Int {
+         didSet {
+             UserDefaults.standard.set(multipleChoiceCount, forKey: UserDefaultsKeys.lastMultipleChoiceCount)
+             print("ViewModel - Multiple Choice Count updated to: \(multipleChoiceCount)")
+         }
+     }
+     
+     @Published var fillInBlanksCount: Int {
+         didSet {
+             UserDefaults.standard.set(fillInBlanksCount, forKey: UserDefaultsKeys.lastFillInBlanksCount)
+             print("ViewModel - Fill in Blanks Count updated to: \(fillInBlanksCount)")
+         }
+     }
+     
+     
+     @Published var trueFalseCount: Int {
+         didSet {
+             UserDefaults.standard.set(trueFalseCount, forKey: UserDefaultsKeys.lastTrueFalseCount)
+             print("ViewModel - True/False Count updated to: \(trueFalseCount)")
+         }
+     }
+     
+     // 다른 published 속성들...
+     
+     // MARK: - Initialization
+     init(subject: Subject, homeViewModel: HomeViewModel) {
+         self.subject = subject
+         self.homeViewModel = homeViewModel
+         
+         // Load last used values from UserDefaults
+         let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
+         let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
+         let lastDifficultyRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastDifficulty)
+         
+         // Initialize with last used values or defaults
+         self.selectedSubject = Subject(rawValue: lastSubjectRaw ?? "") ?? subject
+         self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
+         self.difficulty = Difficulty(rawValue: lastDifficultyRaw ?? "") ?? .medium
+         
+         // Load last question counts
+         self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
+         self.fillInBlanksCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastFillInBlanksCount)
+         self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
+         
+         self.isLoading = false
+         self.networkError = nil
+         self.isNetworkAvailable = true
+         self.showImagePicker = false
+         self.showCamera = false
+         self.selectedImages = []
+         self.showAlert = false
+         self.alertTitle = ""
+         self.alertMessage = ""
+         self.trueFalseCount = 0
+         self.selectedImages = []
+         
+         // After all properties are initialized, setup network monitoring
+         self.isNetworkAvailable = networkMonitor.isReachable
+         
+         // Initialize OpenAI service
+         do {
+             self.openAIService = try OpenAIService()
+         } catch {
+             self.error = error
+             print("Failed to initialize OpenAI service:", error)
+         }
+     }
+     
+     // 기존 resetCounts 메서드 수정
+     func resetCounts() {
+         // Reset counts without clearing UserDefaults
+         multipleChoiceCount = 0
+         fillInBlanksCount = 0
+         trueFalseCount = 0
+         hasCameraImage = false
+         hasGalleryImages = false
+     }
+     
+     // UserDefaults 완전 초기화가 필요한 경우를 위한 새로운 메서드
+     func resetAllSettings() {
+         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastSubject)
+         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastEducationLevel)
+         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastDifficulty)
+         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
+         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastFillInBlanksCount)
+         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastTrueFalseCount)
+         
+         // Reset to defaults
+         selectedSubject = subject
+         educationLevel = .elementary
+         difficulty = .medium
+         resetCounts()
+     }
     
-    @Published var multipleChoiceCount: Int {
-        didSet {
-            print("ViewModel - Multiple Choice Count updated to: \(multipleChoiceCount)")
-        }
-    }
-    @Published var fillInBlanksCount: Int {
-        didSet {
-            print("ViewModel - Fill in Blanks Count updated to: \(fillInBlanksCount)")
-        }
-    }
-    @Published var matchingCount: Int {
-        didSet {
-            print("ViewModel - Matching Count updated to: \(matchingCount)")
-        }
-    }
-    @Published var trueFalseCount: Int {
-            didSet {
-                print("ViewModel - True/False Count updated to: \(trueFalseCount)")
-            }
-        }
     
     @Published var isLoading: Bool
     @Published var error: Error?
@@ -107,7 +202,7 @@ class QuestionSettingsViewModel: ObservableObject {
         }
 
     var totalQuestionCount: Int {
-        multipleChoiceCount + fillInBlanksCount + matchingCount + trueFalseCount
+        multipleChoiceCount + fillInBlanksCount + trueFalseCount
     }
     
     func canAddMoreQuestions() -> Bool {
@@ -118,60 +213,13 @@ class QuestionSettingsViewModel: ObservableObject {
         return totalMaximumQuestions - totalQuestionCount
     }
     
-    // MARK: - Initialization
-    init(subject: Subject, homeViewModel: HomeViewModel) {
-        self.subject = subject
-        self.homeViewModel = homeViewModel
-        
-        // Initialize all Published properties
-        self.selectedSubject = subject
-        self.educationLevel = .elementary
-        self.difficulty = .medium
-        self.multipleChoiceCount = 0
-        self.fillInBlanksCount = 0
-        self.matchingCount = 0
-        
-        self.isLoading = false
-        self.networkError = nil
-        self.isNetworkAvailable = true
-        self.showImagePicker = false
-        self.showCamera = false
-        self.selectedImages = []
-        self.showAlert = false
-        self.alertTitle = ""
-        self.alertMessage = ""
-        self.trueFalseCount = 0
-        self.selectedImages = [] 
-        
-        // After all properties are initialized, setup network monitoring
-        self.isNetworkAvailable = networkMonitor.isReachable
-        
-        // Initialize OpenAI service
-        do {
-            self.openAIService = try OpenAIService()
-        } catch {
-            self.error = error
-            print("Failed to initialize OpenAI service:", error)
-        }
-    }
-    
     // MARK: - Network Monitoring
     private func setupNetworkMonitoring() {
         isNetworkAvailable = networkMonitor.isReachable
     }
     
-    // MARK: - Public Methods
-    func resetCounts() {
-        multipleChoiceCount = 0
-        fillInBlanksCount = 0
-        matchingCount = 0
-        trueFalseCount = 0
-        hasCameraImage = false
-        hasGalleryImages = false
-    }
-    
     var hasValidQuestionCount: Bool {
-        multipleChoiceCount + fillInBlanksCount + matchingCount + trueFalseCount > 0
+        multipleChoiceCount + fillInBlanksCount + trueFalseCount > 0
     }
     
     @MainActor
@@ -336,44 +384,55 @@ class QuestionSettingsViewModel: ObservableObject {
     
     // MARK: - Question Generation
     @MainActor
-       private func generateQuestions(from imageData: Data, subject: Subject) async {
-           guard let openAIService = openAIService else {
-               print("❌ OpenAI service not initialized")
-               return
-           }
-           
-           do {
-               let questionTypes: [QuestionType: Int] = [
-                   .multipleChoice: multipleChoiceCount,
-                   .fillInBlanks: fillInBlanksCount,
-                   .matching: matchingCount,
-                   .trueFalse: trueFalseCount
-               ].filter { $0.value > 0 }
-               
-               // 요청 데이터 준비 직전 로그 출력
-               print("🚀 Preparing to send data to OpenAI API:")
-               print("• Subject: \(subject.rawValue)")
-               print("• Difficulty: \(difficulty.rawValue)")
-               print("• Education Level: \(educationLevel.rawValue)")
-               print("• Question Types: \(questionTypes)")
-               print("• Image Data Size: \(imageData.count) bytes")
-               
-               let questions = try await openAIService.generateQuestions(
-                   from: imageData,
-                   subject: subject,
-                   difficulty: difficulty,
-                   educationLevel: educationLevel, // 추가
-                   questionTypes: questionTypes
-               )
-               
-               print("✅ Generated \(questions.count) questions")
-               await processGeneratedQuestions(questions)
-           } catch {
-               print("❌ Question generation error: \(error)")
-               self.error = error
-               showError(error)
-           }
-       }
+    private func generateQuestions(from imageData: Data, subject: Subject) async {
+        guard let openAIService = openAIService else {
+            print("❌ OpenAI service not initialized")
+            return
+        }
+        
+        do {
+            let questionTypes: [QuestionType: Int] = [
+                .multipleChoice: multipleChoiceCount,
+                .fillInBlanks: fillInBlanksCount,
+                .trueFalse: trueFalseCount
+            ].filter { $0.value > 0 }
+            
+            // 요청 데이터 준비 직전 로그 출력
+            print("🚀 Preparing to send data to OpenAI API:")
+            print("• Subject: \(subject.rawValue)")
+            print("• Difficulty: \(difficulty.rawValue)")
+            print("• Education Level: \(educationLevel.rawValue)")
+            print("• Question Types: \(questionTypes)")
+            print("• Image Data Size: \(imageData.count) bytes")
+            
+            // Create QuestionInput
+            let input = OpenAIService.QuestionInput(
+                content: imageData,
+                isImage: true
+            )
+            
+            // Create QuestionParameters
+            let parameters = OpenAIService.QuestionParameters(
+                subject: subject,
+                difficulty: difficulty,
+                educationLevel: educationLevel,
+                questionTypes: questionTypes
+            )
+            
+            // Generate questions with new interface
+            let questions = try await openAIService.generateQuestions(
+                from: input,
+                parameters: parameters
+            )
+            
+            print("✅ Generated \(questions.count) questions")
+            await processGeneratedQuestions(questions)
+        } catch {
+            print("❌ Question generation error: \(error)")
+            self.error = error
+            showError(error)
+        }
+    }
     
     @MainActor
     func processGeneratedQuestions(_ questions: [Question]) async {

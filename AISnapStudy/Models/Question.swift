@@ -5,7 +5,6 @@ import Foundation
 public enum QuestionType: String, Codable {
     case multipleChoice = "multiple_choice"
     case fillInBlanks = "fill_in_blanks"
-    case matching = "matching"
     case trueFalse = "true_false"  
 }
 
@@ -16,13 +15,11 @@ public struct Question: Identifiable, Codable {
     public let difficulty: Difficulty
     public let question: String
     public let options: [String]
-    public let matchingOptions: [String]
     public let correctAnswer: String
     public let explanation: String
     public let hint: String?
     public var isSaved: Bool
     public let createdAt: Date
-    public let matchingPairs: [String: String]
     
     public init(
         id: String,
@@ -31,8 +28,6 @@ public struct Question: Identifiable, Codable {
         difficulty: Difficulty,
         question: String,
         options: [String] = [],
-        matchingOptions: [String] = [],
-        matchingPairs: [String: String] = [:],
         correctAnswer: String,
         explanation: String,
         hint: String? = nil,
@@ -45,8 +40,6 @@ public struct Question: Identifiable, Codable {
         self.difficulty = difficulty
         self.question = question
         self.options = options
-        self.matchingOptions = matchingOptions
-        self.matchingPairs = matchingPairs
         self.correctAnswer = correctAnswer
         self.explanation = explanation
         self.hint = hint
@@ -75,8 +68,6 @@ public class QuestionData: NSObject, NSSecureCoding {
         coder.encode(question.difficulty.rawValue, forKey: "difficulty")
         coder.encode(question.question, forKey: "question")
         coder.encode(question.options, forKey: "options")
-        coder.encode(question.matchingOptions, forKey: "matchingOptions")
-        coder.encode(question.matchingPairs, forKey: "matchingPairs")
         coder.encode(question.correctAnswer, forKey: "correctAnswer")
         coder.encode(question.explanation, forKey: "explanation")
         coder.encode(question.hint, forKey: "hint")
@@ -91,8 +82,6 @@ public class QuestionData: NSObject, NSSecureCoding {
               let difficultyRaw = coder.decodeObject(of: NSString.self, forKey: "difficulty") as String?,
               let questionText = coder.decodeObject(of: NSString.self, forKey: "question") as String?,
               let options = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "options") as? [String],
-              let matchingOptions = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "matchingOptions") as? [String],
-              let matchingPairs = coder.decodeObject(of: [NSDictionary.self, NSString.self], forKey: "matchingPairs") as? [String: String],
               let correctAnswer = coder.decodeObject(of: NSString.self, forKey: "correctAnswer") as String?,
               let explanation = coder.decodeObject(of: NSString.self, forKey: "explanation") as String? else {
             return nil
@@ -109,8 +98,6 @@ public class QuestionData: NSObject, NSSecureCoding {
             difficulty: Difficulty(rawValue: difficultyRaw) ?? .medium,
             question: questionText,
             options: options,
-            matchingOptions: matchingOptions,
-            matchingPairs: matchingPairs,
             correctAnswer: correctAnswer,
             explanation: explanation,
             hint: hint,

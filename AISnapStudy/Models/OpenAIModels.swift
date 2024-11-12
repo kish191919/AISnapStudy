@@ -59,7 +59,6 @@ struct QuestionGenerationSchema: Codable {
         let type: String
         let question: String
         let options: [String]
-        let matchingOptions: [String]
         let correctAnswer: String
         let explanation: String
         let hint: String?
@@ -68,7 +67,6 @@ struct QuestionGenerationSchema: Codable {
             case type
             case question
             case options
-            case matchingOptions = "matchingOptions"
             case correctAnswer
             case explanation
             case hint

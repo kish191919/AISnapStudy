@@ -11,12 +11,15 @@ struct MultipleChoiceView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(question.question)
                 .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 8)
             
-            ForEach(question.options ?? [], id: \.self) { option in
+            ForEach(question.options, id: \.self) { option in
                 Button(action: { selectedAnswer = option }) {
                     HStack {
                         Text(option)
+                            .font(.body)
+                            .multilineTextAlignment(.leading)
                             .foregroundColor(getTextColor(for: option))
                         Spacer()
                         if selectedAnswer == option && showExplanation {

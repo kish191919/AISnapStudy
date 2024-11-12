@@ -23,7 +23,6 @@
         <attribute name="id" optional="YES" attributeType="String"/>
         <attribute name="isCorrect" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="isSaved" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
-        <attribute name="matchingOptions" optional="YES" attributeType="Transformable" valueTransformerName="SecureArrayTransformer" customClassName="NSArray"/>
         <attribute name="options" optional="YES" attributeType="Transformable" valueTransformerName="SecureArrayTransformer"/>
         <attribute name="question" optional="YES" attributeType="String"/>
         <attribute name="type" optional="YES" attributeType="String"/>

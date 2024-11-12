@@ -8,14 +8,38 @@ struct HistoryView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 검색 바
                 SearchBar(text: $searchText)
                     .padding(.horizontal)
                 
-                // Subject 폴더 목록
                 List {
+                    // Saved Questions Section
+                    Section(header: Text("Saved Questions")) {
+                        NavigationLink(
+                            destination: SavedQuestionsView(
+                                questions: viewModel.savedQuestions,
+                                homeViewModel: homeViewModel
+                            )
+                        ) {
+                            HStack {
+                                Image(systemName: "bookmark.fill")
+                                    .foregroundColor(.blue)
+                                Text("Saved Questions")
+                                    .font(.headline)
+                                Spacer()
+                                Text("\(viewModel.savedQuestions.count)")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    
+                    // Subject folders
                     ForEach(Subject.allCases, id: \.self) { subject in
-                        NavigationLink(destination: ProblemSetsListView(subject: subject, problemSets: filteredAndSortedProblemSets(for: subject))) {
+                        NavigationLink(
+                            destination: ProblemSetsListView(
+                                subject: subject,
+                                problemSets: filteredAndSortedProblemSets(for: subject)
+                            )
+                        ) {
                             HStack {
                                 Image(systemName: "folder.fill")
                                     .foregroundColor(.blue)
@@ -43,22 +67,83 @@ struct HistoryView: View {
     }
 }
 
-// 선택한 Subject에 대한 Problem Sets 목록을 보여주는 뷰
+struct SavedQuestionsView: View {
+    let questions: [Question]
+    let homeViewModel: HomeViewModel
+    @State private var showStudyView = false
+    
+    var body: some View {
+        List(questions) { question in
+            SavedQuestionCard(question: question)
+                .onTapGesture {
+                    // Create a temporary ProblemSet for the saved question
+                    let problemSet = ProblemSet(
+                        id: UUID().uuidString,
+                        title: "Saved Question",
+                        subject: question.subject,
+                        difficulty: question.difficulty,
+                        questions: [question],
+                        createdAt: Date(),
+                        educationLevel: .elementary,
+                        name: "Saved Question Practice"
+                    )
+                    homeViewModel.setSelectedProblemSet(problemSet)
+                    showStudyView = true
+                }
+        }
+        .navigationTitle("Saved Questions")
+        .background(
+            NavigationLink(
+                isActive: $showStudyView,
+                destination: {
+                    if let studyViewModel = homeViewModel.studyViewModel {
+                        StudyView(
+                            questions: [questions[0]],
+                            studyViewModel: studyViewModel,
+                            selectedTab: .constant(1)
+                        )
+                    }
+                },
+                label: { EmptyView() }
+            )
+        )
+    }
+}
+
 struct ProblemSetsListView: View {
     let subject: Subject
     let problemSets: [ProblemSet]
     @EnvironmentObject var homeViewModel: HomeViewModel
+    @State private var isShowingStudyView = false
     
     var body: some View {
         List(problemSets) { problemSet in
-            ProblemSetCard(problemSet: problemSet)
-                .onTapGesture {
-                    homeViewModel.setSelectedProblemSet(problemSet)
-                }
+            Button(action: {
+                homeViewModel.setSelectedProblemSet(problemSet)
+                isShowingStudyView = true
+            }) {
+                HistoryProblemSetCard(problemSet: problemSet)
+            }
+            .background(
+                NavigationLink(
+                    isActive: $isShowingStudyView,
+                    destination: {
+                        guard let studyViewModel = homeViewModel.studyViewModel else {
+                            return AnyView(Text("Study ViewModel not available"))
+                        }
+                        return AnyView(
+                            StudyView(
+                                questions: problemSet.questions,
+                                studyViewModel: studyViewModel,
+                                selectedTab: .constant(1)
+                            )
+                        )
+                    }
+                ) { EmptyView() }
+                .hidden()
+            )
         }
         .navigationTitle("\(subject.displayName) Sets")
         .listStyle(InsetGroupedListStyle())
     }
 }
-
-
