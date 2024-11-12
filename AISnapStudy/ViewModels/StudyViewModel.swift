@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import CoreData
 
+@MainActor
 class StudyViewModel: ObservableObject {
     @Published private(set) var currentQuestion: Question?
     @Published var selectedAnswer: String?
@@ -9,37 +10,70 @@ class StudyViewModel: ObservableObject {
     @Published var showExplanation = false
     private var questions: [Question] = []
     private var cancellables = Set<AnyCancellable>()
-    private(set) var currentIndex = 0
+    @Published private(set) var currentIndex = 0  // @Published 추가
     
-    @Published var correctAnswers: Int = 0 // 정답 개수
+    @Published var correctAnswers: Int = 0
     var totalQuestions: Int {
         questions.count
     }
     
     private let context: NSManagedObjectContext
     private var currentSession: CDStudySession?
+    private let homeViewModel: HomeViewModel // Add this line to declare homeViewModel
+    
+    private var hasInitialized = false
     
     init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
+
         self.context = context
+        self.homeViewModel = homeViewModel // Initialize homeViewModel
         
-        homeViewModel.$selectedProblemSet
-            .compactMap { $0?.questions }
-            .sink { [weak self] questions in
-                Task { @MainActor in
-                    self?.loadQuestions(questions)
+        Task { @MainActor in  // Task 추가
+            homeViewModel.$selectedProblemSet
+                .compactMap { $0 }
+                .removeDuplicates(by: { $0.id == $1.id })
+                .receive(on: RunLoop.main)
+                .sink { [weak self] problemSet in
+                    guard let self = self else { return }
+                    self.resetState()
+                    Task { @MainActor in
+                        self.loadQuestions(problemSet.questions)
+                    }
                 }
-            }
-            .store(in: &cancellables)
+                .store(in: &self.cancellables)
+        }
         
         setupCurrentSession()
     }
+        
+    func resetState() {
+        print("🔄 Performing complete state reset")
+        currentIndex = 0
+        selectedAnswer = nil
+        matchingPairs.removeAll()
+        showExplanation = false
+        correctAnswers = 0
+        
+        // 중복 호출 방지를 위해 clear 후 로드
+        questions.removeAll()
+        
+        // 질문 로드 초기화 및 첫 번째 질문 설정
+        if let problemSet = homeViewModel.selectedProblemSet {
+            loadQuestions(problemSet.questions)
+        }
+
+        currentQuestion = questions.first
+        print("✅ Reset to first question with question: \(currentQuestion?.question ?? "No question loaded"), currentIndex: \(currentIndex)")
+    }
+
     
-    @MainActor
-    func loadQuestions(_ questions: [Question]) {
-        print("📝 StudyViewModel - Loading \(questions.count) questions")
-        self.questions = questions
-        self.currentQuestion = questions.first
-        print("✅ First question loaded: \(self.currentQuestion?.question ?? "none")")
+    func loadQuestions(_ newQuestions: [Question]) {
+        print("📝 Loading fresh set of \(newQuestions.count) questions")
+        questions = newQuestions
+        currentIndex = 0 // 명시적으로 currentIndex를 0으로 설정
+        currentQuestion = questions.isEmpty ? nil : questions[0]
+        
+        print("✅ First question loaded explicitly: \(currentQuestion?.question ?? "No question loaded") with currentIndex: \(currentIndex)")
     }
     
     private func setupCurrentSession() {

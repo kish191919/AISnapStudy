@@ -1,17 +1,26 @@
+
 import SwiftUI
 import CoreData
 
 struct StudyView: View {
+    
     @Environment(\.managedObjectContext) private var context
-    @Binding var selectedTab: Int // selectedTab을 추가
-    @StateObject private var studyViewModel: StudyViewModel
+    @Binding var selectedTab: Int
+    @ObservedObject var studyViewModel: StudyViewModel  // StateObject 대신 ObservedObject 사용
     let questions: [Question]
     
-    init(questions: [Question], homeViewModel: HomeViewModel, context: NSManagedObjectContext, selectedTab: Binding<Int>) {
+
+    @State private var showExplanation: Bool = false
+    @State private var isCorrect: Bool? = nil
+    
+
+    
+    init(questions: [Question],
+         studyViewModel: StudyViewModel,  // 변경된 부분
+         selectedTab: Binding<Int>) {
         self.questions = questions
-        self._selectedTab = selectedTab // selectedTab을 Binding으로 초기화
-        let viewModel = StudyViewModel(homeViewModel: homeViewModel, context: context)
-        _studyViewModel = StateObject(wrappedValue: viewModel)
+        self._selectedTab = selectedTab
+        self.studyViewModel = studyViewModel  // 외부에서 주입받은 ViewModel 사용
     }
     
     var body: some View {
@@ -30,55 +39,93 @@ struct StudyView: View {
                     .font(.headline)
                     .foregroundColor(.gray)
             } else {
-                if let currentQuestion = studyViewModel.currentQuestion {
+                ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        switch currentQuestion.type {
-                        case .multipleChoice:
-                            MultipleChoiceView(
-                                question: currentQuestion,
-                                selectedAnswer: $studyViewModel.selectedAnswer,
-                                showExplanation: studyViewModel.showExplanation
-                            )
-                        case .fillInBlanks:
-                            FillInBlanksView(
-                                question: currentQuestion,
-                                answer: $studyViewModel.selectedAnswer,
-                                showExplanation: studyViewModel.showExplanation
-                            )
-                        case .matching:
-                            MatchingView(
-                                question: currentQuestion,
-                                selectedPairs: $studyViewModel.matchingPairs,
-                                showExplanation: studyViewModel.showExplanation
-                            )
-                        case .trueFalse:
-                            TrueFalseView(
-                                question: currentQuestion,
-                                selectedAnswer: $studyViewModel.selectedAnswer,
-                                showExplanation: studyViewModel.showExplanation
-                            )
+                        if let currentQuestion = studyViewModel.currentQuestion {
+                            
+                            switch currentQuestion.type {
+                            case .multipleChoice:
+                                MultipleChoiceView(
+                                    question: currentQuestion,
+                                    selectedAnswer: $studyViewModel.selectedAnswer,
+                                    showExplanation: studyViewModel.showExplanation,
+                                    isCorrect: isCorrect
+                                )
+                                
+                                if showExplanation && studyViewModel.showExplanation {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text(currentQuestion.explanation)
+                                            .font(.body)
+                                            .foregroundColor(.secondary)
+                                            .padding()
+                                            .background(Color.blue.opacity(0.1))
+                                            .cornerRadius(10)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .transition(.move(edge: .top).combined(with: .opacity))
+                                }
+                                
+                            case .fillInBlanks:
+                                FillInBlanksView(
+                                    question: currentQuestion,
+                                    answer: $studyViewModel.selectedAnswer,
+                                    showExplanation: studyViewModel.showExplanation,
+                                    isCorrect: isCorrect
+                                )
+                                
+                            case .matching:
+                                MatchingView(
+                                    question: currentQuestion,
+                                    selectedPairs: $studyViewModel.matchingPairs,
+                                    showExplanation: studyViewModel.showExplanation,
+                                    isCorrect: isCorrect
+                                )
+                                
+                            case .trueFalse:
+                                TrueFalseView(
+                                    question: currentQuestion,
+                                    selectedAnswer: $studyViewModel.selectedAnswer,
+                                    showExplanation: studyViewModel.showExplanation,
+                                    isCorrect: isCorrect
+                                )
+                            }
                         }
-                        
-                        if studyViewModel.showExplanation {
-                            ExplanationView(question: currentQuestion)
-                        }
-                        
-                        ActionButton(viewModel: studyViewModel, selectedTab: $selectedTab) // selectedTab 전달
                     }
                     .padding()
-                    .id(currentQuestion.id)
                 }
                 
-                Spacer()
+                // Action Buttons
+                VStack {
+                    Divider()
+                    
+                    HStack(spacing: 12) {
+                        if studyViewModel.showExplanation {
+                            Button(action: {
+                                withAnimation {
+                                    showExplanation.toggle()
+                                }
+                            }) {
+                                Image(systemName: showExplanation ? "lightbulb.fill" : "lightbulb")
+                                    .foregroundColor(.yellow)
+                                    .font(.system(size: 24))
+                                    .padding(8)
+                                    .background(Circle().fill(Color.yellow.opacity(0.2)))
+                            }
+                        }
+                        
+                        ActionButton(
+                            viewModel: studyViewModel,
+                            selectedTab: $selectedTab,
+                            isCorrect: $isCorrect,
+                            showExplanation: $showExplanation
+                        )
+                    }
+                    .padding()
+                    .background(Color(UIColor.systemBackground))
+                }
             }
         }
-        .onAppear {
-            print("📝 StudyView appeared with \(questions.count) questions")
-            DispatchQueue.main.async {
-                studyViewModel.loadQuestions(questions)
-            }
-        }
-        .id("\(questions.hashValue)")
+        
     }
 }
 
@@ -100,19 +147,24 @@ private struct ExplanationView: View {
 
 private struct ActionButton: View {
     @ObservedObject var viewModel: StudyViewModel
-    @Binding var selectedTab: Int // selectedTab 바인딩 추가
+    @Binding var selectedTab: Int
+    @Binding var isCorrect: Bool?
+    @Binding var showExplanation: Bool
     
     var body: some View {
         Button(action: {
             if viewModel.showExplanation {
                 if viewModel.isLastQuestion {
                     viewModel.saveProgress()
-                    selectedTab = 3 // Finish 버튼 클릭 시 StatView로 이동
+                    selectedTab = 3
                 } else {
                     viewModel.nextQuestion()
+                    isCorrect = nil
+                    showExplanation = false
                 }
             } else {
                 viewModel.submitAnswer()
+                isCorrect = viewModel.selectedAnswer == viewModel.currentQuestion?.correctAnswer
             }
         }) {
             Text(viewModel.showExplanation ?
@@ -122,10 +174,9 @@ private struct ActionButton: View {
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(viewModel.canSubmit ? Color.accentColor : Color.gray)
+                .background(Color.accentColor)
                 .cornerRadius(10)
         }
         .disabled(!viewModel.canSubmit)
-        .padding()
     }
 }

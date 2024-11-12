@@ -5,6 +5,7 @@ struct MatchingView: View {
     let question: Question
     @Binding var selectedPairs: [String: String]
     let showExplanation: Bool
+    let isCorrect: Bool?  // 추가
     
     // 드래그 관련 상태
     @State private var draggedItem: String?

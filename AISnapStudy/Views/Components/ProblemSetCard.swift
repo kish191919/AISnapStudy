@@ -5,13 +5,14 @@ struct ProblemSetCard: View {
     let problemSet: ProblemSet
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             // 상단 헤더
             HStack {
-                VStack(alignment: .leading) {
-                    Text(problemSet.name)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(problemSet.name.isEmpty ? "No Name" : problemSet.name)
                         .font(.headline)
-                    Text(problemSet.title)
+                        .foregroundColor(.primary)
+                    Text(problemSet.title.isEmpty ? "No Title" : problemSet.title)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -22,42 +23,52 @@ struct ProblemSetCard: View {
                 }
             }
             
-            // 태그 목록
+            // 태그 목록 (작고 간결하게)
             if !problemSet.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(problemSet.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.gray.opacity(0.2))
-                                .cornerRadius(8)
-                        }
+                HStack(spacing: 4) {
+                    ForEach(problemSet.tags.prefix(3), id: \.self) { tag in // 최대 3개의 태그만 표시
+                        Text(tag)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.1))
+                            .foregroundColor(.blue)
+                            .cornerRadius(4)
+                    }
+                    if problemSet.tags.count > 3 {
+                        Text("+\(problemSet.tags.count - 3) more")
+                            .font(.caption2)
+                            .foregroundColor(.blue)
                     }
                 }
+            } else {
+                Text("No Tags")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
             
+            Divider()
+            
             // 정보 그리드
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            HStack(spacing: 12) {
                 InfoRow(title: "Subject", value: problemSet.subject.displayName)
                 InfoRow(title: "Level", value: problemSet.educationLevel.rawValue)
                 InfoRow(title: "Questions", value: "\(problemSet.questions.count)")
                 InfoRow(title: "Difficulty", value: problemSet.difficulty.rawValue)
             }
-            .font(.caption)
+            .font(.footnote)
             
-            if let description = problemSet.problemSetDescription {
+            // 설명 (더 짧게)
+            if let description = problemSet.problemSetDescription, !description.isEmpty {
                 Text(description)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
         }
-        .padding()
-        .background(Color.white)
-        .cornerRadius(12)
-        .shadow(radius: 2)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(UIColor.systemBackground)).shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 2))
+        .padding(.horizontal)
     }
 }
 
@@ -66,12 +77,14 @@ struct InfoRow: View {
     let value: String
     
     var body: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
+                .font(.caption2)
                 .foregroundColor(.secondary)
-            Spacer()
-            Text(value)
-                .fontWeight(.medium)
+            Text(value.isEmpty ? "N/A" : value)
+                .font(.caption)
+                .foregroundColor(.primary)
         }
     }
 }
+

@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import CoreData
 
+@MainActor
 class StatViewModel: ObservableObject {
     @Published var weeklyProgress: [DailyProgress] = []
     @Published var totalQuestions = 0
@@ -14,15 +15,30 @@ class StatViewModel: ObservableObject {
     @Published var accuracyRate: Double = 0.0
     @Published var correctAnswers: Int = 0
     @Published var isLoading = false
+    @Published var selectedTab: Int = 0
     
     private var cancellables = Set<AnyCancellable>()
     private let context: NSManagedObjectContext
     private let calendar = Calendar.current
-
+    private var homeViewModel: HomeViewModel?
+    
     init(context: NSManagedObjectContext) {
         self.context = context
         loadStats()
     }
+    
+    func setHomeViewModel(_ viewModel: HomeViewModel) {
+        self.homeViewModel = viewModel
+    }
+    
+    func logCurrentQuestionState() {
+        if let studyViewModel = homeViewModel?.studyViewModel, let question = studyViewModel.currentQuestion {
+            print("🔄 Study View update initiated - currentQuestion: \(question.question), currentIndex: \(studyViewModel.currentIndex)")
+        } else {
+            print("🔄 Study View update initiated - No current question loaded, currentIndex: \(homeViewModel?.studyViewModel?.currentIndex ?? -1)")
+        }
+    }
+
 
     func loadStats() {
         isLoading = true
@@ -39,12 +55,10 @@ class StatViewModel: ObservableObject {
     }
 
     private func calculateStats(from sessions: [CDStudySession]) {
-        // 총 질문 수를 각 세션의 질문 수를 합산하여 계산
         totalQuestions = sessions.reduce(0) { total, session in
             total + (session.questions?.count ?? 0)
         }
         
-        // 총 정답 수를 isCorrect 속성을 기준으로 계산
         let totalCorrect = sessions.reduce(0) { total, session in
             total + (session.questions?.filter { ($0 as? CDQuestion)?.isCorrect == true }.count ?? 0)
         }
@@ -52,10 +66,8 @@ class StatViewModel: ObservableObject {
         averageScore = totalQuestions > 0 ? (Double(totalCorrect) / Double(totalQuestions)) * 100 : 0
         correctAnswers = totalCorrect
         completedQuestions = totalQuestions
-        totalPoints = completedQuestions * 10 // 각 문제당 10포인트
-        
+        totalPoints = completedQuestions * 10
         accuracyRate = completedQuestions > 0 ? (Double(correctAnswers) / Double(completedQuestions)) * 100 : 0
-        
         streak = calculateStreak(from: sessions)
     }
 
@@ -82,10 +94,34 @@ class StatViewModel: ObservableObject {
     }
     
     func resetProgress() {
-        // Progress 초기화 로직 추가 (예시)
-        // CoreData 또는 앱 내부 상태 초기화 및 필요한 곳에서 다시 시작할 수 있도록 설정
         correctAnswers = 0
-        totalQuestions = 0
-        loadStats() // 다시 통계를 로드하도록 호출
+        completedQuestions = 0
+        accuracyRate = 0
+        
+        if let homeViewModel = homeViewModel, let studyViewModel = homeViewModel.studyViewModel {
+            if let currentProblemSet = homeViewModel.selectedProblemSet {
+                Task {
+                    print("🔄 Starting StudyViewModel resetState...")
+                    await studyViewModel.resetState()
+                    
+                    print("🔄 Starting ProblemSet reset with ID: \(currentProblemSet.id)")
+                    await homeViewModel.resetAndSetProblemSet(currentProblemSet)
+                    
+                    // Study 탭으로 이동
+                    await MainActor.run {
+                        print("🔄 Switching to Study Tab")
+                        selectedTab = 1
+                    }
+                }
+            } else {
+                print("❌ No selected problem set found.")
+            }
+        } else {
+            print("❌ homeViewModel or studyViewModel is nil in resetProgress")
+        }
+        
+        loadStats()
     }
+    
+
 }

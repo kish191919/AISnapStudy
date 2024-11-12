@@ -33,6 +33,12 @@ class HistoryViewModel: ObservableObject {
             • Study Sessions: \(studySessions.count)
             • Problem Sets: \(problemSets.count)
             """)
+            
+            // 각 problemSet의 제목을 출력하여 데이터 로드를 확인
+            for problemSet in problemSets {
+                print("Loaded Problem Set - Title: \(problemSet.title)")
+            }
+            
         } catch {
             self.error = error
             print("❌ Failed to load history data: \(error)")
@@ -40,6 +46,7 @@ class HistoryViewModel: ObservableObject {
         
         isLoading = false
     }
+
     
     func deleteSession(_ session: StudySession) {
         if let index = studySessions.firstIndex(where: { $0.id == session.id }) {

@@ -10,6 +10,7 @@ public struct ProblemSet: Identifiable, Codable {
     public let createdAt: Date
     public var lastAttempted: Date?
     
+    
     // 새로 추가할 속성들
     public let educationLevel: EducationLevel
     public var name: String

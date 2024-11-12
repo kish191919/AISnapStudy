@@ -6,6 +6,19 @@ struct MainTabView: View {
     @Environment(\.managedObjectContext) private var context
     @StateObject private var homeViewModel = HomeViewModel()
     @State private var selectedTab = 0
+    @StateObject private var studyViewModel: StudyViewModel
+    @StateObject private var statViewModel: StatViewModel // StatViewModel 추가
+    
+    init() {
+          let homeVM = HomeViewModel()
+          self._homeViewModel = StateObject(wrappedValue: homeVM)
+          self._studyViewModel = StateObject(wrappedValue: StudyViewModel(
+              homeViewModel: homeVM,
+              context: CoreDataService.shared.viewContext
+          ))
+          self._statViewModel = StateObject(wrappedValue: StatViewModel(context: CoreDataService.shared.viewContext)) // StatViewModel 초기화
+      }
+     
    
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -16,12 +29,15 @@ struct MainTabView: View {
                 .tag(0)
            
             if let problemSet = homeViewModel.selectedProblemSet {
-                StudyView(questions: problemSet.questions, homeViewModel: homeViewModel, context: context, selectedTab: $selectedTab)
-                    .tabItem {
-                        Label("Study", systemImage: "book.fill")
-                    }
-                    .tag(1)
-                    .id("\(problemSet.id)_\(problemSet.questions.count)")
+                StudyView(
+                    questions: problemSet.questions,
+                    studyViewModel: studyViewModel,
+                    selectedTab: $selectedTab
+                )
+                .tabItem {
+                    Label("Study", systemImage: "book.fill")
+                }
+                .tag(1)
             } else {
                 Text("No Problem Set Selected")
                     .tabItem {
@@ -39,45 +55,26 @@ struct MainTabView: View {
             StatView(
                 correctAnswers: homeViewModel.correctAnswers,
                 totalQuestions: homeViewModel.totalQuestions,
-                context: context
+                viewModel: statViewModel, // StatView에 viewModel 전달
+                selectedTab: $selectedTab
             )
             .tabItem {
                 Label("Stats", systemImage: "chart.bar.fill")
             }
             .tag(3)
         }
+        .onAppear {
+            // StatViewModel에 homeViewModel 설정
+            statViewModel.setHomeViewModel(homeViewModel)
+        }
         .onChange(of: homeViewModel.selectedProblemSet) { newValue in
             if selectedTab == 1 {
-                selectedTab = 0
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    selectedTab = 1
+                // Study 탭에서 ProblemSet이 변경되면 상태 리셋
+                if let problemSet = newValue {
+                    studyViewModel.loadQuestions(problemSet.questions)
                 }
             }
         }
         .environmentObject(homeViewModel)
-        .onAppear {
-            setupNotifications()
-        }
-        .onDisappear {
-            NotificationCenter.default.removeObserver(self)
-        }
-    }
-   
-    private func setupNotifications() {
-        NotificationCenter.default.addObserver(
-            forName: Notification.Name("ShowStudyView"),
-            object: nil,
-            queue: .main
-        ) { _ in
-            print("🔄 Switching to Study Tab")
-            if let problemSet = homeViewModel.selectedProblemSet {
-                withAnimation {
-                    selectedTab = 0
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        selectedTab = 1
-                    }
-                }
-            }
-        }
     }
 }

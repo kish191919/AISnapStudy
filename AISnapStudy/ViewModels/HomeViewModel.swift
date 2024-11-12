@@ -3,6 +3,7 @@
 import Foundation
 import Combine
 
+@MainActor
 class HomeViewModel: ObservableObject {
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
@@ -10,21 +11,9 @@ class HomeViewModel: ObservableObject {
     @Published private(set) var error: Error?
     @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
+    @Published private(set) var selectedProblemSet: ProblemSet?
+    var studyViewModel: StudyViewModel?  // StudyViewModel 참조 추가
     
-    // 여기서 변경된 문제 세트를 StudyViewModel에 알리기 위해 Observable로 변경
-    @Published var selectedProblemSet: ProblemSet? {
-        didSet {
-            guard selectedProblemSet?.id != oldValue?.id else { return }
-            
-            print("""
-            🔄 HomeViewModel - selectedProblemSet changed:
-            • Old ID: \(oldValue?.id ?? "none")
-            • New ID: \(selectedProblemSet?.id ?? "none")
-            • Questions Count: \(selectedProblemSet?.questions.count ?? 0)
-            """)
-            objectWillChange.send()
-        }
-    }
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
@@ -34,6 +23,26 @@ class HomeViewModel: ObservableObject {
         Task {
             await loadInitialData()
         }
+    }
+    
+    func resetAndSetProblemSet(_ problemSet: ProblemSet) {
+        print("🔄 Starting complete ProblemSet reset")
+        
+        // 먼저 StudyViewModel 상태 리셋
+        studyViewModel?.resetState()
+        
+        // 새로운 ProblemSet 설정
+        self.selectedProblemSet = problemSet
+        
+        // 문제 다시 로드
+        studyViewModel?.loadQuestions(problemSet.questions)
+        
+        print("""
+        ✅ ProblemSet reset complete:
+        • ID: \(problemSet.id)
+        • Questions: \(problemSet.questions.count)
+        • Index reset to 0
+        """)
     }
     
     // MARK: - Data Loading
@@ -100,20 +109,24 @@ class HomeViewModel: ObservableObject {
         guard selectedProblemSet?.id != problemSet?.id else { return }
         
         print("🔵 HomeViewModel - Setting selected problem set")
-        self.selectedProblemSet = problemSet
         
-        if let problemSet = problemSet {
-            print("""
-            ✅ ProblemSet set successfully:
-            • ID: \(problemSet.id)
-            • Questions: \(problemSet.questions.count)
-            """)
+        // 상태 변경을 메인 스레드에서 한번에 처리
+        DispatchQueue.main.async {
+            self.selectedProblemSet = problemSet
+            
+            if let problemSet = problemSet {
+                print("""
+                ✅ ProblemSet set successfully:
+                • ID: \(problemSet.id)
+                • Questions: \(problemSet.questions.count)
+                """)
+            }
         }
     }
     
     @MainActor
     func clearSelectedProblemSet() {
-        setSelectedProblemSet(nil)
+        self.selectedProblemSet = nil
     }
     
     // MARK: - Question Management

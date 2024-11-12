@@ -6,6 +6,7 @@ struct TrueFalseView: View {
     let question: Question
     @Binding var selectedAnswer: String?
     let showExplanation: Bool
+    let isCorrect: Bool?  // 추가
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
