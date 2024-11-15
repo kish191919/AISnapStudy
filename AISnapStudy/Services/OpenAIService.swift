@@ -206,7 +206,7 @@ class OpenAIService {
     }
     
     private enum OpenAIModel {
-        static let gpt4Vision = "gpt-4o-mini"
+        static let gpt4Vision = "gpt-4o"
         static let maxTokens = 4000
     }
     
@@ -283,34 +283,58 @@ class OpenAIService {
         if isImageInput {
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an expert \(subject.displayName) educator in generating insightful and educational questions based on image content.
-                   IMPORTANT: Generate questions in the SAME LANGUAGE as any text visible in the image.
-                   If the image contains Korean text, questions must be in Korean.
+                   You are an \(subject.displayName) expert creating image-based questions.
+                   Important : Generate questions in the exact same language as any visible text in the image.
+                   Important : Ensure questions are clear and unambiguous and specific and detailed. 
                    """,
                 userPromptTemplate: """
-                   Please analyze the uploaded image and generate questions based on its content.
-                   Maintain the same language as any text found in the image.
+                   Create self-contained questions that provide all necessary context within each question.
+                   Keep the same language as the image text.
+                   Important : Include specific details from the content
+                   Example format:
+                   BAD: "What does the text explain?"
+                   BAD: "what is the title of this image?"
+                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                   Good: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
                    """
             )
         } else {
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an expert \(subject.displayName) educator specializing in creating questions for \(educationLevel.displayName) school students.
-                   IMPORTANT: Generate questions in the EXACT SAME LANGUAGE as the input text.
-                   If the input is in Korean, questions MUST be in Korean.
+                   You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
+                   Important : Generate questions in the exact same language as the input text.
+                   Important : Create self-contained questions that provide all necessary context within each question.
                    
                    Questions should:
-                   - Match the specified education level (\(educationLevel.displayName))
-                   - Maintain consistent \(difficulty.displayName) difficulty
+                   - be made understandable at the level of \(educationLevel.displayName) school students. 
                    - Preserve the input text's language
-                   - Use clear, precise language appropriate for the grade level
+                   - Use clear, precise language 
                    - Include detailed explanations and hints
                    - Never reference any images when input is text
                    """,
                 userPromptTemplate: """
-                   Generate questions based on the following text. 
-                   Maintain the exact same language as the input text.
-                   The questions should be suitable for \(educationLevel.displayName) level students at a \(difficulty.displayName) difficulty level.
+                   question creation guidelines:
+                   Important - Generates questions in exactly the same language as the input text.
+                   Important - Create self-contained questions that provide all necessary context within each question.
+
+                   1. CONTEXT & CONTENT
+                   - Generate questions directly from the user's input content
+                   - Create questions at the \(educationLevel.displayName) school student
+
+                   2. LANGUAGE & STRUCTURE
+                   - Include specific dates, names, and events when relevant
+                   - Avoid broad, oversimplified questions
+
+                   3. EXAMPLE FORMATS
+                   BAD:
+                   - Overly general: "What happened during World War II?"
+                   - Misleading premise: "When did America create democracy?"
+                   - Missing context: "Why did they sign the document?"
+
+                   GOOD:
+                   - Specific: "How did the ratification of the 14th Amendment (1868) change citizenship rights in the United States?"
+                   - Analytical: "What economic and social factors led to the Great Depression between 1929-1933?"
+                   - Contextual: "How did the invention of the cotton gin by Eli Whitney in 1793 impact slavery in the Southern states?"
                    """
             )
         }

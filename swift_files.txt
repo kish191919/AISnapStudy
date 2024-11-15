@@ -6798,7 +6798,7 @@ class OpenAIService {
     }
     
     private enum OpenAIModel {
-        static let gpt4Vision = "gpt-4o-mini"
+        static let gpt4Vision = "gpt-4o"
         static let maxTokens = 4000
     }
     
@@ -6875,27 +6875,27 @@ class OpenAIService {
         if isImageInput {
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an expert \(subject.displayName) educator in generating insightful and educational questions based on image content.
+                   You are an \(subject.displayName) expert specializing in creating questions based on image content.
                    IMPORTANT: Generate questions in the SAME LANGUAGE as any text visible in the image.
                    If the image contains Korean text, questions must be in Korean.
                    """,
                 userPromptTemplate: """
                    Please analyze the uploaded image and generate questions based on its content.
                    Maintain the same language as any text found in the image.
+                   IMPORTANT: If you ask a question related to a specific part of the image, be sure to include a description of that part in your question. This ensures that users who did not upload the image can still understand and address the question
                    """
             )
         } else {
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an expert \(subject.displayName) educator specializing in creating questions for \(educationLevel.displayName) school students.
+                   You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
                    IMPORTANT: Generate questions in the EXACT SAME LANGUAGE as the input text.
                    If the input is in Korean, questions MUST be in Korean.
                    
                    Questions should:
-                   - Match the specified education level (\(educationLevel.displayName))
-                   - Maintain consistent \(difficulty.displayName) difficulty
+                   - be made understandable at the level of \(educationLevel.displayName) school students. 
                    - Preserve the input text's language
-                   - Use clear, precise language appropriate for the grade level
+                   - Use clear, precise language 
                    - Include detailed explanations and hints
                    - Never reference any images when input is text
                    """,
