@@ -21,9 +21,14 @@ class StatViewModel: ObservableObject {
     private let context: NSManagedObjectContext
     private let calendar = Calendar.current
     private var homeViewModel: HomeViewModel?
+    private var studyViewModel: StudyViewModel?
     
-    init(context: NSManagedObjectContext) {
+    init(context: NSManagedObjectContext,
+         homeViewModel: HomeViewModel? = nil,
+         studyViewModel: StudyViewModel? = nil) {
         self.context = context
+        self.homeViewModel = homeViewModel
+        self.studyViewModel = studyViewModel
         loadStats()
     }
     
@@ -94,34 +99,47 @@ class StatViewModel: ObservableObject {
     }
     
     func resetProgress() {
-        correctAnswers = 0
-        completedQuestions = 0
-        accuracyRate = 0
-        
-        if let homeViewModel = homeViewModel, let studyViewModel = homeViewModel.studyViewModel {
-            if let currentProblemSet = homeViewModel.selectedProblemSet {
-                Task {
-                    print("🔄 Starting StudyViewModel resetState...")
-                    await studyViewModel.resetState()
-                    
-                    print("🔄 Starting ProblemSet reset with ID: \(currentProblemSet.id)")
-                    await homeViewModel.resetAndSetProblemSet(currentProblemSet)
-                    
-                    // Study 탭으로 이동
-                    await MainActor.run {
-                        print("🔄 Switching to Study Tab")
-                        selectedTab = 1
-                    }
-                }
-            } else {
-                print("❌ No selected problem set found.")
+            print("🔄 Starting resetProgress...")
+            correctAnswers = 0
+            completedQuestions = 0
+            accuracyRate = 0
+            
+            // HomeViewModel을 통해 StudyViewModel에 접근
+            guard let homeVM = homeViewModel else {
+                print("❌ homeViewModel is nil in resetProgress")
+                return
             }
-        } else {
-            print("❌ homeViewModel or studyViewModel is nil in resetProgress")
+            
+            guard let studyVM = homeVM.studyViewModel else {
+                print("❌ studyViewModel is nil in resetProgress")
+                return
+            }
+            
+            guard let currentProblemSet = homeVM.selectedProblemSet else {
+                print("❌ No selected problem set found")
+                return
+            }
+            
+            Task {
+                print("🔄 Resetting study state...")
+                await studyVM.resetState()
+                
+                await MainActor.run {
+                    print("🔄 Loading questions...")
+                    studyVM.loadQuestions(currentProblemSet.questions)
+                    
+                    print("""
+                    ✅ Reset complete:
+                    • ProblemSet: \(currentProblemSet.id)
+                    • Questions Count: \(currentProblemSet.questions.count)
+                    • Current Index: \(studyVM.currentIndex)
+                    • Current Question: \(studyVM.currentQuestion?.question ?? "None")
+                    """)
+                }
+            }
+            
+            loadStats()
         }
-        
-        loadStats()
-    }
     
 
 }

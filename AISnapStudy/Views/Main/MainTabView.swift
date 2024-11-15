@@ -5,20 +5,41 @@ import CoreData
 struct MainTabView: View {
     @Environment(\.managedObjectContext) private var context
     @StateObject private var homeViewModel: HomeViewModel
-    @State private var selectedTab = 0
     @StateObject private var studyViewModel: StudyViewModel
+    @State private var selectedTab = 0
     @StateObject private var statViewModel: StatViewModel
+    
     
     init() {
         let homeVM = HomeViewModel.shared
+        
         self._homeViewModel = StateObject(wrappedValue: homeVM)
         self._studyViewModel = StateObject(wrappedValue: StudyViewModel(
             homeViewModel: homeVM,
             context: CoreDataService.shared.viewContext
         ))
+        
+        // StudyViewModel 초기화 시점 변경
+        let studyVM = StudyViewModel(
+            homeViewModel: homeVM,
+            context: CoreDataService.shared.viewContext
+        )
+        self._studyViewModel = StateObject(wrappedValue: studyVM)
+        
+        // StatViewModel도 studyViewModel 참조 추가
+        self._statViewModel = StateObject(wrappedValue: StatViewModel(
+             context: CoreDataService.shared.viewContext,
+             homeViewModel: homeVM,  // homeViewModel 전달
+             studyViewModel: studyVM // studyViewModel 전달
+         ))
+        
+        
         self._statViewModel = StateObject(wrappedValue: StatViewModel(
             context: CoreDataService.shared.viewContext
         ))
+        
+        // homeViewModel에 studyViewModel 설정
+        homeVM.setStudyViewModel(studyVM)
     }
     
     var body: some View {

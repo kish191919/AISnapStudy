@@ -49,34 +49,37 @@ class StudyViewModel: ObservableObject {
    
    private var hasInitialized = false
    
-   init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
-       self.context = context
-       self.homeViewModel = homeViewModel
-       
-       // OpenAIService 초기화
-       do {
-           self.openAIService = try OpenAIService()
-       } catch {
-           fatalError("Failed to initialize OpenAI service: \(error)")
-       }
-       
-       Task { @MainActor in
-           homeViewModel.$selectedProblemSet
-               .compactMap { $0 }
-               .removeDuplicates(by: { $0.id == $1.id })
-               .receive(on: RunLoop.main)
-               .sink { [weak self] problemSet in
-                   guard let self = self else { return }
-                   self.resetState()
-                   Task { @MainActor in
-                       self.loadQuestions(problemSet.questions)
-                   }
-               }
-               .store(in: &self.cancellables)
-       }
-       
-       setupCurrentSession()
-   }
+    init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
+        self.context = context
+        self.homeViewModel = homeViewModel
+        
+        // OpenAIService 초기화
+        do {
+            self.openAIService = try OpenAIService()
+        } catch {
+            fatalError("Failed to initialize OpenAI service: \(error)")
+        }
+        
+        Task { @MainActor in
+            homeViewModel.$selectedProblemSet
+                .compactMap { $0 }
+                .removeDuplicates(by: { $0.id == $1.id })
+                .receive(on: RunLoop.main)
+                .sink { [weak self] problemSet in
+                    guard let self = self else { return }
+                    // async 메서드를 Task 내에서 호출하도록 수정
+                    Task {
+                        await self.resetState()
+                        await MainActor.run {
+                            self.loadQuestions(problemSet.questions)
+                        }
+                    }
+                }
+                .store(in: &self.cancellables)
+        }
+        
+        setupCurrentSession()
+    }
    
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
         isLoadingQuestions = true  // 이제 할당 가능
@@ -120,22 +123,30 @@ class StudyViewModel: ObservableObject {
         }
     }
    
-   func resetState() {
-       print("🔄 Performing complete state reset")
-       currentIndex = 0
-       selectedAnswer = nil
-       showExplanation = false
-       correctAnswers = 0
-       
-       questions.removeAll()
-       
-       if let problemSet = homeViewModel.selectedProblemSet {
-           loadQuestions(problemSet.questions)
-       }
-
-       currentQuestion = questions.first
-       print("✅ Reset to first question with question: \(currentQuestion?.question ?? "No question loaded"), currentIndex: \(currentIndex)")
-   }
+    @MainActor
+    func resetState() async {
+        print("🔄 Performing complete state reset")
+        currentIndex = 0
+        selectedAnswer = nil
+        showExplanation = false
+        correctAnswers = 0
+        
+        await MainActor.run {
+            questions.removeAll()
+            
+            if let problemSet = homeViewModel.selectedProblemSet {
+                questions = problemSet.questions
+                currentQuestion = questions.first
+            }
+        }
+        
+        print("""
+        ✅ State reset complete:
+        • Questions count: \(questions.count)
+        • Current index: \(currentIndex)
+        • Current question: \(currentQuestion?.question ?? "No question loaded")
+        """)
+    }
    
    func loadQuestions(_ newQuestions: [Question]) {
        print("📝 Loading fresh set of \(newQuestions.count) questions")

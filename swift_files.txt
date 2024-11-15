@@ -574,9 +574,14 @@ class StatViewModel: ObservableObject {
     private let context: NSManagedObjectContext
     private let calendar = Calendar.current
     private var homeViewModel: HomeViewModel?
+    private var studyViewModel: StudyViewModel?
     
-    init(context: NSManagedObjectContext) {
+    init(context: NSManagedObjectContext,
+         homeViewModel: HomeViewModel? = nil,
+         studyViewModel: StudyViewModel? = nil) {
         self.context = context
+        self.homeViewModel = homeViewModel
+        self.studyViewModel = studyViewModel
         loadStats()
     }
     
@@ -647,30 +652,45 @@ class StatViewModel: ObservableObject {
     }
     
     func resetProgress() {
+        print("🔄 Starting resetProgress...")
         correctAnswers = 0
         completedQuestions = 0
         accuracyRate = 0
         
-        if let homeViewModel = homeViewModel, let studyViewModel = homeViewModel.studyViewModel {
-            if let currentProblemSet = homeViewModel.selectedProblemSet {
-                Task {
-                    print("🔄 Starting StudyViewModel resetState...")
-                    await studyViewModel.resetState()
-                    
-                    print("🔄 Starting ProblemSet reset with ID: \(currentProblemSet.id)")
-                    await homeViewModel.resetAndSetProblemSet(currentProblemSet)
-                    
-                    // Study 탭으로 이동
-                    await MainActor.run {
-                        print("🔄 Switching to Study Tab")
-                        selectedTab = 1
-                    }
-                }
-            } else {
-                print("❌ No selected problem set found.")
+        // StudyViewModel 직접 참조
+        guard let studyVM = studyViewModel else {
+            print("❌ studyViewModel is nil in resetProgress")
+            return
+        }
+        
+        guard let homeVM = homeViewModel else {
+            print("❌ homeViewModel is nil in resetProgress")
+            return
+        }
+        
+        guard let currentProblemSet = homeVM.selectedProblemSet else {
+            print("❌ No selected problem set found")
+            return
+        }
+        
+        Task {
+            print("🔄 Resetting study state...")
+            await studyVM.resetState()
+            
+            await MainActor.run {
+                print("🔄 Loading questions...")
+                studyVM.loadQuestions(currentProblemSet.questions)
+                
+                print("""
+                ✅ Reset complete:
+                • ProblemSet: \(currentProblemSet.id)
+                • Questions Count: \(currentProblemSet.questions.count)
+                • Current Index: \(studyVM.currentIndex)
+                • Current Question: \(studyVM.currentQuestion?.question ?? "None")
+                """)
+                
+                selectedTab = 1
             }
-        } else {
-            print("❌ homeViewModel or studyViewModel is nil in resetProgress")
         }
         
         loadStats()
@@ -689,6 +709,7 @@ import Combine
 
 @MainActor
 class HomeViewModel: ObservableObject {
+    @Published var studyViewModel: StudyViewModel?
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
@@ -696,7 +717,6 @@ class HomeViewModel: ObservableObject {
     @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
     @Published private(set) var selectedProblemSet: ProblemSet?
-    var studyViewModel: StudyViewModel?
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
@@ -712,23 +732,35 @@ class HomeViewModel: ObservableObject {
         }
     }
     
-    func resetAndSetProblemSet(_ problemSet: ProblemSet) {
-        print("🔄 Starting complete ProblemSet reset")
         
-        // 먼저 StudyViewModel 상태 리셋
-        studyViewModel?.resetState()
+    func setStudyViewModel(_ viewModel: StudyViewModel) {
+        print("📱 Setting StudyViewModel in HomeViewModel")
+        self.studyViewModel = viewModel
+    }
+    
+    @MainActor
+    func resetAndSetProblemSet(_ problemSet: ProblemSet) async {
+        print("🔄 Starting complete ProblemSet reset")
         
         // 새로운 ProblemSet 설정
         self.selectedProblemSet = problemSet
         
-        // 문제 다시 로드
-        studyViewModel?.loadQuestions(problemSet.questions)
+        // StudyViewModel이 nil이 아닌지 확인
+        guard let studyVM = studyViewModel else {
+            print("❌ StudyViewModel is nil")
+            return
+        }
+        
+        // 상태 리셋 및 문제 다시 로드
+        await studyVM.resetState()
+        studyVM.loadQuestions(problemSet.questions)
         
         print("""
         ✅ ProblemSet reset complete:
         • ID: \(problemSet.id)
         • Questions: \(problemSet.questions.count)
         • Index reset to 0
+        • Current Question: \(studyVM.currentQuestion?.question ?? "none")
         """)
     }
     
@@ -1036,34 +1068,37 @@ class StudyViewModel: ObservableObject {
    
    private var hasInitialized = false
    
-   init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
-       self.context = context
-       self.homeViewModel = homeViewModel
-       
-       // OpenAIService 초기화
-       do {
-           self.openAIService = try OpenAIService()
-       } catch {
-           fatalError("Failed to initialize OpenAI service: \(error)")
-       }
-       
-       Task { @MainActor in
-           homeViewModel.$selectedProblemSet
-               .compactMap { $0 }
-               .removeDuplicates(by: { $0.id == $1.id })
-               .receive(on: RunLoop.main)
-               .sink { [weak self] problemSet in
-                   guard let self = self else { return }
-                   self.resetState()
-                   Task { @MainActor in
-                       self.loadQuestions(problemSet.questions)
-                   }
-               }
-               .store(in: &self.cancellables)
-       }
-       
-       setupCurrentSession()
-   }
+    init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
+        self.context = context
+        self.homeViewModel = homeViewModel
+        
+        // OpenAIService 초기화
+        do {
+            self.openAIService = try OpenAIService()
+        } catch {
+            fatalError("Failed to initialize OpenAI service: \(error)")
+        }
+        
+        Task { @MainActor in
+            homeViewModel.$selectedProblemSet
+                .compactMap { $0 }
+                .removeDuplicates(by: { $0.id == $1.id })
+                .receive(on: RunLoop.main)
+                .sink { [weak self] problemSet in
+                    guard let self = self else { return }
+                    // async 메서드를 Task 내에서 호출하도록 수정
+                    Task {
+                        await self.resetState()
+                        await MainActor.run {
+                            self.loadQuestions(problemSet.questions)
+                        }
+                    }
+                }
+                .store(in: &self.cancellables)
+        }
+        
+        setupCurrentSession()
+    }
    
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
         isLoadingQuestions = true  // 이제 할당 가능
@@ -1107,22 +1142,30 @@ class StudyViewModel: ObservableObject {
         }
     }
    
-   func resetState() {
-       print("🔄 Performing complete state reset")
-       currentIndex = 0
-       selectedAnswer = nil
-       showExplanation = false
-       correctAnswers = 0
-       
-       questions.removeAll()
-       
-       if let problemSet = homeViewModel.selectedProblemSet {
-           loadQuestions(problemSet.questions)
-       }
-
-       currentQuestion = questions.first
-       print("✅ Reset to first question with question: \(currentQuestion?.question ?? "No question loaded"), currentIndex: \(currentIndex)")
-   }
+    @MainActor
+    func resetState() async {
+        print("🔄 Performing complete state reset")
+        currentIndex = 0
+        selectedAnswer = nil
+        showExplanation = false
+        correctAnswers = 0
+        
+        await MainActor.run {
+            questions.removeAll()
+            
+            if let problemSet = homeViewModel.selectedProblemSet {
+                questions = problemSet.questions
+                currentQuestion = questions.first
+            }
+        }
+        
+        print("""
+        ✅ State reset complete:
+        • Questions count: \(questions.count)
+        • Current index: \(currentIndex)
+        • Current question: \(currentQuestion?.question ?? "No question loaded")
+        """)
+    }
    
    func loadQuestions(_ newQuestions: [Question]) {
        print("📝 Loading fresh set of \(newQuestions.count) questions")
@@ -5391,20 +5434,41 @@ import CoreData
 struct MainTabView: View {
     @Environment(\.managedObjectContext) private var context
     @StateObject private var homeViewModel: HomeViewModel
-    @State private var selectedTab = 0
     @StateObject private var studyViewModel: StudyViewModel
+    @State private var selectedTab = 0
     @StateObject private var statViewModel: StatViewModel
+    
     
     init() {
         let homeVM = HomeViewModel.shared
+        
         self._homeViewModel = StateObject(wrappedValue: homeVM)
         self._studyViewModel = StateObject(wrappedValue: StudyViewModel(
             homeViewModel: homeVM,
             context: CoreDataService.shared.viewContext
         ))
+        
+        // StudyViewModel 초기화 시점 변경
+        let studyVM = StudyViewModel(
+            homeViewModel: homeVM,
+            context: CoreDataService.shared.viewContext
+        )
+        self._studyViewModel = StateObject(wrappedValue: studyVM)
+        
+        // StatViewModel도 studyViewModel 참조 추가
+        self._statViewModel = StateObject(wrappedValue: StatViewModel(
+             context: CoreDataService.shared.viewContext,
+             homeViewModel: homeVM,  // homeViewModel 전달
+             studyViewModel: studyVM // studyViewModel 전달
+         ))
+        
+        
         self._statViewModel = StateObject(wrappedValue: StatViewModel(
             context: CoreDataService.shared.viewContext
         ))
+        
+        // homeViewModel에 studyViewModel 설정
+        homeVM.setStudyViewModel(studyVM)
     }
     
     var body: some View {
@@ -6875,22 +6939,27 @@ class OpenAIService {
         if isImageInput {
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an \(subject.displayName) expert specializing in creating questions based on image content.
-                   IMPORTANT: Generate questions in the SAME LANGUAGE as any text visible in the image.
-                   If the image contains Korean text, questions must be in Korean.
+                   You are an \(subject.displayName) expert creating image-based questions.
+                   Important : Generate questions in the exact same language as any visible text in the image.
+                   Important : Ensure questions are clear and unambiguous and specific and detailed. 
                    """,
                 userPromptTemplate: """
-                   Please analyze the uploaded image and generate questions based on its content.
-                   Maintain the same language as any text found in the image.
-                   IMPORTANT: If you ask a question related to a specific part of the image, be sure to include a description of that part in your question. This ensures that users who did not upload the image can still understand and address the question
+                   Create self-contained questions that provide all necessary context within each question.
+                   Keep the same language as the image text.
+                   Important : Include specific details from the content
+                   Example format:
+                   BAD: "What does the text explain?"
+                   BAD: "what is the title of this image?"
+                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                   Good: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
                    """
             )
         } else {
             return SubjectPrompt(
                 systemPrompt: """
                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                   IMPORTANT: Generate questions in the EXACT SAME LANGUAGE as the input text.
-                   If the input is in Korean, questions MUST be in Korean.
+                   Important : Generate questions in the exact same language as the input text.
+                   Important : Create self-contained questions that provide all necessary context within each question.
                    
                    Questions should:
                    - be made understandable at the level of \(educationLevel.displayName) school students. 
@@ -6900,9 +6969,28 @@ class OpenAIService {
                    - Never reference any images when input is text
                    """,
                 userPromptTemplate: """
-                   Generate questions based on the following text. 
-                   Maintain the exact same language as the input text.
-                   The questions should be suitable for \(educationLevel.displayName) level students at a \(difficulty.displayName) difficulty level.
+                   question creation guidelines:
+                   Important - Generates questions in exactly the same language as the input text.
+                   Important - Create self-contained questions that provide all necessary context within each question.
+
+                   1. CONTEXT & CONTENT
+                   - Generate questions directly from the user's input content
+                   - Create questions at the \(educationLevel.displayName) school student
+
+                   2. LANGUAGE & STRUCTURE
+                   - Include specific dates, names, and events when relevant
+                   - Avoid broad, oversimplified questions
+
+                   3. EXAMPLE FORMATS
+                   BAD:
+                   - Overly general: "What happened during World War II?"
+                   - Misleading premise: "When did America create democracy?"
+                   - Missing context: "Why did they sign the document?"
+
+                   GOOD:
+                   - Specific: "How did the ratification of the 14th Amendment (1868) change citizenship rights in the United States?"
+                   - Analytical: "What economic and social factors led to the Great Depression between 1929-1933?"
+                   - Contextual: "How did the invention of the cotton gin by Eli Whitney in 1793 impact slavery in the Southern states?"
                    """
             )
         }

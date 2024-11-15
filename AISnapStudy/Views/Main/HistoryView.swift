@@ -57,6 +57,7 @@ struct HistoryView: View {
                 }
                 .listStyle(InsetGroupedListStyle())
                 .navigationTitle("History")
+                .navigationBarTitleDisplayMode(.inline)  // 이 줄을 추가
                 .refreshable {
                     viewModel.refreshData()
                 }

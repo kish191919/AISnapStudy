@@ -5,6 +5,7 @@ import Combine
 
 @MainActor
 class HomeViewModel: ObservableObject {
+    @Published var studyViewModel: StudyViewModel?
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
@@ -12,7 +13,6 @@ class HomeViewModel: ObservableObject {
     @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
     @Published private(set) var selectedProblemSet: ProblemSet?
-    var studyViewModel: StudyViewModel?
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
@@ -28,23 +28,35 @@ class HomeViewModel: ObservableObject {
         }
     }
     
-    func resetAndSetProblemSet(_ problemSet: ProblemSet) {
-        print("🔄 Starting complete ProblemSet reset")
         
-        // 먼저 StudyViewModel 상태 리셋
-        studyViewModel?.resetState()
+    func setStudyViewModel(_ viewModel: StudyViewModel) {
+        print("📱 Setting StudyViewModel in HomeViewModel")
+        self.studyViewModel = viewModel
+    }
+    
+    @MainActor
+    func resetAndSetProblemSet(_ problemSet: ProblemSet) async {
+        print("🔄 Starting complete ProblemSet reset")
         
         // 새로운 ProblemSet 설정
         self.selectedProblemSet = problemSet
         
-        // 문제 다시 로드
-        studyViewModel?.loadQuestions(problemSet.questions)
+        // StudyViewModel이 nil이 아닌지 확인
+        guard let studyVM = studyViewModel else {
+            print("❌ StudyViewModel is nil")
+            return
+        }
+        
+        // 상태 리셋 및 문제 다시 로드
+        await studyVM.resetState()
+        studyVM.loadQuestions(problemSet.questions)
         
         print("""
         ✅ ProblemSet reset complete:
         • ID: \(problemSet.id)
         • Questions: \(problemSet.questions.count)
         • Index reset to 0
+        • Current Question: \(studyVM.currentQuestion?.question ?? "none")
         """)
     }
     
