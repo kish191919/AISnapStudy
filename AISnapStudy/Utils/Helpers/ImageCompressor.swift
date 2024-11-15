@@ -10,11 +10,11 @@ class ImageCompressor {
     static let shared = ImageCompressor()
     
     private enum Constraints {
-        // 파일 크기 제한을 더 낮게 설정 (800KB -> 400KB)
+        // 파일 크기 제한을 더 낮게 설정 (400KB로 줄임)
         static let targetFileSize = 400 * 1024  // 400KB
         // 최대 치수를 더 작게 설정 (800 -> 640)
         static let maxDimension: CGFloat = 640
-        static let minDimension: CGFloat = 480
+        static let minDimension: CGFloat = 320
         // 최소 품질을 낮춤 (0.5 -> 0.3)
         static let minimumQuality: CGFloat = 0.3
     }
@@ -38,8 +38,8 @@ class ImageCompressor {
         let resizedImage = resizeImage(image, maxDimension: maxDimension)
         print("✂️ Resized dimensions: \(Int(resizedImage.size.width))x\(Int(resizedImage.size.height))")
         
-        // 압축 시작 품질을 0.8에서 0.6으로 낮춤
-        var compression: CGFloat = 0.6
+        // 압축 시작 품질을 0.6에서 0.3으로 낮춤
+        var compression: CGFloat = 0.3
         var compressedData = resizedImage.jpegData(compressionQuality: compression)!
         
         while compressedData.count > maxSize && compression > Constraints.minimumQuality {
@@ -51,7 +51,6 @@ class ImageCompressor {
             }
         }
         
-        // 추가 압축이 필요한 경우 이미지 크기를 더 줄임
         if compressedData.count > maxSize {
             let scale = sqrt(Double(maxSize) / Double(compressedData.count))
             let newSize = CGSize(
@@ -76,14 +75,7 @@ class ImageCompressor {
         
         return compressedData
     }
-      
-    func compressForAPI(_ image: UIImage) throws -> Data {
-        return try compress(
-            image: image,
-            maxSize: Constraints.targetFileSize,
-            maxDimension: Constraints.maxDimension
-        )
-    }
+
     
     private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
         let originalSize = image.size
@@ -111,25 +103,5 @@ class ImageCompressor {
     
     private func formatFileSize(_ bytes: Int) -> String {
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-}
-
-// MARK: - Usage Example
-extension ImageCompressor {
-    static func example() {
-        guard let image = UIImage(named: "example") else { return }
-        
-        do {
-            // Basic compression
-            let compressedData = try ImageCompressor.shared.compress(image: image)
-            print("Compressed size: \(compressedData.count) bytes")
-            
-            // Compression for API
-            let apiReadyData = try ImageCompressor.shared.compressForAPI(image)
-            print("API-ready size: \(apiReadyData.count) bytes")
-            
-        } catch {
-            print("Compression failed: \(error)")
-        }
     }
 }

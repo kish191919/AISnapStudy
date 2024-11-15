@@ -12,12 +12,15 @@ class HomeViewModel: ObservableObject {
     @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
     @Published private(set) var selectedProblemSet: ProblemSet?
-    var studyViewModel: StudyViewModel?  // StudyViewModel 참조 추가
-    
+    var studyViewModel: StudyViewModel?
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasLoadedData = false
+    
+    // Singleton instance
+    static let shared = HomeViewModel()
+
     
     init() {
         Task {
@@ -49,8 +52,22 @@ class HomeViewModel: ObservableObject {
     @MainActor
     private func loadInitialData() async {
         guard !hasLoadedData else { return }
-        await loadData()
-        hasLoadedData = true
+        
+        do {
+            print("🔵 HomeViewModel - Initial data loading")
+            let loadedProblemSets = try coreDataService.fetchProblemSets()
+            self.problemSets = loadedProblemSets
+            self.savedQuestions = try coreDataService.fetchSavedQuestions()
+            
+            if selectedProblemSet == nil && !problemSets.isEmpty {
+                setSelectedProblemSet(problemSets[0])
+            }
+            
+            hasLoadedData = true
+            print("✅ Initial data loaded successfully")
+        } catch {
+            print("❌ Failed to load initial data: \(error)")
+        }
     }
     
     @MainActor

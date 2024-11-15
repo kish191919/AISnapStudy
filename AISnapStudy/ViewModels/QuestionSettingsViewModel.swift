@@ -29,6 +29,7 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var hasSelectedCamera: Bool = false
     @Published var hasSelectedGallery: Bool = false
     @Published var shouldCollapseQuestionTypes = false
+    @Published var shouldShowStudyView = false
     
     let subject: Subject
     
@@ -232,19 +233,17 @@ class QuestionSettingsViewModel: ObservableObject {
     func addImage(_ image: UIImage) async {
         do {
             let compressedData = try await Task {
-                try ImageCompressor.shared.compressForAPI(image)
+                try ImageService.shared.compressForAPI(image)
             }.value
             
             if let compressedImage = UIImage(data: compressedData) {
                 selectedImages.append(compressedImage)
-                // Update button states after successfully adding image
                 if hasCameraImage {
                     hasSelectedCamera = true
                 }
                 if hasGalleryImages {
                     hasSelectedGallery = true
                 }
-                print("Image added. Total images: \(selectedImages.count)")
             }
         } catch {
             self.error = error
@@ -266,57 +265,96 @@ class QuestionSettingsViewModel: ObservableObject {
     
     @MainActor
     func sendAllImages() async {
-        print("\n🚀 Starting sendAllImages")
-        print("Current state:")
-        print("• Selected Images: \(selectedImages.count)")
-        print("• Question Text: \(questionText.isEmpty ? "Empty" : "Has content")")
-        print("• Is Loading: \(isLoading)")
-        
-        // 입력 검증
-        guard !selectedImages.isEmpty || !questionText.isEmpty else {
-            print("❌ No content to generate questions from")
-            return
-        }
-        
-        // 네트워크 연결 확인
-        guard networkMonitor.isReachable else {
-            print("❌ No network connection")
-            showError(NetworkError.noConnection as Error)
-            return
-        }
-        
-        isLoading = true
-        print("🔄 Started loading state")
-        
-        do {
-            if !selectedImages.isEmpty {
-                print("📸 Processing \(selectedImages.count) images")
-                for (index, image) in selectedImages.enumerated() {
-                    print("🖼️ Processing image \(index + 1) of \(selectedImages.count)")
-                    let compressedData = try await Task {
-                        try ImageCompressor.shared.compressForAPI(image)
-                    }.value
-                    
-                    await generateQuestions(from: compressedData, subject: selectedSubject)
-                }
-                
-                selectedImages.removeAll()
-                print("✅ All images processed and cleared")
-            } else if !questionText.isEmpty {
-                print("📝 Processing text input")
-                // 텍스트 기반 문제 생성 로직
-            }
-            
-            print("✅ Successfully generated questions")
-            showSuccess()
-        } catch {
-            print("❌ Error in sendAllImages: \(error.localizedDescription)")
-            self.error = error
-            showError(error)
-        }
-        
-        isLoading = false
-        print("✅ Finished loading state\n")
+       print("\n🚀 Starting sendAllImages")
+       print("Current state:")
+       print("• Selected Subject: \(selectedSubject.displayName)")
+       print("• Selected Images: \(selectedImages.count)")
+       print("• Question Text: \(questionText.isEmpty ? "Empty" : "Has content")")
+       print("• Is Loading: \(isLoading)")
+       
+       guard !selectedImages.isEmpty || !questionText.isEmpty else {
+           print("❌ No content to generate questions from")
+           return
+       }
+       
+       guard networkMonitor.isReachable else {
+           print("❌ No network connection")
+           showError(NetworkError.noConnection as Error)
+           return
+       }
+       
+       isLoading = true
+       print("🔄 Started loading state")
+       
+       do {
+           // 공통으로 사용될 questionTypes
+           let questionTypes: [QuestionType: Int] = [
+               .multipleChoice: multipleChoiceCount,
+               .fillInBlanks: fillInBlanksCount,
+               .trueFalse: trueFalseCount
+           ].filter { $0.value > 0 }
+           
+           // 공통 parameters
+           let parameters = OpenAIService.QuestionParameters(
+               subject: selectedSubject,
+               difficulty: difficulty,
+               educationLevel: educationLevel,
+               questionTypes: questionTypes
+           )
+           
+           print("""
+           📝 Question Generation Parameters:
+           • Subject: \(selectedSubject.displayName)
+           • Difficulty: \(difficulty.displayName)
+           • Education Level: \(educationLevel.displayName)
+           • Question Types: \(questionTypes.map { "- \($0.key.rawValue): \($0.value)" }.joined(separator: "\n"))
+           """)
+           
+           if !selectedImages.isEmpty {
+               print("📸 Processing \(selectedImages.count) images")
+               for (index, image) in selectedImages.enumerated() {
+                   print("🖼️ Processing image \(index + 1) of \(selectedImages.count)")
+                   let compressedData = try await Task {
+                       try ImageService.shared.compressForAPI(image)
+                   }.value
+                   
+                   let input = OpenAIService.QuestionInput(
+                       content: compressedData,
+                       isImage: true
+                   )
+                   
+                   await generateQuestions(from: input, parameters: parameters)
+               }
+               selectedImages.removeAll()
+               print("✅ All images processed and cleared")
+           } else if !questionText.isEmpty {
+               print("📝 Processing text input: \(questionText)")
+               guard let textData = questionText.data(using: .utf8) else {
+                   throw NetworkError.invalidData
+               }
+               let input = OpenAIService.QuestionInput(
+                   content: textData,
+                   isImage: false
+               )
+               
+               await generateQuestions(from: input, parameters: parameters)
+               print("✅ Text input processed")
+           }
+           
+           print("✅ Successfully generated questions")
+           showSuccess()
+           
+           // Study View로 자동 전환
+           shouldShowStudyView = true
+           
+       } catch {
+           print("❌ Error in sendAllImages: \(error)")
+           self.error = error
+           showError(error)
+       }
+       
+       isLoading = false
+       print("✅ Finished loading state")
     }
     
     // MARK: - Image Capture Methods
@@ -384,7 +422,7 @@ class QuestionSettingsViewModel: ObservableObject {
     
     // MARK: - Question Generation
     @MainActor
-    private func generateQuestions(from imageData: Data, subject: Subject) async {
+    private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
         guard let openAIService = openAIService else {
             print("❌ OpenAI service not initialized")
             return
@@ -397,29 +435,13 @@ class QuestionSettingsViewModel: ObservableObject {
                 .trueFalse: trueFalseCount
             ].filter { $0.value > 0 }
             
-            // 요청 데이터 준비 직전 로그 출력
+            // 로깅
             print("🚀 Preparing to send data to OpenAI API:")
             print("• Subject: \(subject.rawValue)")
             print("• Difficulty: \(difficulty.rawValue)")
             print("• Education Level: \(educationLevel.rawValue)")
             print("• Question Types: \(questionTypes)")
-            print("• Image Data Size: \(imageData.count) bytes")
             
-            // Create QuestionInput
-            let input = OpenAIService.QuestionInput(
-                content: imageData,
-                isImage: true
-            )
-            
-            // Create QuestionParameters
-            let parameters = OpenAIService.QuestionParameters(
-                subject: subject,
-                difficulty: difficulty,
-                educationLevel: educationLevel,
-                questionTypes: questionTypes
-            )
-            
-            // Generate questions with new interface
             let questions = try await openAIService.generateQuestions(
                 from: input,
                 parameters: parameters
@@ -471,15 +493,9 @@ class QuestionSettingsViewModel: ObservableObject {
 
     @MainActor
     private func showSuccess() {
-        alertTitle = "Success"
-        alertMessage = "Questions have been successfully generated."
-        showAlert = true
-        
-        // Success alert가 표시된 후 Study 탭으로 전환하기 위한 notification 발송
-        NotificationCenter.default.post(
-            name: Notification.Name("ShowStudyView"),
-            object: nil
-        )
+       alertTitle = "Success"
+       alertMessage = "Questions have been successfully generated."
+       showAlert = true
     }
     
     

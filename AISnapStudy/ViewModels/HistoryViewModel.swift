@@ -1,36 +1,42 @@
 
 import Foundation
 
+import Foundation
+
+@MainActor
 class HistoryViewModel: ObservableObject {
-    @Published var studySessions: [StudySession] = []
-    @Published var problemSets: [ProblemSet] = []  // 추가
-    @Published var isLoading = false
-    @Published var error: Error?
-    @Published var savedQuestions: [Question] = []
-    
+    // MARK: - Published Properties
+    @Published private(set) var studySessions: [StudySession] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var error: Error?
+    @Published private(set) var problemSets: [ProblemSet] = []
+    @Published private(set) var savedQuestions: [Question] = []
+
+    // MARK: - Dependencies
     private let storageService: StorageService
-    private let coreDataService: CoreDataService
+    private weak var homeViewModel: HomeViewModel?
     
+    // MARK: - Initialization
     init(storageService: StorageService = StorageService(),
-         coreDataService: CoreDataService = .shared) {
+         homeViewModel: HomeViewModel? = nil) {
         self.storageService = storageService
-        self.coreDataService = coreDataService
-        loadData()
+        self.homeViewModel = homeViewModel
+        loadStudySessions()
     }
     
-    func loadData() {
+    // MARK: - Data Loading
+    private func loadStudySessions() {
         isLoading = true
         
         do {
-            // Load study sessions
             studySessions = try storageService.getStudySessions()
             studySessions.sort { $0.startTime > $1.startTime }
             
-            // Load problem sets
-            problemSets = try coreDataService.fetchProblemSets()
-            
-            // Load saved questions
-            savedQuestions = try coreDataService.fetchSavedQuestions()
+            // Update problemSets and savedQuestions from homeViewModel
+            if let homeVM = homeViewModel {
+                problemSets = homeVM.problemSets
+                savedQuestions = homeVM.savedQuestions
+            }
             
             print("""
             📚 History Data Loaded:
@@ -40,33 +46,56 @@ class HistoryViewModel: ObservableObject {
             """)
         } catch {
             self.error = error
-            print("❌ Failed to load history data: \(error)")
+            print("❌ Failed to load study sessions: \(error)")
         }
         
         isLoading = false
     }
-
     
+    // MARK: - Session Management
     func deleteSession(_ session: StudySession) {
-        if let index = studySessions.firstIndex(where: { $0.id == session.id }) {
-            let deletedSession = studySessions.remove(at: index)
-            
-            Task {
-                do {
-                    try await Task.detached {
-                        try self.storageService.deleteStudySession(session)
-                    }.value
-                } catch {
-                    await MainActor.run {
-                        self.error = error
-                        self.studySessions.insert(deletedSession, at: index)
-                    }
+        guard let index = studySessions.firstIndex(where: { $0.id == session.id }) else {
+            return
+        }
+        
+        let deletedSession = studySessions.remove(at: index)
+        
+        Task {
+            do {
+                try await Task.detached {
+                    try self.storageService.deleteStudySession(session)
+                }.value
+                print("✅ Successfully deleted study session: \(session.id)")
+            } catch {
+                await MainActor.run {
+                    self.error = error
+                    self.studySessions.insert(deletedSession, at: index)
+                    print("❌ Failed to delete study session: \(error)")
                 }
             }
         }
     }
     
+    // MARK: - Data Refresh
     func refreshData() {
-        loadData()
+        loadStudySessions()
+    }
+    
+    // MARK: - HomeViewModel Management
+    func setHomeViewModel(_ viewModel: HomeViewModel) {
+        self.homeViewModel = viewModel
+        // Update data immediately when HomeViewModel is set
+        problemSets = viewModel.problemSets
+        savedQuestions = viewModel.savedQuestions
+        print("📱 HomeViewModel reference set in HistoryViewModel")
+    }
+    
+    // MARK: - Data Access Methods
+    func getProblemSets() -> [ProblemSet] {
+        problemSets
+    }
+    
+    func getSavedQuestions() -> [Question] {
+        savedQuestions
     }
 }

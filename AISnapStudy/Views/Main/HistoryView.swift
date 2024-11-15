@@ -1,9 +1,14 @@
 import SwiftUI
 
 struct HistoryView: View {
-    @StateObject private var viewModel = HistoryViewModel()
     @EnvironmentObject var homeViewModel: HomeViewModel
+    @StateObject private var viewModel: HistoryViewModel
     @State private var searchText = ""
+    
+    init() {
+        let vm = HistoryViewModel(homeViewModel: HomeViewModel.shared)
+        self._viewModel = StateObject(wrappedValue: vm)
+    }
     
     var body: some View {
         NavigationView {
@@ -57,6 +62,13 @@ struct HistoryView: View {
                 }
             }
         }
+        .onAppear {
+                    viewModel.setHomeViewModel(homeViewModel)
+                }
+    }
+    
+    var problemSets: [ProblemSet] {
+        homeViewModel.problemSets
     }
     
     // Subject별로 Problem Sets 필터링 및 정렬하는 메서드

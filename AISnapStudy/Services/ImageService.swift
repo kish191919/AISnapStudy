@@ -17,18 +17,58 @@ enum ImageServiceError: Error {
 public class ImageService {
     public static let shared = ImageService()
     
-    // VisionDetail을 하나의 enum으로 통합
-    public enum VisionDetail {
-        case low    // 512x512, 85 tokens
-        case high   // 768px shortest side, 170 tokens per 512px tile
+    private init() {}
+    
+    public struct VisionDetail {
+        public static let maxDimension: CGFloat = 1024
+        public static let maxFileSize = 1024 * 1024  // 100KB
+        public static let compressionQuality: CGFloat = 0.9
+    }
+    
+    func compressForAPI(_ image: UIImage) throws -> Data {
+        // 이미지의 크기를 최대 치수에 맞게 조정
+        let resizedImage = resize(image, to: VisionDetail.maxDimension)
+        
+        // 설정된 품질로 압축
+        var compressedData = resizedImage.jpegData(compressionQuality: VisionDetail.compressionQuality)
+        
+        // 크기가 최대 파일 크기를 초과하는 경우, 품질을 낮춰서 추가 압축 시도
+        var compressionQuality = VisionDetail.compressionQuality
+        while let data = compressedData, data.count > VisionDetail.maxFileSize, compressionQuality > 0.1 {
+            compressionQuality -= 0.1
+            compressedData = resizedImage.jpegData(compressionQuality: compressionQuality)
+        }
+        
+        guard let finalData = compressedData, finalData.count <= VisionDetail.maxFileSize else {
+            throw NSError(domain: "ImageCompression", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to compress image to target size"])
+        }
+        
+        print("Final compressed image size: \(finalData.count / 1024)KB with quality: \(compressionQuality)")
+        return finalData
+    }
+
+    
+    private func resize(_ image: UIImage, to maxDimension: CGFloat) -> UIImage {
+        let aspectRatio = image.size.width / image.size.height
+        let newSize: CGSize
+        if image.size.width > image.size.height {
+            newSize = CGSize(width: maxDimension, height: maxDimension / aspectRatio)
+        } else {
+            newSize = CGSize(width: maxDimension * aspectRatio, height: maxDimension)
+        }
+        
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return resizedImage ?? image
     }
     
     public enum OptimizationType {
-        case openAIVision(detail: VisionDetail)
+        case openAIVision
         case general(maxSizeKB: Int)
     }
-    
-    private init() {}
     
     @MainActor
     public func requestPermission(for source: ImageSource) async throws -> Bool {
@@ -91,26 +131,19 @@ public class ImageService {
         }
     }
     
-    public func optimizeForVision(
-        _ image: UIImage,
-        detail: VisionDetail = .low
-    ) async throws -> (data: Data, tokens: Int) {
+    public func optimizeForVision(_ image: UIImage) async throws -> (data: Data, tokens: Int) {
         let startTime = CFAbsoluteTimeGetCurrent()
         
         let originalSize = image.size
         let originalData = image.jpegData(compressionQuality: 1.0)?.count ?? 0
         
-        let (targetSize, estimatedTokens) = calculateOptimizationParameters(
-            originalSize: originalSize,
-            detail: detail
-        )
+        // VisionDetail의 설정 값을 사용
+        let targetSize = CGSize(width: VisionDetail.maxDimension, height: VisionDetail.maxDimension)
+        let estimatedTokens = Int(VisionDetail.maxFileSize / 1024)  // 예측 토큰 수 계산
         
-        let optimizedImage = try await optimizeImage(
-            image,
-            targetSize: targetSize
-        )
+        let optimizedImage = try await optimizeImage(image, targetSize: targetSize)
         
-        guard let optimizedData = optimizedImage.jpegData(compressionQuality: 0.8) else {
+        guard let optimizedData = optimizedImage.jpegData(compressionQuality: VisionDetail.compressionQuality) else {
             throw ImageServiceError.compressionFailed
         }
         
@@ -127,13 +160,10 @@ public class ImageService {
         return (optimizedData, estimatedTokens)
     }
     
-    public func compressImage(
-        _ image: UIImage,
-        optimization: OptimizationType
-    ) async throws -> Data {
+    public func compressImage(_ image: UIImage, optimization: OptimizationType) async throws -> Data {
         switch optimization {
-        case .openAIVision(let detail):
-            let result = try await optimizeForVision(image, detail: detail)
+        case .openAIVision:
+            let result = try await optimizeForVision(image)
             return result.data
             
         case .general(let maxSizeKB):
@@ -175,31 +205,6 @@ public class ImageService {
             
             print("Final compressed image size: \(Double(currentData.count) / 1024.0)KB")
             return currentData
-        }
-    }
-    
-    private func calculateOptimizationParameters(
-        originalSize: CGSize,
-        detail: VisionDetail
-    ) -> (CGSize, Int) {
-        switch detail {
-        case .low:
-            return (CGSize(width: 512, height: 512), 85)
-            
-        case .high:
-            let shortSide = min(originalSize.width, originalSize.height)
-            let scale = 768 / shortSide
-            let targetSize = CGSize(
-                width: min(originalSize.width * scale, 2048),
-                height: min(originalSize.height * scale, 2048)
-            )
-            
-            let tilesWide = ceil(targetSize.width / 512)
-            let tilesHigh = ceil(targetSize.height / 512)
-            let totalTiles = Int(tilesWide * tilesHigh)
-            let estimatedTokens = (totalTiles * 170) + 85
-            
-            return (targetSize, estimatedTokens)
         }
     }
     

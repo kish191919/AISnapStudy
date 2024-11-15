@@ -45,7 +45,8 @@ struct HomeView: View {
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
                 subject: selectedSubject,
-                homeViewModel: viewModel
+                homeViewModel: viewModel,
+                selectedTab: $selectedTab  // selectedTab 바인딩 전달
             )
         }
     }

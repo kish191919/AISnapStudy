@@ -10,7 +10,7 @@ class QuestionSettingsViewModel: ObservableObject {
     private let networkMonitor = NetworkMonitor.shared
     private let imageService = ImageService.shared
     private var openAIService: OpenAIService?
-    private let totalMaximumQuestions = 10
+    private let totalMaximumQuestions = 20
     
     // UserDefaults keys
     private enum UserDefaultsKeys {
@@ -31,6 +31,7 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var hasSelectedCamera: Bool = false
     @Published var hasSelectedGallery: Bool = false
     @Published var shouldCollapseQuestionTypes = false
+    @Published var shouldShowStudyView = false
     
     let subject: Subject
     
@@ -234,19 +235,17 @@ class QuestionSettingsViewModel: ObservableObject {
     func addImage(_ image: UIImage) async {
         do {
             let compressedData = try await Task {
-                try ImageCompressor.shared.compressForAPI(image)
+                try ImageService.shared.compressForAPI(image)
             }.value
             
             if let compressedImage = UIImage(data: compressedData) {
                 selectedImages.append(compressedImage)
-                // Update button states after successfully adding image
                 if hasCameraImage {
                     hasSelectedCamera = true
                 }
                 if hasGalleryImages {
                     hasSelectedGallery = true
                 }
-                print("Image added. Total images: \(selectedImages.count)")
             }
         } catch {
             self.error = error
@@ -268,57 +267,96 @@ class QuestionSettingsViewModel: ObservableObject {
     
     @MainActor
     func sendAllImages() async {
-        print("\n🚀 Starting sendAllImages")
-        print("Current state:")
-        print("• Selected Images: \(selectedImages.count)")
-        print("• Question Text: \(questionText.isEmpty ? "Empty" : "Has content")")
-        print("• Is Loading: \(isLoading)")
-        
-        // 입력 검증
-        guard !selectedImages.isEmpty || !questionText.isEmpty else {
-            print("❌ No content to generate questions from")
-            return
-        }
-        
-        // 네트워크 연결 확인
-        guard networkMonitor.isReachable else {
-            print("❌ No network connection")
-            showError(NetworkError.noConnection as Error)
-            return
-        }
-        
-        isLoading = true
-        print("🔄 Started loading state")
-        
-        do {
-            if !selectedImages.isEmpty {
-                print("📸 Processing \(selectedImages.count) images")
-                for (index, image) in selectedImages.enumerated() {
-                    print("🖼️ Processing image \(index + 1) of \(selectedImages.count)")
-                    let compressedData = try await Task {
-                        try ImageCompressor.shared.compressForAPI(image)
-                    }.value
-                    
-                    await generateQuestions(from: compressedData, subject: selectedSubject)
-                }
-                
-                selectedImages.removeAll()
-                print("✅ All images processed and cleared")
-            } else if !questionText.isEmpty {
-                print("📝 Processing text input")
-                // 텍스트 기반 문제 생성 로직
-            }
-            
-            print("✅ Successfully generated questions")
-            showSuccess()
-        } catch {
-            print("❌ Error in sendAllImages: \(error.localizedDescription)")
-            self.error = error
-            showError(error)
-        }
-        
-        isLoading = false
-        print("✅ Finished loading state\n")
+       print("\n🚀 Starting sendAllImages")
+       print("Current state:")
+       print("• Selected Subject: \(selectedSubject.displayName)")
+       print("• Selected Images: \(selectedImages.count)")
+       print("• Question Text: \(questionText.isEmpty ? "Empty" : "Has content")")
+       print("• Is Loading: \(isLoading)")
+       
+       guard !selectedImages.isEmpty || !questionText.isEmpty else {
+           print("❌ No content to generate questions from")
+           return
+       }
+       
+       guard networkMonitor.isReachable else {
+           print("❌ No network connection")
+           showError(NetworkError.noConnection as Error)
+           return
+       }
+       
+       isLoading = true
+       print("🔄 Started loading state")
+       
+       do {
+           // 공통으로 사용될 questionTypes
+           let questionTypes: [QuestionType: Int] = [
+               .multipleChoice: multipleChoiceCount,
+               .fillInBlanks: fillInBlanksCount,
+               .trueFalse: trueFalseCount
+           ].filter { $0.value > 0 }
+           
+           // 공통 parameters
+           let parameters = OpenAIService.QuestionParameters(
+               subject: selectedSubject,
+               difficulty: difficulty,
+               educationLevel: educationLevel,
+               questionTypes: questionTypes
+           )
+           
+           print("""
+           📝 Question Generation Parameters:
+           • Subject: \(selectedSubject.displayName)
+           • Difficulty: \(difficulty.displayName)
+           • Education Level: \(educationLevel.displayName)
+           • Question Types: \(questionTypes.map { "- \($0.key.rawValue): \($0.value)" }.joined(separator: "\n"))
+           """)
+           
+           if !selectedImages.isEmpty {
+               print("📸 Processing \(selectedImages.count) images")
+               for (index, image) in selectedImages.enumerated() {
+                   print("🖼️ Processing image \(index + 1) of \(selectedImages.count)")
+                   let compressedData = try await Task {
+                       try ImageService.shared.compressForAPI(image)
+                   }.value
+                   
+                   let input = OpenAIService.QuestionInput(
+                       content: compressedData,
+                       isImage: true
+                   )
+                   
+                   await generateQuestions(from: input, parameters: parameters)
+               }
+               selectedImages.removeAll()
+               print("✅ All images processed and cleared")
+           } else if !questionText.isEmpty {
+               print("📝 Processing text input: \(questionText)")
+               guard let textData = questionText.data(using: .utf8) else {
+                   throw NetworkError.invalidData
+               }
+               let input = OpenAIService.QuestionInput(
+                   content: textData,
+                   isImage: false
+               )
+               
+               await generateQuestions(from: input, parameters: parameters)
+               print("✅ Text input processed")
+           }
+           
+           print("✅ Successfully generated questions")
+           showSuccess()
+           
+           // Study View로 자동 전환
+           shouldShowStudyView = true
+           
+       } catch {
+           print("❌ Error in sendAllImages: \(error)")
+           self.error = error
+           showError(error)
+       }
+       
+       isLoading = false
+       print("✅ Finished loading state")
     }
     
     // MARK: - Image Capture Methods
@@ -386,7 +424,7 @@ class QuestionSettingsViewModel: ObservableObject {
     
     // MARK: - Question Generation
     @MainActor
-    private func generateQuestions(from imageData: Data, subject: Subject) async {
+    private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
         guard let openAIService = openAIService else {
             print("❌ OpenAI service not initialized")
             return
@@ -399,29 +437,13 @@ class QuestionSettingsViewModel: ObservableObject {
                 .trueFalse: trueFalseCount
             ].filter { $0.value > 0 }
             
-            // 요청 데이터 준비 직전 로그 출력
+            // 로깅
             print("🚀 Preparing to send data to OpenAI API:")
             print("• Subject: \(subject.rawValue)")
             print("• Difficulty: \(difficulty.rawValue)")
             print("• Education Level: \(educationLevel.rawValue)")
             print("• Question Types: \(questionTypes)")
-            print("• Image Data Size: \(imageData.count) bytes")
             
-            // Create QuestionInput
-            let input = OpenAIService.QuestionInput(
-                content: imageData,
-                isImage: true
-            )
-            
-            // Create QuestionParameters
-            let parameters = OpenAIService.QuestionParameters(
-                subject: subject,
-                difficulty: difficulty,
-                educationLevel: educationLevel,
-                questionTypes: questionTypes
-            )
-            
-            // Generate questions with new interface
             let questions = try await openAIService.generateQuestions(
                 from: input,
                 parameters: parameters
@@ -473,15 +495,9 @@ class QuestionSettingsViewModel: ObservableObject {
 
     @MainActor
     private func showSuccess() {
-        alertTitle = "Success"
-        alertMessage = "Questions have been successfully generated."
-        showAlert = true
-        
-        // Success alert가 표시된 후 Study 탭으로 전환하기 위한 notification 발송
-        NotificationCenter.default.post(
-            name: Notification.Name("ShowStudyView"),
-            object: nil
-        )
+       alertTitle = "Success"
+       alertMessage = "Questions have been successfully generated."
+       showAlert = true
     }
     
     
@@ -680,12 +696,15 @@ class HomeViewModel: ObservableObject {
     @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
     @Published private(set) var selectedProblemSet: ProblemSet?
-    var studyViewModel: StudyViewModel?  // StudyViewModel 참조 추가
-    
+    var studyViewModel: StudyViewModel?
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasLoadedData = false
+    
+    // Singleton instance
+    static let shared = HomeViewModel()
+
     
     init() {
         Task {
@@ -717,8 +736,22 @@ class HomeViewModel: ObservableObject {
     @MainActor
     private func loadInitialData() async {
         guard !hasLoadedData else { return }
-        await loadData()
-        hasLoadedData = true
+        
+        do {
+            print("🔵 HomeViewModel - Initial data loading")
+            let loadedProblemSets = try coreDataService.fetchProblemSets()
+            self.problemSets = loadedProblemSets
+            self.savedQuestions = try coreDataService.fetchSavedQuestions()
+            
+            if selectedProblemSet == nil && !problemSets.isEmpty {
+                setSelectedProblemSet(problemSets[0])
+            }
+            
+            hasLoadedData = true
+            print("✅ Initial data loaded successfully")
+        } catch {
+            print("❌ Failed to load initial data: \(error)")
+        }
     }
     
     @MainActor
@@ -850,36 +883,42 @@ class HomeViewModel: ObservableObject {
 
 import Foundation
 
+import Foundation
+
+@MainActor
 class HistoryViewModel: ObservableObject {
-    @Published var studySessions: [StudySession] = []
-    @Published var problemSets: [ProblemSet] = []  // 추가
-    @Published var isLoading = false
-    @Published var error: Error?
-    @Published var savedQuestions: [Question] = []
-    
+    // MARK: - Published Properties
+    @Published private(set) var studySessions: [StudySession] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var error: Error?
+    @Published private(set) var problemSets: [ProblemSet] = []
+    @Published private(set) var savedQuestions: [Question] = []
+
+    // MARK: - Dependencies
     private let storageService: StorageService
-    private let coreDataService: CoreDataService
+    private weak var homeViewModel: HomeViewModel?
     
+    // MARK: - Initialization
     init(storageService: StorageService = StorageService(),
-         coreDataService: CoreDataService = .shared) {
+         homeViewModel: HomeViewModel? = nil) {
         self.storageService = storageService
-        self.coreDataService = coreDataService
-        loadData()
+        self.homeViewModel = homeViewModel
+        loadStudySessions()
     }
     
-    func loadData() {
+    // MARK: - Data Loading
+    private func loadStudySessions() {
         isLoading = true
         
         do {
-            // Load study sessions
             studySessions = try storageService.getStudySessions()
             studySessions.sort { $0.startTime > $1.startTime }
             
-            // Load problem sets
-            problemSets = try coreDataService.fetchProblemSets()
-            
-            // Load saved questions
-            savedQuestions = try coreDataService.fetchSavedQuestions()
+            // Update problemSets and savedQuestions from homeViewModel
+            if let homeVM = homeViewModel {
+                problemSets = homeVM.problemSets
+                savedQuestions = homeVM.savedQuestions
+            }
             
             print("""
             📚 History Data Loaded:
@@ -889,34 +928,57 @@ class HistoryViewModel: ObservableObject {
             """)
         } catch {
             self.error = error
-            print("❌ Failed to load history data: \(error)")
+            print("❌ Failed to load study sessions: \(error)")
         }
         
         isLoading = false
     }
-
     
+    // MARK: - Session Management
     func deleteSession(_ session: StudySession) {
-        if let index = studySessions.firstIndex(where: { $0.id == session.id }) {
-            let deletedSession = studySessions.remove(at: index)
-            
-            Task {
-                do {
-                    try await Task.detached {
-                        try self.storageService.deleteStudySession(session)
-                    }.value
-                } catch {
-                    await MainActor.run {
-                        self.error = error
-                        self.studySessions.insert(deletedSession, at: index)
-                    }
+        guard let index = studySessions.firstIndex(where: { $0.id == session.id }) else {
+            return
+        }
+        
+        let deletedSession = studySessions.remove(at: index)
+        
+        Task {
+            do {
+                try await Task.detached {
+                    try self.storageService.deleteStudySession(session)
+                }.value
+                print("✅ Successfully deleted study session: \(session.id)")
+            } catch {
+                await MainActor.run {
+                    self.error = error
+                    self.studySessions.insert(deletedSession, at: index)
+                    print("❌ Failed to delete study session: \(error)")
                 }
             }
         }
     }
     
+    // MARK: - Data Refresh
     func refreshData() {
-        loadData()
+        loadStudySessions()
+    }
+    
+    // MARK: - HomeViewModel Management
+    func setHomeViewModel(_ viewModel: HomeViewModel) {
+        self.homeViewModel = viewModel
+        // Update data immediately when HomeViewModel is set
+        problemSets = viewModel.problemSets
+        savedQuestions = viewModel.savedQuestions
+        print("📱 HomeViewModel reference set in HistoryViewModel")
+    }
+    
+    // MARK: - Data Access Methods
+    func getProblemSets() -> [ProblemSet] {
+        problemSets
+    }
+    
+    func getSavedQuestions() -> [Question] {
+        savedQuestions
     }
 }
 
@@ -929,169 +991,239 @@ import CoreData
 
 @MainActor
 class StudyViewModel: ObservableObject {
-    @Published private(set) var currentQuestion: Question?
-    @Published var selectedAnswer: String?
-    @Published var showExplanation = false
-    private var questions: [Question] = []
-    private var cancellables = Set<AnyCancellable>()
-    @Published private(set) var currentIndex = 0  // @Published 추가
-    
-    @Published var correctAnswers: Int = 0
-    var totalQuestions: Int {
-        questions.count
-    }
-    
-    private let context: NSManagedObjectContext
-    private var currentSession: CDStudySession?
-    private let homeViewModel: HomeViewModel // Add this line to declare homeViewModel
-    
-    private var hasInitialized = false
-    
-    init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
+   // OpenAIService 타입 참조 추가
+   typealias QuestionInput = OpenAIService.QuestionInput
+   typealias QuestionParameters = OpenAIService.QuestionParameters
 
-        self.context = context
-        self.homeViewModel = homeViewModel // Initialize homeViewModel
-        
-        Task { @MainActor in  // Task 추가
-            homeViewModel.$selectedProblemSet
-                .compactMap { $0 }
-                .removeDuplicates(by: { $0.id == $1.id })
-                .receive(on: RunLoop.main)
-                .sink { [weak self] problemSet in
-                    guard let self = self else { return }
-                    self.resetState()
-                    Task { @MainActor in
-                        self.loadQuestions(problemSet.questions)
-                    }
-                }
-                .store(in: &self.cancellables)
-        }
-        
-        setupCurrentSession()
-    }
-        
-    func resetState() {
-        print("🔄 Performing complete state reset")
-        currentIndex = 0
-        selectedAnswer = nil
-        showExplanation = false
-        correctAnswers = 0
-        
-        // 중복 호출 방지를 위해 clear 후 로드
-        questions.removeAll()
-        
-        // 질문 로드 초기화 및 첫 번째 질문 설정
-        if let problemSet = homeViewModel.selectedProblemSet {
-            loadQuestions(problemSet.questions)
-        }
-
-        currentQuestion = questions.first
-        print("✅ Reset to first question with question: \(currentQuestion?.question ?? "No question loaded"), currentIndex: \(currentIndex)")
-    }
+   @Published private(set) var loadedQuestions: [Question] = []
+   @Published private(set) var loadingProgress = 0
+   
+   private let openAIService: OpenAIService
+   
+   @Published private(set) var currentQuestion: Question?
+   @Published var selectedAnswer: String?
+   @Published var showExplanation = false
+   private var questions: [Question] = []
+   private var cancellables = Set<AnyCancellable>()
+   @Published private(set) var currentIndex = 0
+   @Published var correctAnswers: Int = 0
+    
+    // 질문 생성 관련 프로퍼티 추가
+    @Published var isGeneratingQuestions = false
+    @Published var generatedQuestionCount = 0
+    @Published var totalExpectedQuestions = 0
+    @Published var generatedQuestions: [Question] = []
+    @Published var isLoadingQuestions: Bool = false
+    
 
     
-    func loadQuestions(_ newQuestions: [Question]) {
-        print("📝 Loading fresh set of \(newQuestions.count) questions")
-        questions = newQuestions
-        currentIndex = 0 // 명시적으로 currentIndex를 0으로 설정
-        currentQuestion = questions.isEmpty ? nil : questions[0]
+    func updateGeneratedQuestions(_ question: Question) {
+        generatedQuestions.append(question)
+        generatedQuestionCount = generatedQuestions.count
+    }
+    
+    func setTotalExpectedQuestions(_ total: Int) {
+        totalExpectedQuestions = total
+    }
+    
+   var totalQuestions: Int {
+       questions.count
+   }
+   
+   private let context: NSManagedObjectContext
+   private var currentSession: CDStudySession?
+   private let homeViewModel: HomeViewModel
+   
+   private var hasInitialized = false
+   
+   init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
+       self.context = context
+       self.homeViewModel = homeViewModel
+       
+       // OpenAIService 초기화
+       do {
+           self.openAIService = try OpenAIService()
+       } catch {
+           fatalError("Failed to initialize OpenAI service: \(error)")
+       }
+       
+       Task { @MainActor in
+           homeViewModel.$selectedProblemSet
+               .compactMap { $0 }
+               .removeDuplicates(by: { $0.id == $1.id })
+               .receive(on: RunLoop.main)
+               .sink { [weak self] problemSet in
+                   guard let self = self else { return }
+                   self.resetState()
+                   Task { @MainActor in
+                       self.loadQuestions(problemSet.questions)
+                   }
+               }
+               .store(in: &self.cancellables)
+       }
+       
+       setupCurrentSession()
+   }
+   
+    func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
+        isLoadingQuestions = true  // 이제 할당 가능
+        loadingProgress = 0
+        loadedQuestions = []
+        isGeneratingQuestions = true
+        generatedQuestionCount = 0
+        generatedQuestions = []
         
-        print("✅ First question loaded explicitly: \(currentQuestion?.question ?? "No question loaded") with currentIndex: \(currentIndex)")
-    }
-    
-    private func setupCurrentSession() {
-        let session = CDStudySession(context: context)
-        session.startTime = Date()
-        currentSession = session
-        saveContext()
-    }
-    
-    func submitAnswer() {
-        guard let currentQuestion = currentQuestion else { return }
+        // 예상되는 총 질문 수 계산
+        let totalQuestions = parameters.questionTypes.values.reduce(0, +)
+        setTotalExpectedQuestions(totalQuestions)
         
-        // Check if the answer is correct and update count
-        let isCorrect = currentQuestion.correctAnswer == selectedAnswer
-        if isCorrect {
-            correctAnswers += 1
-        }
-        
-        // Save isCorrect status in current session
-        if let session = currentSession {
-            let question = CDQuestion(context: context)
-            question.isCorrect = isCorrect
-            question.question = currentQuestion.question
-            question.session = session
-            saveContext()
-        }
-        
-        showExplanation = true
-    }
-    
-    func nextQuestion() {
-        guard currentIndex < questions.count - 1 else { return }
-        currentIndex += 1
-        currentQuestion = questions[currentIndex]
-        resetAnswers()
-    }
-    
-    func saveProgress() {
-        print("Saving progress...")
-        saveContext()
-    }
-    
-    private func saveContext() {
         do {
-            try context.save()
+            for try await question in openAIService.streamQuestions(from: input, parameters: parameters) {
+                await MainActor.run {
+                    updateGeneratedQuestions(question)
+                }
+            }
         } catch {
-            print("Failed to save context: \(error)")
+            print("Error generating questions: \(error)")
         }
-    }
-    
-    var hasQuestions: Bool {
-        return !questions.isEmpty
-    }
-    
-    var progress: Double {
-        guard totalQuestions > 0 else { return 0 }
-        return Double(currentIndex + 1) / Double(totalQuestions)
-    }
-    
-    var isLastQuestion: Bool {
-        currentIndex == questions.count - 1
-    }
-    
-    var canSubmit: Bool {
-        guard let question = currentQuestion else { return false }
         
-        switch question.type {
-        case .multipleChoice, .fillInBlanks, .trueFalse:  // trueFalse 케이스 추가
-            return selectedAnswer != nil
+        await MainActor.run {
+            isGeneratingQuestions = false
+        }
+
+        do {
+            for try await question in openAIService.streamQuestions(from: input, parameters: parameters) {
+                await MainActor.run {
+                    loadedQuestions.append(question)
+                    loadingProgress = min(100, Int((Float(loadedQuestions.count) / Float(parameters.questionTypes.values.reduce(0, +))) * 100))
+                }
+            }
+        } catch {
+            print("Error generating questions: \(error)")
+        }
+        
+        await MainActor.run {
+            isLoadingQuestions = false  // 이제 할당 가능
         }
     }
-    
-    private func resetAnswers() {
-        selectedAnswer = nil
-        showExplanation = false
-    }
+   
+   func resetState() {
+       print("🔄 Performing complete state reset")
+       currentIndex = 0
+       selectedAnswer = nil
+       showExplanation = false
+       correctAnswers = 0
+       
+       questions.removeAll()
+       
+       if let problemSet = homeViewModel.selectedProblemSet {
+           loadQuestions(problemSet.questions)
+       }
+
+       currentQuestion = questions.first
+       print("✅ Reset to first question with question: \(currentQuestion?.question ?? "No question loaded"), currentIndex: \(currentIndex)")
+   }
+   
+   func loadQuestions(_ newQuestions: [Question]) {
+       print("📝 Loading fresh set of \(newQuestions.count) questions")
+       questions = newQuestions
+       currentIndex = 0
+       currentQuestion = questions.isEmpty ? nil : questions[0]
+       
+       print("✅ First question loaded explicitly: \(currentQuestion?.question ?? "No question loaded") with currentIndex: \(currentIndex)")
+   }
+   
+   private func setupCurrentSession() {
+       let session = CDStudySession(context: context)
+       session.startTime = Date()
+       currentSession = session
+       saveContext()
+   }
+   
+   func submitAnswer() {
+       guard let currentQuestion = currentQuestion else { return }
+       
+       let isCorrect = currentQuestion.correctAnswer == selectedAnswer
+       if isCorrect {
+           correctAnswers += 1
+       }
+       
+       if let session = currentSession {
+           let question = CDQuestion(context: context)
+           question.isCorrect = isCorrect
+           question.question = currentQuestion.question
+           question.session = session
+           saveContext()
+       }
+       
+       showExplanation = true
+   }
+   
+   func nextQuestion() {
+       guard currentIndex < questions.count - 1 else { return }
+       currentIndex += 1
+       currentQuestion = questions[currentIndex]
+       resetAnswers()
+   }
+   
+   func saveProgress() {
+       print("Saving progress...")
+       saveContext()
+   }
+   
+   private func saveContext() {
+       do {
+           try context.save()
+       } catch {
+           print("Failed to save context: \(error)")
+       }
+   }
+   
+   var hasQuestions: Bool {
+       return !questions.isEmpty
+   }
+   
+   var progress: Double {
+       guard totalQuestions > 0 else { return 0 }
+       return Double(currentIndex + 1) / Double(totalQuestions)
+   }
+   
+   var isLastQuestion: Bool {
+       currentIndex == questions.count - 1
+   }
+   
+   var canSubmit: Bool {
+       guard let question = currentQuestion else { return false }
+       
+       switch question.type {
+       case .multipleChoice, .fillInBlanks, .trueFalse:
+           return selectedAnswer != nil
+       }
+   }
+   
+   private func resetAnswers() {
+       selectedAnswer = nil
+       showExplanation = false
+   }
 }
 
 extension StudyViewModel {
-    @MainActor
-    func toggleSaveQuestion(_ question: Question) async {
-        var updatedQuestion = question
-        updatedQuestion.isSaved.toggle()
-        
-        do {
-            if updatedQuestion.isSaved {
-                try await homeViewModel.saveQuestion(updatedQuestion)
-            } else {
-                try await homeViewModel.deleteQuestion(updatedQuestion)
-            }
-            print("✅ Question save state toggled successfully")
-        } catch {
-            print("❌ Failed to toggle question save state: \(error)")
-        }
-    }
+   @MainActor
+   func toggleSaveQuestion(_ question: Question) async {
+       var updatedQuestion = question
+       updatedQuestion.isSaved.toggle()
+       
+       do {
+           if updatedQuestion.isSaved {
+               try await homeViewModel.saveQuestion(updatedQuestion)
+           } else {
+               try await homeViewModel.deleteQuestion(updatedQuestion)
+           }
+           print("✅ Question save state toggled successfully")
+       } catch {
+           print("❌ Failed to toggle question save state: \(error)")
+       }
+   }
 }
 
 
@@ -2097,11 +2229,11 @@ class ImageCompressor {
     static let shared = ImageCompressor()
     
     private enum Constraints {
-        // 파일 크기 제한을 더 낮게 설정 (800KB -> 400KB)
+        // 파일 크기 제한을 더 낮게 설정 (400KB로 줄임)
         static let targetFileSize = 400 * 1024  // 400KB
         // 최대 치수를 더 작게 설정 (800 -> 640)
         static let maxDimension: CGFloat = 640
-        static let minDimension: CGFloat = 480
+        static let minDimension: CGFloat = 320
         // 최소 품질을 낮춤 (0.5 -> 0.3)
         static let minimumQuality: CGFloat = 0.3
     }
@@ -2125,8 +2257,8 @@ class ImageCompressor {
         let resizedImage = resizeImage(image, maxDimension: maxDimension)
         print("✂️ Resized dimensions: \(Int(resizedImage.size.width))x\(Int(resizedImage.size.height))")
         
-        // 압축 시작 품질을 0.8에서 0.6으로 낮춤
-        var compression: CGFloat = 0.6
+        // 압축 시작 품질을 0.6에서 0.3으로 낮춤
+        var compression: CGFloat = 0.3
         var compressedData = resizedImage.jpegData(compressionQuality: compression)!
         
         while compressedData.count > maxSize && compression > Constraints.minimumQuality {
@@ -2138,7 +2270,6 @@ class ImageCompressor {
             }
         }
         
-        // 추가 압축이 필요한 경우 이미지 크기를 더 줄임
         if compressedData.count > maxSize {
             let scale = sqrt(Double(maxSize) / Double(compressedData.count))
             let newSize = CGSize(
@@ -2163,14 +2294,7 @@ class ImageCompressor {
         
         return compressedData
     }
-      
-    func compressForAPI(_ image: UIImage) throws -> Data {
-        return try compress(
-            image: image,
-            maxSize: Constraints.targetFileSize,
-            maxDimension: Constraints.maxDimension
-        )
-    }
+
     
     private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
         let originalSize = image.size
@@ -2198,26 +2322,6 @@ class ImageCompressor {
     
     private func formatFileSize(_ bytes: Int) -> String {
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-}
-
-// MARK: - Usage Example
-extension ImageCompressor {
-    static func example() {
-        guard let image = UIImage(named: "example") else { return }
-        
-        do {
-            // Basic compression
-            let compressedData = try ImageCompressor.shared.compress(image: image)
-            print("Compressed size: \(compressedData.count) bytes")
-            
-            // Compression for API
-            let apiReadyData = try ImageCompressor.shared.compressForAPI(image)
-            print("API-ready size: \(apiReadyData.count) bytes")
-            
-        } catch {
-            print("Compression failed: \(error)")
-        }
     }
 }
 
@@ -2991,195 +3095,278 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
+import SwiftUI
+import PhotosUI
+import UIKit
+
 struct QuestionSettingsView: View {
-    let subject: Subject
-    @StateObject private var viewModel: QuestionSettingsViewModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var expandedSections: Set<SectionType> = []
-    
-    // 섹션 타입을 정의
-    enum SectionType {
-        case learningSubject
-        case educationLevel
-        case difficultyLevel
-        case questionTypes
-    }
-    
-    init(subject: Subject, homeViewModel: HomeViewModel) {
-        self.subject = subject
-        self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(subject: subject, homeViewModel: homeViewModel))
-    }
-    
-    var body: some View {
-        Form {
-            Group {
-                // Learning Subject Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .learningSubject)
-                    ) {
-                        LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
-                    } label: {
-                        HStack {
-                            Text("Learning Subject")
-                                .font(.headline)
-                            Spacer()
-                            Text(viewModel.selectedSubject.displayName)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .listRowSpacing(0)
-                
-                // Education Level Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .educationLevel)
-                    ) {
-                        EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
-                    } label: {
-                        HStack {
-                            Text("Education Level")
-                                .font(.headline)
-                            Spacer()
-                            Text(viewModel.educationLevel.displayName)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .listRowSpacing(0)
-              
-                // Difficulty Level Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .difficultyLevel)
-                    ) {
-                        DifficultyLevelSection(difficulty: $viewModel.difficulty)
-                    } label: {
-                        HStack {
-                            Text("Difficulty Level")
-                                .font(.headline)
-                            Spacer()
-                            Text(viewModel.difficulty.displayName)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .listRowSpacing(0)
-                
-                // Question Types Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .questionTypes)
-                    ) {
-                        VStack(spacing: 8) {
-                            LazyVGrid(columns: [
-                                GridItem(.flexible()),
-                                GridItem(.flexible())
-                            ], spacing: 12) {
-                                QuestionTypeCard(
-                                    viewModel: viewModel,
-                                    title: "Multiple",
-                                    icon: "list.bullet.circle.fill",
-                                    count: $viewModel.multipleChoiceCount
-                                )
-                                
-                                QuestionTypeCard(
-                                    viewModel: viewModel,
-                                    title: "Fill in Blanks",
-                                    icon: "square.and.pencil",
-                                    count: $viewModel.fillInBlanksCount
-                                )
-                                
-                                QuestionTypeCard(
-                                    viewModel: viewModel,
-                                    title: "True/False",
-                                    icon: "checkmark.circle.fill",
-                                    count: $viewModel.trueFalseCount
-                                )
-                            }
-                        }
-                        .padding(.vertical, 8)
-                    } label: {
-                        HStack {
-                            Text("Question Types")
-                                .font(.headline)
-                            Spacer()
-                            Text("\(viewModel.totalQuestionCount) questions")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }
-                .listRowSpacing(0)
-            }
-            .listSectionSpacing(8)
-            if viewModel.hasValidQuestionCount {
-                ImageSelectionSection(viewModel: viewModel)
-            } else {
-                EmptyQuestionSection()
-            }
-        }
-        .navigationBarItems(
-            leading: Button("Cancel") {
-                viewModel.resetCounts()
-                dismiss()
-            }
-        )
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $viewModel.showImagePicker) {
-            PhotoPicker(selectedImages: $viewModel.selectedImages)
-        }
-        .sheet(isPresented: $viewModel.showCamera) {
-            ImagePicker(
-                image: $viewModel.selectedImage,
-                sourceType: .camera,
-                onImageSelected: { image in
-                    Task {
-                        await viewModel.handleCameraImage(image)
-                    }
-                }
-            )
-        }
-        .alert(isPresented: $viewModel.showAlert) {
-            Alert(
-                title: Text(viewModel.alertTitle),
-                message: Text(viewModel.alertMessage),
-                dismissButton: .default(Text("OK")) {
-                    if viewModel.alertTitle == "Success" {
-                        dismiss()
-                    }
-                }
-            )
-        }
-        .overlay {
-            if viewModel.isLoading {
-                LoadingView()
-            }
-        }
-        .onChange(of: viewModel.shouldCollapseQuestionTypes) { shouldCollapse in
-            if shouldCollapse {
-                withAnimation {
-                    expandedSections.remove(.questionTypes)
-                }
-            }
-        }
-    }
-    
-    private func isExpandedBinding(for section: SectionType) -> Binding<Bool> {
-        Binding(
-            get: { expandedSections.contains(section) },
-            set: { isExpanded in
-                withAnimation {
-                    if isExpanded {
-                        expandedSections.insert(section)
-                    } else {
-                        expandedSections.remove(section)
-                    }
-                }
-            }
-        )
-    }
+   let subject: Subject
+   @StateObject private var viewModel: QuestionSettingsViewModel
+   @Environment(\.dismiss) private var dismiss
+   @Binding var selectedTab: Int
+   @State private var expandedSections: Set<SectionType> = []
+   @State private var isTextInputSelected = false
+   
+   enum SectionType {
+       case learningSubject
+       case educationLevel
+       case difficultyLevel
+       case questionTypes
+   }
+   
+   init(subject: Subject,
+        homeViewModel: HomeViewModel,
+        selectedTab: Binding<Int>) {
+       self.subject = subject
+       self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(
+           subject: subject,
+           homeViewModel: homeViewModel
+       ))
+       self._selectedTab = selectedTab
+   }
+   
+   var body: some View {
+       VStack(spacing: 0) {
+           Form {
+               // Question About Section
+               Section {
+                   DisclosureGroup(
+                       isExpanded: .constant(true)
+                   ) {
+                       VStack(spacing: 16) {
+                           HStack(spacing: 12) {
+                               ImageOptionCard(
+                                   icon: "camera.fill",
+                                   isUsed: viewModel.hasSelectedCamera,
+                                   isDisabled: !viewModel.canUseImageInput,
+                                   action: {
+                                       if viewModel.canUseImageInput {
+                                           isTextInputSelected = false
+                                           Task { await viewModel.takePhoto() }
+                                       }
+                                   }
+                               )
+                               
+                               ImageOptionCard(
+                                   icon: "photo.fill",
+                                   isUsed: viewModel.hasSelectedGallery,
+                                   isDisabled: !viewModel.canUseImageInput,
+                                   action: {
+                                       if viewModel.canUseImageInput {
+                                           isTextInputSelected = false
+                                           Task { await viewModel.selectFromGallery() }
+                                       }
+                                   }
+                               )
+                               
+                               ImageOptionCard(
+                                   icon: "text.bubble.fill",
+                                   isUsed: viewModel.isTextInputActive,
+                                   isDisabled: !viewModel.canUseTextInput,
+                                   action: {
+                                       isTextInputSelected.toggle()
+                                       viewModel.toggleTextInput()
+                                   }
+                               )
+                           }
+                           .padding(.horizontal)
+                           
+                           if viewModel.isTextInputActive {
+                               TextField("Enter your question here...", text: $viewModel.questionText)
+                                   .textFieldStyle(RoundedBorderTextFieldStyle())
+                           }
+                           
+                           if !viewModel.selectedImages.isEmpty {
+                               ScrollView(.horizontal, showsIndicators: false) {
+                                   HStack(spacing: 12) {
+                                       ForEach(viewModel.selectedImages.indices, id: \.self) { index in
+                                           SelectedImageCell(
+                                               image: viewModel.selectedImages[index],
+                                               onDelete: {
+                                                   viewModel.removeImage(at: index)
+                                               }
+                                           )
+                                       }
+                                   }
+                                   .padding(.vertical, 8)
+                               }
+                           }
+                       }
+                   } label: {
+                       HStack {
+                           Text("Question About")
+                               .font(.headline)
+                           Spacer()
+                           if !viewModel.selectedImages.isEmpty {
+                               Text("\(viewModel.selectedImages.count) selected")
+                                   .foregroundColor(.green)
+                           } else if !viewModel.questionText.isEmpty {
+                               Text("Text input")
+                                   .foregroundColor(.green)
+                           }
+                       }
+                   }
+               }.listRowSpacing(0)
+               
+               // Learning Subject Section
+               Section {
+                   DisclosureGroup(
+                       isExpanded: isExpandedBinding(for: .learningSubject)
+                   ) {
+                       LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
+                   } label: {
+                       HStack {
+                           Text("Learning Subject")
+                               .font(.headline)
+                           Spacer()
+                           Text(viewModel.selectedSubject.displayName)
+                               .foregroundColor(.gray)
+                       }
+                   }
+               }.listRowSpacing(0)
+               
+               // Question Types Section
+               Section {
+                   DisclosureGroup(
+                       isExpanded: isExpandedBinding(for: .questionTypes)
+                   ) {
+                       QuestionTypesSelectionSection(viewModel: viewModel)
+                   } label: {
+                       HStack {
+                           Text("Question Types")
+                               .font(.headline)
+                           Spacer()
+                           Text("\(viewModel.totalQuestionCount) questions")
+                               .foregroundColor(.gray)
+                       }
+                   }
+               }.listRowSpacing(0)
+               
+               if isTextInputSelected {
+                   // Education Level Section
+                   Section {
+                       DisclosureGroup(
+                           isExpanded: isExpandedBinding(for: .educationLevel)
+                       ) {
+                           EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                       } label: {
+                           HStack {
+                               Text("Education Level")
+                                   .font(.headline)
+                               Spacer()
+                               Text(viewModel.educationLevel.displayName)
+                                   .foregroundColor(.gray)
+                           }
+                       }
+                   }.listRowSpacing(0)
+                   
+                   // Difficulty Level Section
+                   Section {
+                       DisclosureGroup(
+                           isExpanded: isExpandedBinding(for: .difficultyLevel)
+                       ) {
+                           DifficultyLevelSection(difficulty: $viewModel.difficulty)
+                       } label: {
+                           HStack {
+                               Text("Difficulty Level")
+                                   .font(.headline)
+                               Spacer()
+                               Text(viewModel.difficulty.displayName)
+                                   .foregroundColor(.gray)
+                           }
+                       }
+                   }.listRowSpacing(0)
+               }
+           }.listSectionSpacing(4)
+           
+           // Generate Questions Button
+           VStack {
+               Button(action: {
+                   Task {
+                       await viewModel.sendAllImages()
+                   }
+               }) {
+                   Text("Generate Questions")
+                       .font(.headline)
+                       .foregroundColor(.white)
+                       .frame(maxWidth: .infinity)
+                       .padding()
+                       .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
+                       .cornerRadius(10)
+               }
+               .disabled(!isGenerateButtonEnabled)
+               .padding()
+           }
+           .background(Color(UIColor.systemGroupedBackground))
+       }
+       .navigationBarItems(
+           leading: Button("Cancel") {
+               viewModel.resetCounts()
+               dismiss()
+           }
+       )
+       .navigationBarTitleDisplayMode(.inline)
+       .sheet(isPresented: $viewModel.showImagePicker) {
+           PhotoPicker(selectedImages: $viewModel.selectedImages)
+       }
+       .sheet(isPresented: $viewModel.showCamera) {
+           ImagePicker(
+               image: $viewModel.selectedImage,
+               sourceType: .camera,
+               onImageSelected: { image in
+                   Task {
+                       await viewModel.handleCameraImage(image)
+                   }
+               }
+           )
+       }
+       .alert(isPresented: $viewModel.showAlert) {
+           Alert(
+               title: Text(viewModel.alertTitle),
+               message: Text(viewModel.alertMessage),
+               dismissButton: .default(Text("OK")) {
+                   if viewModel.alertTitle == "Success" {
+                       dismiss()
+                   }
+               }
+           )
+       }
+       .onChange(of: viewModel.shouldShowStudyView) { show in
+           if show {
+               dismiss()
+               selectedTab = 1  // Study 탭으로 전환
+           }
+       }
+       .overlay {
+           if viewModel.isLoading {
+               LoadingView()
+           }
+       }
+   }
+   
+   private var isGenerateButtonEnabled: Bool {
+       let hasInput = !viewModel.selectedImages.isEmpty ||
+                     (!viewModel.questionText.isEmpty && viewModel.isTextInputActive)
+       let hasQuestionType = viewModel.totalQuestionCount > 0
+       return hasInput && hasQuestionType
+   }
+   
+   private func isExpandedBinding(for section: SectionType) -> Binding<Bool> {
+       Binding(
+           get: { expandedSections.contains(section) },
+           set: { isExpanded in
+               withAnimation {
+                   if isExpanded {
+                       expandedSections.insert(section)
+                   } else {
+                       expandedSections.remove(section)
+                   }
+               }
+           }
+       )
+   }
 }
+
 
 
 struct LearningSubjectSection: View {
@@ -5203,22 +5390,23 @@ import CoreData
 
 struct MainTabView: View {
     @Environment(\.managedObjectContext) private var context
-    @StateObject private var homeViewModel = HomeViewModel()
+    @StateObject private var homeViewModel: HomeViewModel
     @State private var selectedTab = 0
     @StateObject private var studyViewModel: StudyViewModel
-    @StateObject private var statViewModel: StatViewModel // StatViewModel 추가
+    @StateObject private var statViewModel: StatViewModel
     
     init() {
-          let homeVM = HomeViewModel()
-          self._homeViewModel = StateObject(wrappedValue: homeVM)
-          self._studyViewModel = StateObject(wrappedValue: StudyViewModel(
-              homeViewModel: homeVM,
-              context: CoreDataService.shared.viewContext
-          ))
-          self._statViewModel = StateObject(wrappedValue: StatViewModel(context: CoreDataService.shared.viewContext)) // StatViewModel 초기화
-      }
-     
-   
+        let homeVM = HomeViewModel.shared
+        self._homeViewModel = StateObject(wrappedValue: homeVM)
+        self._studyViewModel = StateObject(wrappedValue: StudyViewModel(
+            homeViewModel: homeVM,
+            context: CoreDataService.shared.viewContext
+        ))
+        self._statViewModel = StateObject(wrappedValue: StatViewModel(
+            context: CoreDataService.shared.viewContext
+        ))
+    }
+    
     var body: some View {
         TabView(selection: $selectedTab) {
             HomeView(viewModel: homeViewModel, selectedTab: $selectedTab)
@@ -5226,7 +5414,7 @@ struct MainTabView: View {
                     Label("Home", systemImage: "house")
                 }
                 .tag(0)
-           
+            
             if let problemSet = homeViewModel.selectedProblemSet {
                 StudyView(
                     questions: problemSet.questions,
@@ -5244,17 +5432,17 @@ struct MainTabView: View {
                     }
                     .tag(1)
             }
-           
+            
             HistoryView()
                 .tabItem {
                     Label("History", systemImage: "clock.fill")
                 }
                 .tag(2)
-           
+            
             StatView(
                 correctAnswers: homeViewModel.correctAnswers,
                 totalQuestions: homeViewModel.totalQuestions,
-                viewModel: statViewModel, // StatView에 viewModel 전달
+                viewModel: statViewModel,
                 selectedTab: $selectedTab
             )
             .tabItem {
@@ -5263,13 +5451,11 @@ struct MainTabView: View {
             .tag(3)
         }
         .onAppear {
-            // StatViewModel에 homeViewModel 설정
             statViewModel.setHomeViewModel(homeViewModel)
         }
-        .onChange(of: homeViewModel.selectedProblemSet) { newValue in
+        .onChange(of: homeViewModel.selectedProblemSet) { _ in
             if selectedTab == 1 {
-                // Study 탭에서 ProblemSet이 변경되면 상태 리셋
-                if let problemSet = newValue {
+                if let problemSet = homeViewModel.selectedProblemSet {
                     studyViewModel.loadQuestions(problemSet.questions)
                 }
             }
@@ -5501,7 +5687,8 @@ struct HomeView: View {
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
                 subject: selectedSubject,
-                homeViewModel: viewModel
+                homeViewModel: viewModel,
+                selectedTab: $selectedTab  // selectedTab 바인딩 전달
             )
         }
     }
@@ -5513,9 +5700,14 @@ struct HomeView: View {
 import SwiftUI
 
 struct HistoryView: View {
-    @StateObject private var viewModel = HistoryViewModel()
     @EnvironmentObject var homeViewModel: HomeViewModel
+    @StateObject private var viewModel: HistoryViewModel
     @State private var searchText = ""
+    
+    init() {
+        let vm = HistoryViewModel(homeViewModel: HomeViewModel.shared)
+        self._viewModel = StateObject(wrappedValue: vm)
+    }
     
     var body: some View {
         NavigationView {
@@ -5569,6 +5761,13 @@ struct HistoryView: View {
                 }
             }
         }
+        .onAppear {
+                    viewModel.setHomeViewModel(homeViewModel)
+                }
+    }
+    
+    var problemSets: [ProblemSet] {
+        homeViewModel.problemSets
     }
     
     // Subject별로 Problem Sets 필터링 및 정렬하는 메서드
@@ -5667,182 +5866,314 @@ import SwiftUI
 import CoreData
 
 struct StudyView: View {
-    @Environment(\.managedObjectContext) private var context
-    @Binding var selectedTab: Int
-    @ObservedObject var studyViewModel: StudyViewModel
-    let questions: [Question]
-    
-    @State private var showExplanation: Bool = false
-    @State private var isCorrect: Bool? = nil
-    @State private var isSaved: Bool = false
-    
-    init(questions: [Question],
-         studyViewModel: StudyViewModel,
-         selectedTab: Binding<Int>) {
-        self.questions = questions
-        self._selectedTab = selectedTab
-        self.studyViewModel = studyViewModel
-    }
-    
-    var body: some View {
-        VStack {
-            ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
-                        total: Double(studyViewModel.totalQuestions))
-                .progressViewStyle(.linear)
-                .padding()
-            
-            Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            
-            if !studyViewModel.hasQuestions {
-                Text("No questions available")
-                    .font(.headline)
-                    .foregroundColor(.gray)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if let currentQuestion = studyViewModel.currentQuestion {
-                            switch currentQuestion.type {
-                            case .multipleChoice:
-                                MultipleChoiceView(
-                                    question: currentQuestion,
-                                    selectedAnswer: $studyViewModel.selectedAnswer,
-                                    showExplanation: studyViewModel.showExplanation,
-                                    isCorrect: isCorrect
-                                )
-                                
-                            case .fillInBlanks:
-                                FillInBlanksView(
-                                    question: currentQuestion,
-                                    answer: $studyViewModel.selectedAnswer,
-                                    showExplanation: studyViewModel.showExplanation,
-                                    isCorrect: isCorrect
-                                )
-                                
-                            case .trueFalse:
-                                TrueFalseView(
-                                    question: currentQuestion,
-                                    selectedAnswer: $studyViewModel.selectedAnswer,
-                                    showExplanation: studyViewModel.showExplanation,
-                                    isCorrect: isCorrect
-                                )
-                            }
-                            
-                            if showExplanation && studyViewModel.showExplanation {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text(currentQuestion.explanation)
-                                        .font(.body)
-                                        .foregroundColor(.secondary)
-                                        .padding()
-                                        .background(Color.blue.opacity(0.1))
-                                        .cornerRadius(10)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-                        }
-                    }
-                    .padding()
-                }
-                
-                // Action Buttons
-                VStack {
-                    Divider()
-                    
-                    HStack(spacing: 12) {
-                        if studyViewModel.showExplanation {
-                            // Explanation Button
-                            Button(action: {
-                                withAnimation {
-                                    showExplanation.toggle()
-                                }
-                            }) {
-                                Image(systemName: showExplanation ? "lightbulb.fill" : "lightbulb")
-                                    .foregroundColor(.yellow)
-                                    .font(.system(size: 24))
-                                    .padding(8)
-                                    .background(Circle().fill(Color.yellow.opacity(0.2)))
-                            }
-                            
-                            // Save Question Button
-                            Button(action: {
-                                if let currentQuestion = studyViewModel.currentQuestion {
-                                    Task {
-                                        await studyViewModel.toggleSaveQuestion(currentQuestion)
-                                        withAnimation {
-                                            isSaved.toggle()
-                                        }
-                                    }
-                                }
-                            }) {
-                                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
-                                    .foregroundColor(.blue)
-                                    .font(.system(size: 24))
-                                    .padding(8)
-                                    .background(Circle().fill(Color.blue.opacity(0.2)))
-                            }
-                        }
-                        
-                        ActionButton(
-                            viewModel: studyViewModel,
-                            selectedTab: $selectedTab,
-                            isCorrect: $isCorrect,
-                            showExplanation: $showExplanation
-                        )
-                    }
-                    .padding()
-                    .background(Color(UIColor.systemBackground))
-                }
-            }
-        }
-        .onAppear {
-            if let currentQuestion = studyViewModel.currentQuestion {
-                isSaved = currentQuestion.isSaved
-            }
-        }
-        .onChange(of: studyViewModel.currentQuestion) { newQuestion in
-            if let question = newQuestion {
-                isSaved = question.isSaved
-            }
-        }
-    }
+   @Environment(\.managedObjectContext) private var context
+   @Binding var selectedTab: Int
+   @ObservedObject var studyViewModel: StudyViewModel
+   let questions: [Question]
+   
+   @State private var showExplanation: Bool = false
+   @State private var isCorrect: Bool? = nil
+   @State private var isSaved: Bool = false
+   @State private var previewSelectedAnswer: String? = nil  // 추가
+   @State private var previewIsCorrect: Bool? = nil        // 추가
+   
+   init(questions: [Question],
+        studyViewModel: StudyViewModel,
+        selectedTab: Binding<Int>) {
+       self.questions = questions
+       self._selectedTab = selectedTab
+       self.studyViewModel = studyViewModel
+   }
+   
+   var body: some View {
+       VStack {
+           // 질문 생성중일 때의 뷰
+           if studyViewModel.isGeneratingQuestions {
+               VStack(spacing: 16) {
+                   ProgressView(value: Double(studyViewModel.generatedQuestionCount),
+                              total: Double(studyViewModel.totalExpectedQuestions)) {
+                       Text("Generating Questions...")
+                           .font(.headline)
+                   }
+                   .progressViewStyle(.linear)
+                   .padding()
+                   
+                   Text("\(studyViewModel.generatedQuestionCount) / \(studyViewModel.totalExpectedQuestions)")
+                       .font(.subheadline)
+                       .foregroundColor(.secondary)
+                   
+                   // 생성된 질문들 미리보기
+                   if !studyViewModel.generatedQuestions.isEmpty {
+                       ScrollView {
+                           LazyVStack(spacing: 12) {
+                               ForEach(studyViewModel.generatedQuestions) { question in
+                                   QuestionPreviewCard(
+                                       question: question,
+                                       selectedAnswer: $previewSelectedAnswer,
+                                       isCorrect: $previewIsCorrect,
+                                       onAnswerSelected: { correct in
+                                           print("Answer selected: \(correct)")
+                                       }
+                                   )
+                                   .transition(.slide)
+                               }
+                           }
+                           .padding()
+                       }
+                   }
+               }
+           }
+           // 일반 학습 뷰
+           else {
+               ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
+                           total: Double(studyViewModel.totalQuestions))
+                   .progressViewStyle(.linear)
+                   .padding()
+               
+               Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
+                   .font(.subheadline)
+                   .foregroundColor(.secondary)
+               
+               if !studyViewModel.hasQuestions {
+                   Text("No questions available")
+                       .font(.headline)
+                       .foregroundColor(.gray)
+               } else {
+                   ScrollView {
+                       VStack(alignment: .leading, spacing: 20) {
+                           if let currentQuestion = studyViewModel.currentQuestion {
+                               switch currentQuestion.type {
+                               case .multipleChoice:
+                                   MultipleChoiceView(
+                                       question: currentQuestion,
+                                       selectedAnswer: $studyViewModel.selectedAnswer,
+                                       showExplanation: studyViewModel.showExplanation,
+                                       isCorrect: isCorrect
+                                   )
+                                   
+                               case .fillInBlanks:
+                                   FillInBlanksView(
+                                       question: currentQuestion,
+                                       answer: $studyViewModel.selectedAnswer,
+                                       showExplanation: studyViewModel.showExplanation,
+                                       isCorrect: isCorrect
+                                   )
+                                   
+                               case .trueFalse:
+                                   TrueFalseView(
+                                       question: currentQuestion,
+                                       selectedAnswer: $studyViewModel.selectedAnswer,
+                                       showExplanation: studyViewModel.showExplanation,
+                                       isCorrect: isCorrect
+                                   )
+                               }
+                               
+                               if showExplanation && studyViewModel.showExplanation {
+                                   ExplanationView(explanation: currentQuestion.explanation)
+                               }
+                           }
+                       }
+                       .padding()
+                   }
+                   
+                   // Action Buttons
+                   VStack {
+                       Divider()
+                       
+                       HStack(spacing: 12) {
+                           if studyViewModel.showExplanation {
+                               UtilityButtons(
+                                   showExplanation: $showExplanation,
+                                   isSaved: $isSaved,
+                                   studyViewModel: studyViewModel
+                               )
+                           }
+                           
+                           ActionButton(
+                               viewModel: studyViewModel,
+                               selectedTab: $selectedTab,
+                               isCorrect: $isCorrect,
+                               showExplanation: $showExplanation
+                           )
+                       }
+                       .padding()
+                       .background(Color(UIColor.systemBackground))
+                   }
+               }
+           }
+       }
+       .onAppear {
+           if let currentQuestion = studyViewModel.currentQuestion {
+               isSaved = currentQuestion.isSaved
+           }
+       }
+       .onChange(of: studyViewModel.currentQuestion) { newQuestion in
+           if let question = newQuestion {
+               isSaved = question.isSaved
+           }
+       }
+   }
+}
+
+// 새로 추가된 미리보기 카드 뷰
+struct QuestionPreviewCard: View {
+  let question: Question
+  @Binding var selectedAnswer: String?
+  @Binding var isCorrect: Bool?
+  var onAnswerSelected: (Bool) -> Void
+  
+  var body: some View {
+      VStack(alignment: .leading, spacing: 16) {
+          // 상단 정보
+          HStack {
+              Text(question.type.rawValue.capitalized)
+                  .font(.caption)
+                  .padding(4)
+                  .background(Color.blue.opacity(0.1))
+                  .cornerRadius(4)
+              
+              Spacer()
+              
+              Text(question.difficulty.rawValue.capitalized)
+                  .font(.caption)
+                  .foregroundColor(.secondary)
+          }
+          
+          // 질문
+          Text(question.question)
+              .font(.title3)
+              .fontWeight(.semibold)
+              .padding(.vertical, 4)
+          
+          // 답변 옵션
+          ForEach(question.options, id: \.self) { option in
+              Button(action: {
+                  selectedAnswer = option
+                  let correct = checkAnswer(option)
+                  isCorrect = correct
+                  onAnswerSelected(correct)
+              }) {
+                  HStack {
+                      Text(option)
+                      Spacer()
+                      if selectedAnswer == option {
+                          Image(systemName: isCorrect == true ? "checkmark.circle.fill" : "xmark.circle.fill")
+                              .foregroundColor(isCorrect == true ? .green : .red)
+                      }
+                  }
+                  .padding()
+                  .background(
+                      selectedAnswer == option ?
+                          (isCorrect == true ? Color.green.opacity(0.3) : Color.red.opacity(0.3)) :
+                          Color.gray.opacity(0.1)
+                  )
+                  .cornerRadius(8)
+              }
+              .disabled(selectedAnswer != nil)
+          }
+      }
+      .padding()
+      .background(Color.white)
+      .cornerRadius(12)
+      .shadow(radius: 2)
+  }
+  
+  private func checkAnswer(_ option: String) -> Bool {
+      return option == question.correctAnswer
+  }
+}
+
+// 기존 컴포넌트들은 유지
+private struct ExplanationView: View {
+   let explanation: String
+   
+   var body: some View {
+       VStack(alignment: .leading, spacing: 12) {
+           Text(explanation)
+               .font(.body)
+               .foregroundColor(.secondary)
+               .padding()
+               .background(Color.blue.opacity(0.1))
+               .cornerRadius(10)
+               .fixedSize(horizontal: false, vertical: true)
+       }
+       .transition(.move(edge: .top).combined(with: .opacity))
+   }
+}
+
+private struct UtilityButtons: View {
+   @Binding var showExplanation: Bool
+   @Binding var isSaved: Bool
+   @ObservedObject var studyViewModel: StudyViewModel
+   
+   var body: some View {
+       Group {
+           Button(action: {
+               withAnimation {
+                   showExplanation.toggle()
+               }
+           }) {
+               Image(systemName: showExplanation ? "lightbulb.fill" : "lightbulb")
+                   .foregroundColor(.yellow)
+                   .font(.system(size: 24))
+                   .padding(8)
+                   .background(Circle().fill(Color.yellow.opacity(0.2)))
+           }
+           
+           Button(action: {
+               if let currentQuestion = studyViewModel.currentQuestion {
+                   Task {
+                       await studyViewModel.toggleSaveQuestion(currentQuestion)
+                       withAnimation {
+                           isSaved.toggle()
+                       }
+                   }
+               }
+           }) {
+               Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                   .foregroundColor(.blue)
+                   .font(.system(size: 24))
+                   .padding(8)
+                   .background(Circle().fill(Color.blue.opacity(0.2)))
+           }
+       }
+   }
 }
 
 private struct ActionButton: View {
-    @ObservedObject var viewModel: StudyViewModel
-    @Binding var selectedTab: Int
-    @Binding var isCorrect: Bool?
-    @Binding var showExplanation: Bool
-    
-    var body: some View {
-        Button(action: {
-            if viewModel.showExplanation {
-                if viewModel.isLastQuestion {
-                    viewModel.saveProgress()
-                    selectedTab = 3
-                } else {
-                    viewModel.nextQuestion()
-                    isCorrect = nil
-                    showExplanation = false
-                }
-            } else {
-                viewModel.submitAnswer()
-                isCorrect = viewModel.selectedAnswer == viewModel.currentQuestion?.correctAnswer
-            }
-        }) {
-            Text(viewModel.showExplanation ?
-                 (viewModel.isLastQuestion ? "Finish" : "Next Question") :
-                    "Submit Answer")
-                .font(.headline)
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.accentColor)
-                .cornerRadius(10)
-        }
-        .disabled(!viewModel.canSubmit)
-    }
+   @ObservedObject var viewModel: StudyViewModel
+   @Binding var selectedTab: Int
+   @Binding var isCorrect: Bool?
+   @Binding var showExplanation: Bool
+   
+   var body: some View {
+       Button(action: {
+           if viewModel.showExplanation {
+               if viewModel.isLastQuestion {
+                   viewModel.saveProgress()
+                   selectedTab = 3
+               } else {
+                   viewModel.nextQuestion()
+                   isCorrect = nil
+                   showExplanation = false
+               }
+           } else {
+               viewModel.submitAnswer()
+               isCorrect = viewModel.selectedAnswer == viewModel.currentQuestion?.correctAnswer
+           }
+       }) {
+           Text(viewModel.showExplanation ?
+                (viewModel.isLastQuestion ? "Finish" : "Next Question") :
+                   "Submit Answer")
+               .font(.headline)
+               .foregroundColor(.white)
+               .frame(maxWidth: .infinity)
+               .padding()
+               .background(Color.accentColor)
+               .cornerRadius(10)
+       }
+       .disabled(!viewModel.canSubmit)
+   }
 }
 
 
@@ -5867,18 +6198,58 @@ enum ImageServiceError: Error {
 public class ImageService {
     public static let shared = ImageService()
     
-    // VisionDetail을 하나의 enum으로 통합
-    public enum VisionDetail {
-        case low    // 512x512, 85 tokens
-        case high   // 768px shortest side, 170 tokens per 512px tile
+    private init() {}
+    
+    public struct VisionDetail {
+        public static let maxDimension: CGFloat = 1024
+        public static let maxFileSize = 1024 * 1024  // 100KB
+        public static let compressionQuality: CGFloat = 0.9
+    }
+    
+    func compressForAPI(_ image: UIImage) throws -> Data {
+        // 이미지의 크기를 최대 치수에 맞게 조정
+        let resizedImage = resize(image, to: VisionDetail.maxDimension)
+        
+        // 설정된 품질로 압축
+        var compressedData = resizedImage.jpegData(compressionQuality: VisionDetail.compressionQuality)
+        
+        // 크기가 최대 파일 크기를 초과하는 경우, 품질을 낮춰서 추가 압축 시도
+        var compressionQuality = VisionDetail.compressionQuality
+        while let data = compressedData, data.count > VisionDetail.maxFileSize, compressionQuality > 0.1 {
+            compressionQuality -= 0.1
+            compressedData = resizedImage.jpegData(compressionQuality: compressionQuality)
+        }
+        
+        guard let finalData = compressedData, finalData.count <= VisionDetail.maxFileSize else {
+            throw NSError(domain: "ImageCompression", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to compress image to target size"])
+        }
+        
+        print("Final compressed image size: \(finalData.count / 1024)KB with quality: \(compressionQuality)")
+        return finalData
+    }
+
+    
+    private func resize(_ image: UIImage, to maxDimension: CGFloat) -> UIImage {
+        let aspectRatio = image.size.width / image.size.height
+        let newSize: CGSize
+        if image.size.width > image.size.height {
+            newSize = CGSize(width: maxDimension, height: maxDimension / aspectRatio)
+        } else {
+            newSize = CGSize(width: maxDimension * aspectRatio, height: maxDimension)
+        }
+        
+        UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+        image.draw(in: CGRect(origin: .zero, size: newSize))
+        let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return resizedImage ?? image
     }
     
     public enum OptimizationType {
-        case openAIVision(detail: VisionDetail)
+        case openAIVision
         case general(maxSizeKB: Int)
     }
-    
-    private init() {}
     
     @MainActor
     public func requestPermission(for source: ImageSource) async throws -> Bool {
@@ -5941,26 +6312,19 @@ public class ImageService {
         }
     }
     
-    public func optimizeForVision(
-        _ image: UIImage,
-        detail: VisionDetail = .low
-    ) async throws -> (data: Data, tokens: Int) {
+    public func optimizeForVision(_ image: UIImage) async throws -> (data: Data, tokens: Int) {
         let startTime = CFAbsoluteTimeGetCurrent()
         
         let originalSize = image.size
         let originalData = image.jpegData(compressionQuality: 1.0)?.count ?? 0
         
-        let (targetSize, estimatedTokens) = calculateOptimizationParameters(
-            originalSize: originalSize,
-            detail: detail
-        )
+        // VisionDetail의 설정 값을 사용
+        let targetSize = CGSize(width: VisionDetail.maxDimension, height: VisionDetail.maxDimension)
+        let estimatedTokens = Int(VisionDetail.maxFileSize / 1024)  // 예측 토큰 수 계산
         
-        let optimizedImage = try await optimizeImage(
-            image,
-            targetSize: targetSize
-        )
+        let optimizedImage = try await optimizeImage(image, targetSize: targetSize)
         
-        guard let optimizedData = optimizedImage.jpegData(compressionQuality: 0.8) else {
+        guard let optimizedData = optimizedImage.jpegData(compressionQuality: VisionDetail.compressionQuality) else {
             throw ImageServiceError.compressionFailed
         }
         
@@ -5977,13 +6341,10 @@ public class ImageService {
         return (optimizedData, estimatedTokens)
     }
     
-    public func compressImage(
-        _ image: UIImage,
-        optimization: OptimizationType
-    ) async throws -> Data {
+    public func compressImage(_ image: UIImage, optimization: OptimizationType) async throws -> Data {
         switch optimization {
-        case .openAIVision(let detail):
-            let result = try await optimizeForVision(image, detail: detail)
+        case .openAIVision:
+            let result = try await optimizeForVision(image)
             return result.data
             
         case .general(let maxSizeKB):
@@ -6025,31 +6386,6 @@ public class ImageService {
             
             print("Final compressed image size: \(Double(currentData.count) / 1024.0)KB")
             return currentData
-        }
-    }
-    
-    private func calculateOptimizationParameters(
-        originalSize: CGSize,
-        detail: VisionDetail
-    ) -> (CGSize, Int) {
-        switch detail {
-        case .low:
-            return (CGSize(width: 512, height: 512), 85)
-            
-        case .high:
-            let shortSide = min(originalSize.width, originalSize.height)
-            let scale = 768 / shortSide
-            let targetSize = CGSize(
-                width: min(originalSize.width * scale, 2048),
-                height: min(originalSize.height * scale, 2048)
-            )
-            
-            let tilesWide = ceil(targetSize.width / 512)
-            let tilesHigh = ceil(targetSize.height / 512)
-            let totalTiles = Int(tilesWide * tilesHigh)
-            let estimatedTokens = (totalTiles * 170) + 85
-            
-            return (targetSize, estimatedTokens)
         }
     }
     
@@ -6255,6 +6591,7 @@ public class StorageService {
 ## ./AISnapStudy/Services/OpenAIService.swift
 
 import Foundation
+import UIKit
 
 class OpenAIService {
     private let apiKey: String
@@ -6293,16 +6630,175 @@ class OpenAIService {
             self.questionTypes = questionTypes
         }
     }
+    private func buildMessages(input: QuestionInput, prompts: (system: String, user: String)) -> [[String: Any]] {
+        if input.isImage {
+            do {
+                guard let image = UIImage(data: input.content) else {
+                    print("❌ Failed to create UIImage from data")
+                    throw NetworkError.invalidData
+                }
+
+                let compressedData = try ImageService.shared.compressForAPI(image)
+                let base64ImageString = compressedData.base64EncodedString()
+                
+                print("📸 Image prepared: \(ByteCountFormatter.string(fromByteCount: Int64(compressedData.count), countStyle: .file))")
+                
+                return [
+                    ["role": "system", "content": prompts.system],
+                    ["role": "user", "content": [
+                        [
+                            "type": "text",
+                            "text": prompts.user
+                        ],
+                        [
+                            "type": "image_url",
+                            "image_url": [
+                                "url": "data:image/jpeg;base64,\(base64ImageString)"
+                            ]
+                        ]
+                    ]]
+                ]
+            } catch {
+                print("❌ Error preparing image: \(error)")
+                return []
+            }
+        } else {
+            if let textContent = String(data: input.content, encoding: .utf8) {
+                return [
+                    ["role": "system", "content": prompts.system],
+                    ["role": "user", "content": [
+                        [
+                            "type": "text",
+                            "text": "\(prompts.user)\n\nText data: \(textContent)"
+                        ]
+                    ]]
+                ]
+            }
+            return []
+        }
+    }
+    
+    // StreamResponse 구조체도 필요합니다
+    private struct StreamResponse: Codable {
+        struct Choice: Codable {
+            struct Delta: Codable {
+                let content: String?
+            }
+            let delta: Delta
+        }
+        let choices: [Choice]
+    }
+
+    // extractCompleteQuestion 함수도 추가
+    private func extractCompleteQuestion(from json: String) throws -> QuestionGenerationSchema.QuestionData? {
+        guard let jsonData = json.data(using: .utf8) else {
+            return nil
+        }
+        
+        // JSON이 완전한 객체인지 확인
+        guard json.contains("}") else {
+            return nil
+        }
+        
+        do {
+            let decoder = JSONDecoder()
+            let questionData = try decoder.decode(QuestionGenerationSchema.QuestionData.self, from: jsonData)
+            return questionData
+        } catch {
+            // JSON이 아직 완성되지 않았거나 파싱할 수 없는 경우
+            return nil
+        }
+    }
+    
+    // 스트리밍을 위한 새로운 메서드 추가
+    public func streamQuestions(
+        from input: QuestionInput,
+        parameters: QuestionParameters
+    ) -> AsyncThrowingStream<Question, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    print("🔄 Starting question stream generation...")
+                    let (schema, prompts) = try await preparePromptAndSchema(input: input, parameters: parameters)
+                    
+                    var request = URLRequest(url: URL(string: baseURL)!)
+                    request.httpMethod = "POST"
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    
+                    let requestBody: [String: Any] = [
+                        "model": OpenAIModel.gpt4Vision,
+                        "messages": buildMessages(input: input, prompts: prompts),
+                        "stream": true,  // 스트리밍 활성화
+                        "max_tokens": OpenAIModel.maxTokens,
+                        "temperature": 0.7,
+                        "response_format": ["type": "json_object"]  // JSON 응답 형식 지정
+                    ]
+                    
+                    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+                    
+                    print("🌐 Starting streaming request...")
+                    let (result, response) = try await session.bytes(for: request)
+                    
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw NetworkError.invalidResponse
+                    }
+                    
+                    print("📡 Stream connected with status: \(httpResponse.statusCode)")
+                    
+                    var questionBuffer = ""
+                    var questionCount = 0
+                    
+                    for try await line in result.lines {
+                        if line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8) {
+                            if let streamResponse = try? JSONDecoder().decode(StreamResponse.self, from: data),
+                               let content = streamResponse.choices.first?.delta.content {
+                                questionBuffer += content
+                                
+                                // JSON 객체가 완성되면 파싱
+                                if let questionData = try? extractCompleteQuestion(from: questionBuffer) {
+                                    questionCount += 1
+                                    print("✅ Streaming question \(questionCount): \(questionData.question)")
+                                    
+                                    let question = Question(
+                                        id: UUID().uuidString,
+                                        type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
+                                        subject: parameters.subject,
+                                        difficulty: parameters.difficulty,
+                                        question: questionData.question,
+                                        options: questionData.options,
+                                        correctAnswer: questionData.correctAnswer,
+                                        explanation: questionData.explanation,
+                                        hint: questionData.hint,
+                                        isSaved: false,
+                                        createdAt: Date()
+                                    )
+                                    
+                                    continuation.yield(question)
+                                    questionBuffer = ""
+                                }
+                            }
+                        }
+                    }
+                    
+                    print("✅ Stream completed: Generated \(questionCount) questions")
+                    continuation.finish()
+                } catch {
+                    print("❌ Stream error: \(error)")
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
     
     // 나머지 private 구조체들은 그대로 유지
     private struct SubjectPrompt {
         let systemPrompt: String
         let userPromptTemplate: String
-        let evaluationCriteria: [String]
     }
     
     private enum OpenAIModel {
-        static let gpt4Vision = "gpt-4o"
+        static let gpt4Vision = "gpt-4o-mini"
         static let maxTokens = 4000
     }
     
@@ -6333,373 +6829,283 @@ class OpenAIService {
         }
         
         return try await withThrowingTaskGroup(of: Any.self) { group -> [Question] in
+            var processedInput: Data?
+            var processedTextInput: String?
+            var preparedData: (schema: [String: Any], prompts: (system: String, user: String))?
+
+            // 이미지 또는 텍스트를 처리하는 태스크 추가
             group.addTask(priority: .userInitiated) {
                 if input.isImage {
-                    return try await self.processImage(input.content)
+                    processedInput = input.content
                 } else {
-                    return String(data: input.content, encoding: .utf8) ?? ""
+                    processedTextInput = String(data: input.content, encoding: .utf8) ?? ""
                 }
             }
-            
+
             group.addTask(priority: .userInitiated) {
-                return try await self.preparePromptAndSchema(
-                    input: input,
-                    parameters: parameters
-                )
+                return try await self.preparePromptAndSchema(input: input, parameters: parameters)
             }
-            
-            var processedInput: String?
-            var preparedData: (schema: [String: Any], prompts: (system: String, user: String))?
-            
+
             for try await result in group {
-                if let inputResult = result as? String {
-                    processedInput = inputResult
-                } else if let schemaResult = result as? ([String: Any], (String, String)) {
+                if let schemaResult = result as? ([String: Any], (String, String)) {
                     preparedData = schemaResult
                 }
             }
-            
-            guard let input = processedInput,
-                  let prepared = preparedData else {
+
+            guard let prepared = preparedData else {
                 throw NetworkError.invalidData
             }
-            
+
             let questions = try await self.performQuestionGeneration(
-                input: input,
+                input: processedInput,                     // 이미지 데이터 전달
+                textInput: processedTextInput,             // 텍스트 데이터 전달
                 schema: prepared.schema,
                 systemPrompt: prepared.prompts.system,
                 userPrompt: prepared.prompts.user,
                 parameters: parameters
             )
-            
+
             self.cache.setObject(questions as NSArray, forKey: cacheKey as NSString)
             return questions
         }
     }
-
+    
     // MARK: - Subject-Specific Prompts
-        private func getSubjectPrompt(_ subject: Subject) -> SubjectPrompt {
-            switch subject {
-            case .language:
-                return SubjectPrompt(
-                    systemPrompt: """
-                    You are an expert language educator creating questions that assess:
-                    - Basic comprehension and detail retention
-                    - Inference and interpretation abilities
-                    - Cause and effect relationships
-                    - Term definitions and usage
-                    - Comparison and contrast skills
-                    - Application of concepts
-                    - Critical thinking development
-                    Create questions that challenge students' understanding while maintaining clarity.
-                    """,
-                    userPromptTemplate: """
-                    Analyze the {input_type} and create questions that evaluate:
-                    1. Text comprehension and interpretation
-                    2. Key details and main ideas
-                    3. Vocabulary and language patterns
-                    4. Critical analysis and reasoning
-                    5. Practical application of language concepts
-                    Ensure questions match the {education_level} level and {difficulty} difficulty.
-                    """,
-                    evaluationCriteria: [
-                        "Comprehension",
-                        "Analysis",
-                        "Application",
-                        "Critical Thinking"
-                    ]
-                )
-                
-            case .math:
-                return SubjectPrompt(
-                    systemPrompt: """
-                    You are an expert mathematics educator creating questions that assess:
-                    - Operational understanding
-                    - Pattern recognition
-                    - Problem-solving abilities
-                    - Arithmetic reasoning
-                    - Concept application
-                    - Number decomposition and composition
-                    Create questions that test both procedural fluency and conceptual understanding.
-                    """,
-                    userPromptTemplate: """
-                    Analyze the {input_type} and create questions that evaluate:
-                    1. Mathematical concept understanding
-                    2. Computational skills
-                    3. Problem-solving strategies
-                    4. Pattern recognition abilities
-                    5. Application of mathematical principles
-                    Questions should be at {education_level} level with {difficulty} difficulty.
-                    """,
-                    evaluationCriteria: [
-                        "Computational Accuracy",
-                        "Conceptual Understanding",
-                        "Problem Solving",
-                        "Pattern Recognition"
-                    ]
-                )
-                
-            case .geography:
-                return SubjectPrompt(
-                    systemPrompt: """
-                    You are an expert geography educator creating questions that assess:
-                    - Location and direction understanding
-                    - Physical features and characteristics
-                    - Climate and weather patterns
-                    - Natural resources and economic activities
-                    - Population and cultural diversity
-                    - Environmental issues and sustainability
-                    Create questions that develop geographical thinking and spatial awareness.
-                    """,
-                    userPromptTemplate: """
-                    Analyze the {input_type} and create questions that evaluate:
-                    1. Geographical features and patterns
-                    2. Spatial relationships
-                    3. Environmental processes
-                    4. Human-environment interaction
-                    5. Cultural and economic geography
-                    Align questions with {education_level} level and {difficulty} difficulty.
-                    """,
-                    evaluationCriteria: [
-                        "Spatial Analysis",
-                        "Environmental Understanding",
-                        "Cultural Awareness",
-                        "Geographical Patterns"
-                    ]
-                )
-                
-            case .history:
-                return SubjectPrompt(
-                    systemPrompt: """
-                    You are an expert history educator creating questions that assess:
-                    - Cause and effect relationships
-                    - Chronological understanding
-                    - Historical figures and achievements
-                    - Cultural and social changes
-                    - Political ideologies and institutions
-                    - Long-term impacts and legacy
-                    Create questions that develop historical thinking and critical analysis.
-                    """,
-                    userPromptTemplate: """
-                    Analyze the {input_type} and create questions that evaluate:
-                    1. Historical events and their significance
-                    2. Cause and effect relationships
-                    3. Historical perspectives and contexts
-                    4. Change and continuity over time
-                    5. Historical evidence and interpretation
-                    Target {education_level} level with {difficulty} difficulty.
-                    """,
-                    evaluationCriteria: [
-                        "Historical Analysis",
-                        "Chronological Thinking",
-                        "Contextual Understanding",
-                        "Critical Evaluation"
-                    ]
-                )
-                
-            case .science:
-                return SubjectPrompt(
-                    systemPrompt: """
-                    You are an expert science educator creating questions that assess:
-                    - Basic concept understanding
-                    - Scientific method and procedures
-                    - Data analysis and interpretation
-                    - Cause and effect relationships
-                    - Experimental design
-                    - Application of scientific principles
-                    Create questions that develop scientific thinking and inquiry skills.
-                    """,
-                    userPromptTemplate: """
-                    Analyze the {input_type} and create questions that evaluate:
-                    1. Scientific concepts and principles
-                    2. Experimental processes
-                    3. Data interpretation
-                    4. Scientific reasoning
-                    5. Real-world applications
-                    Questions should match {education_level} level and {difficulty} difficulty.
-                    """,
-                    evaluationCriteria: [
-                        "Scientific Understanding",
-                        "Experimental Design",
-                        "Data Analysis",
-                        "Application"
-                    ]
-                )
-                
-            case .generalKnowledge:
-                return SubjectPrompt(
-                    systemPrompt: """
-                    You are an expert educator creating questions that assess:
-                    - Basic concept understanding
-                    - Analysis and interpretation
-                    - Critical thinking and evaluation
-                    - Problem solving abilities
-                    - Real-world applications
-                    - Creative thinking
-                    Create engaging questions that test broad knowledge and analytical skills.
-                    """,
-                    userPromptTemplate: """
-                    Analyze the {input_type} and create questions that evaluate:
-                    1. General knowledge and understanding
-                    2. Critical thinking and analysis
-                    3. Problem-solving abilities
-                    4. Real-world applications
-                    5. Interconnected knowledge
-                    Ensure appropriate {education_level} level and {difficulty} difficulty.
-                    """,
-                    evaluationCriteria: [
-                        "Knowledge Breadth",
-                        "Critical Thinking",
-                        "Problem Solving",
-                        "Application"
-                    ]
-                )
-            }
-        }
-        
-        // MARK: - Schema and Prompt Preparation
-        private func preparePromptAndSchema(
-            input: QuestionInput,
-            parameters: QuestionParameters
-        ) async throws -> ([String: Any], (String, String)) {
-            let subjectPrompt = getSubjectPrompt(parameters.subject)
-            let schema = try await generateSchema(for: parameters.questionTypes)
-            
-            let systemPrompt = """
-            \(subjectPrompt.systemPrompt)
-            
-            Generate questions that are:
-            - Appropriate for \(parameters.educationLevel.rawValue) level
-            - At \(parameters.difficulty.rawValue) difficulty
-            - Clear and unambiguous
-            - Educational and engaging
-            - In the same language as the input material
-            
-            Focus on \(subjectPrompt.evaluationCriteria.joined(separator: ", ")).
-            """
-            
-            let userPrompt = subjectPrompt.userPromptTemplate
-                .replacingOccurrences(of: "{input_type}", with: input.isImage ? "image" : "text")
-                .replacingOccurrences(of: "{education_level}", with: parameters.educationLevel.rawValue)
-                .replacingOccurrences(of: "{difficulty}", with: parameters.difficulty.rawValue)
-            
-            return (schema, (systemPrompt, userPrompt))
-        }
-        
-        // MARK: - Schema Generation
-        private func generateSchema(for questionTypes: [QuestionType: Int]) async throws -> [String: Any] {
-            let questionTypeEnums = questionTypes.keys.map { $0.rawValue }
-            
-            return [
-                "type": "object",
-                "additionalProperties": false,
-                "properties": [
-                    "questions": [
-                        "type": "array",
-                        "items": [
-                            "type": "object",
-                            "additionalProperties": false, 
-                            "properties": [
-                                "type": ["type": "string", "enum": questionTypeEnums],
-                                "question": ["type": "string"],
-                                "options": ["type": "array", "items": ["type": "string"]],
-                                "correctAnswer": ["type": "string"],
-                                "explanation": ["type": "string"],
-                                "hint": ["type": "string"]
-                            ],
-                            "required": ["type", "question", "options", "correctAnswer", "explanation", "hint" ]
-                        ]
-                    ]
-                ],
-                "required": ["questions"]
-            ]
-        }
-        
-        // MARK: - Helper Methods
-        private func processImage(_ imageData: Data) async throws -> String {
-            return imageData.base64EncodedString()
-        }
-        
-        private func performQuestionGeneration(
-            input: String,
-            schema: [String: Any],
-            systemPrompt: String,
-            userPrompt: String,
-            parameters: QuestionParameters
-        ) async throws -> [Question] {
-            let messages: [[String: Any]] = [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": parameters.subject == .generalKnowledge ?
-                    userPrompt : "\(userPrompt)\n\nInput: \(input)"]
-            ]
-            
-            let requestBody: [String: Any] = [
-                "model": OpenAIModel.gpt4Vision,
-                "max_tokens": OpenAIModel.maxTokens,
-                "messages": messages,
-                "response_format": [
-                    "type": "json_schema",
-                    "json_schema": [
-                        "name": "question_generation",
-                        "strict": true,
-                        "schema": schema
-                    ]
-                ]
-            ]
-
-            
-            let requestData = try JSONSerialization.data(withJSONObject: requestBody)
-            
-            var request = URLRequest(url: URL(string: baseURL)!)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = requestData
-            
-            let (data, response) = try await session.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw NetworkError.invalidResponse
-            }
-            
-            guard httpResponse.statusCode == 200 else {
-                if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
-                    throw NetworkError.apiError(errorResponse.error.message)
-                }
-                throw NetworkError.invalidResponse
-            }
-            
-            let decodedResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
-            
-            guard let content = decodedResponse.choices.first?.message.content,
-                  let jsonData = content.data(using: .utf8) else {
-                throw NetworkError.invalidData
-            }
-            
-            let questionSchema = try JSONDecoder().decode(QuestionGenerationSchema.self, from: jsonData)
-            
-            return questionSchema.questions.map { questionData in
-                Question(
-                    id: UUID().uuidString,
-                    type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
-                    subject: parameters.subject,
-                    difficulty: parameters.difficulty,
-                    question: questionData.question,
-                    options: questionData.options,
-                    correctAnswer: questionData.correctAnswer,
-                    explanation: questionData.explanation,
-                    hint: questionData.hint,
-                    isSaved: false,
-                    createdAt: Date()
-                )
-            }
-        }
-        
-        func cleanup() {
-            session.invalidateAndCancel()
-            cache.removeAllObjects()
+    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty) -> SubjectPrompt {
+        if isImageInput {
+            return SubjectPrompt(
+                systemPrompt: """
+                   You are an expert \(subject.displayName) educator in generating insightful and educational questions based on image content.
+                   IMPORTANT: Generate questions in the SAME LANGUAGE as any text visible in the image.
+                   If the image contains Korean text, questions must be in Korean.
+                   """,
+                userPromptTemplate: """
+                   Please analyze the uploaded image and generate questions based on its content.
+                   Maintain the same language as any text found in the image.
+                   """
+            )
+        } else {
+            return SubjectPrompt(
+                systemPrompt: """
+                   You are an expert \(subject.displayName) educator specializing in creating questions for \(educationLevel.displayName) school students.
+                   IMPORTANT: Generate questions in the EXACT SAME LANGUAGE as the input text.
+                   If the input is in Korean, questions MUST be in Korean.
+                   
+                   Questions should:
+                   - Match the specified education level (\(educationLevel.displayName))
+                   - Maintain consistent \(difficulty.displayName) difficulty
+                   - Preserve the input text's language
+                   - Use clear, precise language appropriate for the grade level
+                   - Include detailed explanations and hints
+                   - Never reference any images when input is text
+                   """,
+                userPromptTemplate: """
+                   Generate questions based on the following text. 
+                   Maintain the exact same language as the input text.
+                   The questions should be suitable for \(educationLevel.displayName) level students at a \(difficulty.displayName) difficulty level.
+                   """
+            )
         }
     }
+    
+    // MARK: - Schema and Prompt Preparation
+    private func preparePromptAndSchema(
+        input: QuestionInput,
+        parameters: QuestionParameters
+    ) async throws -> ([String: Any], (String, String)) {
+        // Add validation for required question counts
+        let requiredCounts = parameters.questionTypes
+        let subjectPrompt = getSubjectPrompt(
+            parameters.subject,
+            isImageInput: input.isImage,
+            educationLevel: parameters.educationLevel,
+            difficulty: parameters.difficulty
+        )
+        let schema = try await generateSchema(for: parameters.questionTypes)
+        
+        let systemPrompt = """
+            \(subjectPrompt.systemPrompt)
+            Required question distribution:
+                \(requiredCounts.map { "- \($0.key.rawValue): \($0.value) questions" }.joined(separator: "\n\t"))
+            """
+        
+        let userPrompt = subjectPrompt.userPromptTemplate
+            .replacingOccurrences(of: "{input_type}", with: input.isImage ? "image" : "text")
+            .replacingOccurrences(of: "{education_level}", with: parameters.educationLevel.rawValue)
+            .replacingOccurrences(of: "{difficulty}", with: parameters.difficulty.rawValue)
+        
+        return (schema, (systemPrompt, userPrompt))
+    }
+    
+    // MARK: - Schema Generation
+    private func generateSchema(for questionTypes: [QuestionType: Int]) async throws -> [String: Any] {
+        let questionTypeEnums = questionTypes.keys.map { $0.rawValue }
+        
+        return [
+            "type": "object",
+            "additionalProperties": false,
+            "properties": [
+                "questions": [
+                    "type": "array",
+                    "items": [
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": [
+                            "type": ["type": "string", "enum": questionTypeEnums],
+                            "question": ["type": "string"],
+                            "options": ["type": "array", "items": ["type": "string"]],
+                            "correctAnswer": ["type": "string"],
+                            "explanation": ["type": "string"],
+                            "hint": ["type": "string"]
+                        ],
+                        "required": ["type", "question", "options", "correctAnswer", "explanation", "hint" ]
+                    ]
+                ]
+            ],
+            "required": ["questions"]
+        ]
+    }
+    
+    private func performQuestionGeneration(
+        input: Data?,
+        textInput: String?,
+        schema: [String: Any],
+        systemPrompt: String,
+        userPrompt: String,
+        parameters: QuestionParameters
+    ) async throws -> [Question] {
+        print("🤖 OpenAI Prompt Information:")
+        print("\nSystem Prompt:\n-------------\n\(systemPrompt)")
+        print("\nUser Prompt:\n-----------\n\(userPrompt)")
+
+        // messages 배열을 미리 선언
+        var messages: [[String: Any]]
+
+        // 구조화된 메시지 생성
+        if let imageData = input {
+            guard let image = UIImage(data: imageData) else {
+                throw NetworkError.invalidData
+            }
+
+            let compressedImageData = try ImageService.shared.compressForAPI(image)
+            let base64ImageString = compressedImageData.base64EncodedString()
+            
+            print("Compressed and Encoded Image (Base64) Size: \(base64ImageString.count) characters")
+
+            // OpenAI 공식 멀티모달 포맷 사용
+            messages = [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": [
+                    [
+                        "type": "text",
+                        "text": userPrompt
+                    ],
+                    [
+                        "type": "image_url",
+                        "image_url": [
+                            "url": "data:image/jpeg;base64,\(base64ImageString)"
+                        ]
+                    ]
+                ]]
+            ]
+        } else if let textData = textInput {
+            messages = [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": [
+                    [
+                        "type": "text",
+                        "text": "\(userPrompt)\n\nText data: \(textData)"
+                    ]
+                ]]
+            ]
+        } else {
+            throw NetworkError.invalidData
+        }
+
+        let requestBody: [String: Any] = [
+            "model": OpenAIModel.gpt4Vision,
+            "max_tokens": OpenAIModel.maxTokens,
+            "messages": messages,
+            "response_format": [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "question_generation",
+                    "strict": true,
+                    "schema": schema
+                ]
+            ]
+        ]
+        
+        var request = URLRequest(url: URL(string: baseURL)!)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        print("""
+        🌐 API Request:
+        • URL: \(baseURL)
+        • Method: POST
+        • Content Type: \(request.value(forHTTPHeaderField: "Content-Type") ?? "none")
+        """)
+
+        let (data, response) = try await session.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse {
+            print("""
+            🌐 API Response:
+            • Status Code: \(httpResponse.statusCode)
+            • Headers: \(httpResponse.allHeaderFields)
+            """)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            if let errorResponse = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
+                throw NetworkError.apiError(errorResponse.error.message)
+            }
+            throw NetworkError.invalidResponse
+        }
+
+        let decodedResponse = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+
+        guard let content = decodedResponse.choices.first?.message.content,
+              let jsonData = content.data(using: .utf8) else {
+            throw NetworkError.invalidData
+        }
+
+        let questionSchema = try JSONDecoder().decode(QuestionGenerationSchema.self, from: jsonData)
+
+        let questions = questionSchema.questions.map { questionData in
+            Question(
+                id: UUID().uuidString,
+                type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
+                subject: parameters.subject,
+                difficulty: parameters.difficulty,
+                question: questionData.question,
+                options: questionData.options,
+                correctAnswer: questionData.correctAnswer,
+                explanation: questionData.explanation,
+                hint: questionData.hint,
+                isSaved: false,
+                createdAt: Date()
+            )
+        }
+
+        print("""
+        ✅ Questions Generated:
+        • Count: \(questions.count)
+        • Types: \(Dictionary(grouping: questions, by: { $0.type }).map { "\($0.key): \($0.value.count)" })
+        """)
+
+        return questions
+    }
+    
+}
 
 
 ## ./AISnapStudy/Services/NetworkMonitor.swift
