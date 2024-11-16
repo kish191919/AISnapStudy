@@ -11,6 +11,7 @@ class QuestionSettingsViewModel: ObservableObject {
     private var openAIService: OpenAIService?
     private let totalMaximumQuestions = 10
     private var studyViewModel: StudyViewModel? // 추가
+
     
     // UserDefaults keys
     private enum UserDefaultsKeys {
@@ -31,7 +32,8 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var hasSelectedCamera: Bool = false
     @Published var hasSelectedGallery: Bool = false
     @Published var shouldCollapseQuestionTypes = false
-    @Published var shouldShowStudyView = false
+    @Published var shouldShowStudyView: Bool = false
+    @Published var isGeneratingQuestions: Bool = false
     @Published var problemSetName: String = ""
     
     let subject: Subject
@@ -125,6 +127,20 @@ class QuestionSettingsViewModel: ObservableObject {
              print("Failed to initialize OpenAI service:", error)
          }
      }
+    func saveProblemSetName() {
+        if problemSetName.isEmpty {
+            problemSetName = generateDefaultName()
+        }
+        
+        // 이름이 저장되었음을 알리는 피드백 제공
+        HapticManager.shared.impact(style: .medium)
+        print("Problem Set name saved: \(problemSetName)")
+        
+        // 질문 생성이 완료되었고 이름이 저장되었을 때만 StudyView로 이동
+        if !isGeneratingQuestions {
+            shouldShowStudyView = true
+        }
+    }
     
     // 기본 이름 생성 메서드
     func generateDefaultName() -> String {

@@ -215,18 +215,21 @@ struct QuestionSettingsView: View {
            .background(Color(UIColor.systemGroupedBackground))
        }
        .overlay {
-                   if showNamePopup {
-                       ProblemSetNamePopup(
-                           isPresented: $showNamePopup,
-                           problemSetName: $viewModel.problemSetName,
-                           defaultName: viewModel.generateDefaultName()
-                       ) {
-                           showNamePopup = false
-                       }
-                       .transition(.opacity)
-                       .animation(.easeInOut, value: showNamePopup)
-                   }
+           if showNamePopup {
+               ProblemSetNamePopup(
+                   isPresented: $showNamePopup,
+                   problemSetName: $viewModel.problemSetName,
+                   isGeneratingQuestions: $viewModel.isGeneratingQuestions,
+                   defaultName: viewModel.generateDefaultName()
+               ) {
+                   viewModel.saveProblemSetName()
+                   showNamePopup = false
+                   viewModel.shouldShowStudyView = true  
                }
+               .transition(.opacity)
+               .animation(.easeInOut, value: showNamePopup)
+           }
+       }
        .navigationBarItems(
            leading: Button("Cancel") {
                viewModel.resetCounts()
@@ -339,6 +342,7 @@ struct GeneratingQuestionsOverlay: View {
 struct ProblemSetNamePopup: View {
     @Binding var isPresented: Bool
     @Binding var problemSetName: String
+    @Binding var isGeneratingQuestions: Bool  // 추가
     let defaultName: String
     let onSubmit: () -> Void
     
@@ -347,25 +351,56 @@ struct ProblemSetNamePopup: View {
             Color.black.opacity(0.4)
                 .edgesIgnoringSafeArea(.all)
             
-            VStack(spacing: 20) {
+            VStack(spacing: 24) {
                 Text("Name Your Question Set")
-                    .font(.headline)
+                    .font(.title2)
+                    .fontWeight(.bold)
                 
-                TextField("Enter name", text: $problemSetName)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .placeholder(when: problemSetName.isEmpty) {
-                        Text("Default: \(defaultName)")
-                            .foregroundColor(.gray)
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Enter a name for your question set:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    TextField("Enter name", text: $problemSetName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .font(.body)
+                        .frame(height: 44)
+                        .placeholder(when: problemSetName.isEmpty) {
+                            Text("Default: \(defaultName)")
+                                .foregroundColor(.gray)
+                        }
+                }
                 
-                Text("Questions are being generated...")
+                // 질문 생성 상태에 따른 메시지 표시
+                Text(isGeneratingQuestions ?
+                     "Questions are being generated... Please wait." :
+                     "Questions are ready. Please save the name to continue.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                
+                Button(action: {
+                    if problemSetName.isEmpty {
+                        problemSetName = defaultName
+                    }
+                    if !isGeneratingQuestions {
+                        onSubmit()
+                    }
+                }) {
+                    Text(isGeneratingQuestions ? "Generating Questions..." : "Save Name")
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(isGeneratingQuestions ? Color.gray : Color.blue)
+                        .cornerRadius(10)
+                }
+                .disabled(isGeneratingQuestions)
             }
-            .padding()
+            .padding(32)
             .background(Color(UIColor.systemBackground))
-            .cornerRadius(12)
-            .padding(.horizontal, 40)
+            .cornerRadius(16)
+            .shadow(radius: 10)
+            .padding(.horizontal, 32)
         }
     }
 }
