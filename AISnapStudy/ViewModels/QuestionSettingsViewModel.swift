@@ -3,12 +3,14 @@ import Foundation
 import SwiftUI
 import PhotosUI
 
+@MainActor
 class QuestionSettingsViewModel: ObservableObject {
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
     private let imageService = ImageService.shared
     private var openAIService: OpenAIService?
-    private let totalMaximumQuestions = 20
+    private let totalMaximumQuestions = 10
+    private var studyViewModel: StudyViewModel? // 추가
     
     // UserDefaults keys
     private enum UserDefaultsKeys {
@@ -30,6 +32,7 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var hasSelectedGallery: Bool = false
     @Published var shouldCollapseQuestionTypes = false
     @Published var shouldShowStudyView = false
+    @Published var problemSetName: String = ""
     
     let subject: Subject
     
@@ -75,12 +78,14 @@ class QuestionSettingsViewModel: ObservableObject {
          }
      }
      
-     // 다른 published 속성들...
+     
      
      // MARK: - Initialization
+    @MainActor
      init(subject: Subject, homeViewModel: HomeViewModel) {
          self.subject = subject
          self.homeViewModel = homeViewModel
+         self.studyViewModel = homeViewModel.studyViewModel
          
          // Load last used values from UserDefaults
          let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
@@ -120,6 +125,17 @@ class QuestionSettingsViewModel: ObservableObject {
              print("Failed to initialize OpenAI service:", error)
          }
      }
+    
+    // 기본 이름 생성 메서드
+    func generateDefaultName() -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMdd_HHmm"
+        let dateString = dateFormatter.string(from: Date())
+        let totalQuestions = multipleChoiceCount + fillInBlanksCount + trueFalseCount
+        
+        return "\(selectedSubject.displayName)_\(totalQuestions)Q_\(dateString)"
+        // 예: "Math_10Q_0515_1430"
+    }
      
      // 기존 resetCounts 메서드 수정
      func resetCounts() {
@@ -283,24 +299,27 @@ class QuestionSettingsViewModel: ObservableObject {
            return
        }
        
+       // OpenAI로 데이터 전송 시 LoadingView 표시
        isLoading = true
        print("🔄 Started loading state")
        
        do {
-           // 공통으로 사용될 questionTypes
            let questionTypes: [QuestionType: Int] = [
                .multipleChoice: multipleChoiceCount,
                .fillInBlanks: fillInBlanksCount,
                .trueFalse: trueFalseCount
            ].filter { $0.value > 0 }
            
-           // 공통 parameters
            let parameters = OpenAIService.QuestionParameters(
                subject: selectedSubject,
                difficulty: difficulty,
                educationLevel: educationLevel,
                questionTypes: questionTypes
            )
+           
+           if problemSetName.isEmpty {
+               problemSetName = generateDefaultName()
+           }
            
            print("""
            📝 Question Generation Parameters:
@@ -309,6 +328,11 @@ class QuestionSettingsViewModel: ObservableObject {
            • Education Level: \(educationLevel.displayName)
            • Question Types: \(questionTypes.map { "- \($0.key.rawValue): \($0.value)" }.joined(separator: "\n"))
            """)
+           
+           // 데이터 전송이 완료되면 LoadingView를 숨기고
+           // StudyView의 질문 생성 진행 상태 표시 시작
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = true
            
            if !selectedImages.isEmpty {
                print("📸 Processing \(selectedImages.count) images")
@@ -341,20 +365,21 @@ class QuestionSettingsViewModel: ObservableObject {
                print("✅ Text input processed")
            }
            
+           // 질문 생성이 완료되면 진행 상태 표시 종료
+           studyViewModel?.isGeneratingQuestions = false
            print("✅ Successfully generated questions")
            showSuccess()
            
-           // Study View로 자동 전환
+           // Study View로 전환
            shouldShowStudyView = true
            
        } catch {
            print("❌ Error in sendAllImages: \(error)")
            self.error = error
            showError(error)
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
        }
-       
-       isLoading = false
-       print("✅ Finished loading state")
     }
     
     // MARK: - Image Capture Methods

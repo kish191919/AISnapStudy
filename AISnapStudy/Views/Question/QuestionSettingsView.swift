@@ -11,11 +11,14 @@ import UIKit
 
 struct QuestionSettingsView: View {
    let subject: Subject
-   @StateObject private var viewModel: QuestionSettingsViewModel
+    @StateObject private var viewModel: QuestionSettingsViewModel
    @Environment(\.dismiss) private var dismiss
    @Binding var selectedTab: Int
    @State private var expandedSections: Set<SectionType> = []
    @State private var isTextInputSelected = false
+    @State private var showNamePopup = false
+    @State private var isGeneratingQuestions = false
+    @State private var problemSetName: String = ""
    
    enum SectionType {
        case learningSubject
@@ -192,10 +195,12 @@ struct QuestionSettingsView: View {
            // Generate Questions Button
            VStack {
                Button(action: {
-                   Task {
-                       await viewModel.sendAllImages()
-                   }
-               }) {
+                       showNamePopup = true
+                       isGeneratingQuestions = true
+                       Task {
+                           await viewModel.sendAllImages()
+                       }
+                   }) {
                    Text("Generate Questions")
                        .font(.headline)
                        .foregroundColor(.white)
@@ -209,6 +214,19 @@ struct QuestionSettingsView: View {
            }
            .background(Color(UIColor.systemGroupedBackground))
        }
+       .overlay {
+                   if showNamePopup {
+                       ProblemSetNamePopup(
+                           isPresented: $showNamePopup,
+                           problemSetName: $viewModel.problemSetName,
+                           defaultName: viewModel.generateDefaultName()
+                       ) {
+                           showNamePopup = false
+                       }
+                       .transition(.opacity)
+                       .animation(.easeInOut, value: showNamePopup)
+                   }
+               }
        .navigationBarItems(
            leading: Button("Cancel") {
                viewModel.resetCounts()
@@ -247,9 +265,13 @@ struct QuestionSettingsView: View {
                selectedTab = 1  // Study 탭으로 전환
            }
        }
-       .overlay {
+       .overlay(alignment: .bottom) {
            if viewModel.isLoading {
                LoadingView()
+                   .frame(maxHeight: 120)  // LoadingView의 높이를 제한
+                   .background(Color.black.opacity(0.7))
+                   .cornerRadius(10)
+                   .padding()
            }
        }
    }
@@ -276,8 +298,77 @@ struct QuestionSettingsView: View {
        )
    }
 }
+struct GeneratingQuestionsOverlay: View {
+    let questionCount: Int
+    @State private var animatingDots = false
+    
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .edgesIgnoringSafeArea(.all)
+            
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                
+                Text("Generating \(questionCount) questions\(dots)")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                Text("Please wait...")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.8))
+            }
+            .padding()
+            .background(Color.black.opacity(0.6))
+            .cornerRadius(10)
+        }
+        .onAppear {
+            withAnimation(Animation.easeInOut(duration: 0.8).repeatForever()) {
+                animatingDots.toggle()
+            }
+        }
+    }
+    
+    private var dots: String {
+        animatingDots ? "..." : ""
+    }
+}
 
-
+struct ProblemSetNamePopup: View {
+    @Binding var isPresented: Bool
+    @Binding var problemSetName: String
+    let defaultName: String
+    let onSubmit: () -> Void
+    
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .edgesIgnoringSafeArea(.all)
+            
+            VStack(spacing: 20) {
+                Text("Name Your Question Set")
+                    .font(.headline)
+                
+                TextField("Enter name", text: $problemSetName)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .placeholder(when: problemSetName.isEmpty) {
+                        Text("Default: \(defaultName)")
+                            .foregroundColor(.gray)
+                    }
+                
+                Text("Questions are being generated...")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color(UIColor.systemBackground))
+            .cornerRadius(12)
+            .padding(.horizontal, 40)
+        }
+    }
+}
 
 struct LearningSubjectSection: View {
    @Binding var selectedSubject: Subject
