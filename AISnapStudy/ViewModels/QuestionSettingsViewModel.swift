@@ -12,6 +12,12 @@ class QuestionSettingsViewModel: ObservableObject {
         }
     }
     
+    @Published var selectedLanguage: Language = .auto {
+        didSet {
+            UserDefaults.standard.set(selectedLanguage.rawValue, forKey: "selectedLanguage")
+        }
+    }
+    
     // TextExtraction 관련 상태들
     @Published var extractedTexts: [String: String] = [:]
     @Published var isLoadingTexts: [String: Bool] = [:]
@@ -122,6 +128,12 @@ class QuestionSettingsViewModel: ObservableObject {
          self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
          print("📱 Initial useTextExtraction value loaded: \(useTextExtraction)")
          
+         // 저장된 언어 설정 불러오기
+         if let savedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage"),
+            let language = Language(rawValue: savedLanguage) {
+             self.selectedLanguage = language
+         }
+         
          
          // Initialize OpenAI service
          do {
@@ -144,67 +156,6 @@ class QuestionSettingsViewModel: ObservableObject {
         let newId = generateImageId()
         imageIds[image] = newId
         return newId
-    }
-    
-    
-    
-    // addImage 함수 수정
-
-    @MainActor
-    func addImage(_ image: UIImage) async {
-        print("📸 Starting addImage processing...")
-        do {
-            let compressedData = try await Task {
-                try ImageService.shared.compressForAPI(image)
-            }.value
-
-            if let compressedImage = UIImage(data: compressedData) {
-                selectedImages.append(compressedImage)
-                let imageId = getImageId(for: compressedImage)
-
-                if useTextExtraction {
-                    print("🔍 Text extraction enabled for image: \(imageId)")
-                    isLoadingTexts[imageId] = true
-                    
-                    // FileProvider 에러와 상관없이 Vision API 사용
-                    do {
-                        // VisionService를 통한 텍스트 추출
-                        print("📝 Starting Vision API text extraction...")
-                        let extractedText = try await VisionService.shared.extractText(from: compressedImage)
-                        
-                        if !extractedText.isEmpty {
-                            print("✅ Text extracted successfully: \(extractedText)")
-                            await MainActor.run {
-                                extractedTexts[imageId] = extractedText
-                                extractionStatus[imageId] = true
-                                isLoadingTexts[imageId] = false
-                            }
-                            
-                            // OpenAI에 추출된 텍스트 전송
-                            print("🚀 Sending extracted text to OpenAI")
-                            try await OpenAIService.shared.sendTextExtractionResult(extractedText)
-                            return
-                        } else {
-                            print("⚠️ No text extracted from image")
-                        }
-                    } catch {
-                        print("❌ Text extraction failed: \(error.localizedDescription)")
-                    }
-                    
-                    // 텍스트 추출 실패 시 이미지 처리로 폴백
-                    print("⚠️ Falling back to image processing")
-                    try await OpenAIService.shared.sendImageDataToOpenAI(compressedData)
-                    
-                } else {
-                    print("ℹ️ Text extraction disabled - using image directly")
-                    try await OpenAIService.shared.sendImageDataToOpenAI(compressedData)
-                }
-            }
-        } catch {
-            print("❌ Error in image processing: \(error.localizedDescription)")
-            self.error = error
-            showError(error)
-        }
     }
 
     // 새로운 함수 추가
@@ -385,79 +336,181 @@ class QuestionSettingsViewModel: ObservableObject {
     }
 
     @MainActor
+    func addImage(_ image: UIImage) async {
+       print("📸 Starting addImage processing...")
+       do {
+           let compressedData = try await Task {
+               try ImageService.shared.compressForAPI(image)
+           }.value
+
+           if let compressedImage = UIImage(data: compressedData) {
+               selectedImages.append(compressedImage)
+               let imageId = getImageId(for: compressedImage)
+
+               if useTextExtraction {
+                   print("🔍 Text extraction enabled for image: \(imageId)")
+                   isLoadingTexts[imageId] = true
+                   
+                   // FileProvider 에러와 상관없이 Vision API 사용
+                   do {
+                       // VisionService를 통한 텍스트 추출
+                       print("📝 Starting Vision API text extraction...")
+                       let extractedText = try await VisionService.shared.extractText(from: compressedImage)
+                       
+                       if !extractedText.isEmpty {
+                           print("✅ Text extracted successfully: \(extractedText)")
+                           await MainActor.run {
+                               extractedTexts[imageId] = extractedText
+                               extractionStatus[imageId] = true
+                               isLoadingTexts[imageId] = false
+                           }
+                       } else {
+                           print("⚠️ No text extracted from image")
+                           await MainActor.run {
+                               extractionStatus[imageId] = false
+                               isLoadingTexts[imageId] = false
+                           }
+                       }
+                   } catch {
+                       print("❌ Text extraction failed: \(error.localizedDescription)")
+                       await MainActor.run {
+                           extractionStatus[imageId] = false
+                           isLoadingTexts[imageId] = false
+                       }
+                   }
+               } else {
+                   print("ℹ️ Text extraction disabled - using image directly")
+               }
+           }
+       } catch {
+           print("❌ Error in image processing: \(error.localizedDescription)")
+           self.error = error
+           showError(error)
+       }
+    }
+    
+    
+    @MainActor
     func sendAllImages() async {
-        print("🚀 Starting sendAllImages process...")
-        guard !selectedImages.isEmpty || !questionText.isEmpty else {
-            print("❌ No content to generate questions from")
-            return
-        }
-        
-        isLoading = true
-        studyViewModel?.isGeneratingQuestions = true
-        
-        do {
-            var allExtractedText = ""
-            
-            // 모든 이미지에 대해 텍스트 추출 시도
-            for image in selectedImages {
-                let imageId = getImageId(for: image)
-                print("📸 Processing image: \(imageId)")
-                
-                if useTextExtraction {
-                    print("🔍 Text extraction enabled - attempting to extract text...")
-                    do {
-                        let extractedText = try await VisionService.shared.extractText(from: image)
-                        if !extractedText.isEmpty {
-                            print("✅ Successfully extracted text: \(extractedText)")
-                            allExtractedText += extractedText + "\n"
-                        } else {
-                            print("⚠️ No text extracted, falling back to image processing")
-                            try await processImageDirectly(image)
-                        }
-                    } catch {
-                        print("❌ Error extracting text from image: \(error)")
-                        // 에러 처리 로직 추가
-                    }
-                } else {
-                    print("ℹ️ Text extraction disabled - processing image directly")
-                    try await processImageDirectly(image)
-                }
-            }
-            
-            // 모든 이미지의 텍스트를 한 번에 OpenAI에 전송
-            if !allExtractedText.isEmpty {
-                let input = OpenAIService.QuestionInput(
-                    content: allExtractedText.data(using: .utf8) ?? Data(),
-                    isImage: false
-                )
-                print("📤 Sending all extracted text to OpenAI")
-                await generateQuestions(from: input, parameters: createParameters())
-            }
-            
-            isLoading = false
-            studyViewModel?.isGeneratingQuestions = false
-            showSuccess()
-            shouldShowStudyView = true
-            
-        } catch {
-            print("❌ Error in sendAllImages: \(error.localizedDescription)")
-            isLoading = false
-            studyViewModel?.isGeneratingQuestions = false
-            self.error = error
-            showError(error)
-        }
+       print("🚀 Starting sendAllImages process...")
+       guard !selectedImages.isEmpty || !questionText.isEmpty else {
+           print("❌ No content to generate questions from")
+           return
+       }
+       
+       isLoading = true
+       studyViewModel?.isGeneratingQuestions = true
+       
+       do {
+           var allExtractedText = ""
+           var imagesForDirectProcessing: [UIImage] = []
+           
+           // 이미지 처리
+           for image in selectedImages {
+               let imageId = getImageId(for: image)
+               print("📸 Processing image: \(imageId)")
+               
+               if useTextExtraction {
+                   print("🔍 Text extraction enabled - attempting to extract text...")
+                   do {
+                       let extractedText = try await VisionService.shared.extractText(from: image)
+                       if !extractedText.isEmpty {
+                           print("✅ Successfully extracted text: \(extractedText)")
+                           allExtractedText += extractedText + "\n"
+                       } else {
+                           print("⚠️ No text extracted, adding to direct processing queue")
+                           imagesForDirectProcessing.append(image)
+                       }
+                   } catch {
+                       print("❌ Error extracting text from image: \(error)")
+                       imagesForDirectProcessing.append(image)
+                   }
+               } else {
+                   print("ℹ️ Text extraction disabled - adding to direct processing queue")
+                   imagesForDirectProcessing.append(image)
+               }
+           }
+
+           // 텍스트 입력 처리
+           if !questionText.isEmpty {
+               let textInput = OpenAIService.QuestionInput(
+                   content: questionText.data(using: .utf8) ?? Data(),
+                   isImage: false
+               )
+               print("📝 Processing text input")
+               await generateQuestions(from: textInput, parameters: createParameters())
+           }
+           
+           // 추출된 텍스트 처리
+           if !allExtractedText.isEmpty {
+               let input = OpenAIService.QuestionInput(
+                   content: allExtractedText.data(using: .utf8) ?? Data(),
+                   isImage: false
+               )
+               print("📤 Sending extracted text to OpenAI")
+               await generateQuestions(from: input, parameters: createParameters())
+           }
+           
+           // 직접 이미지 처리가 필요한 경우 처리
+           if !imagesForDirectProcessing.isEmpty {
+               print("📸 Processing \(imagesForDirectProcessing.count) images directly")
+               for image in imagesForDirectProcessing {
+                   print("🖼️ Direct processing image")
+                   try await processImageDirectly(image)
+               }
+           }
+           
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
+           showSuccess()
+           shouldShowStudyView = true
+           
+       } catch {
+           print("❌ Error in sendAllImages: \(error.localizedDescription)")
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
+           self.error = error
+           showError(error)
+       }
+    }
+    // generateQuestions(from:parameters:) 보조 함수
+    private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
+       print("🔄 Starting question generation from input")
+       guard let openAIService = self.openAIService else {
+           print("❌ OpenAI service not initialized")
+           return
+       }
+       
+       do {
+           let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
+           print("✅ Successfully generated \(questions.count) questions")
+           
+           let name = problemSetName.isEmpty ? generateDefaultName() : problemSetName
+           await processGeneratedQuestions(questions, name: name)
+       } catch {
+           print("❌ Error generating questions: \(error)")
+           await MainActor.run {
+               self.error = error
+               showError(error)
+           }
+       }
     }
 
-    // 이미지 직접 처리를 위한 헬퍼 함수
-    private func processImageDirectly(_ image: UIImage) async throws {  // throws 추가
+    // 직접 이미지 처리를 위한 함수도 수정
+    private func processImageDirectly(_ image: UIImage) async throws {
         print("🖼️ Processing image directly...")
+        guard let openAIService = self.openAIService else {
+            throw NetworkError.apiError("OpenAI service not initialized")
+        }
+        
         let compressedData = try await imageService.compressForAPI(image)
         let input = OpenAIService.QuestionInput(
             content: compressedData,
             isImage: true
         )
         print("📤 Sending image to OpenAI")
-        await generateQuestions(from: input, parameters: createParameters())
+        let questions = try await openAIService.generateQuestions(from: input, parameters: createParameters())
+        await processGeneratedQuestions(questions, name: problemSetName)
     }
 
     private func createParameters() -> OpenAIService.QuestionParameters {
@@ -468,10 +521,10 @@ class QuestionSettingsViewModel: ObservableObject {
             questionTypes: [
                 .multipleChoice: multipleChoiceCount,
                 .trueFalse: trueFalseCount
-            ]
+            ],
+            language: selectedLanguage  // language 파라미터 추가
         )
     }
-    
     // MARK: - Image Capture Methods
     @MainActor
     func takePhoto() async {
@@ -504,7 +557,9 @@ class QuestionSettingsViewModel: ObservableObject {
 
         Task {
             do {
-                await addImage(image)
+                // 이미지 방향 보정 후 처리
+                let orientedImage = image.fixedOrientation()
+                await addImage(orientedImage)
                 hasCameraImage = true
                 hasSelectedCamera = true
                 print("✅ Camera image added successfully")
@@ -534,44 +589,6 @@ class QuestionSettingsViewModel: ObservableObject {
              }
          }
      }
-    
-    // MARK: - Question Generation
-    @MainActor
-    private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
-        guard let openAIService = openAIService else {
-            print("❌ OpenAI service not initialized")
-            return
-        }
-        
-        do {
-            let questionTypes: [QuestionType: Int] = [
-                .multipleChoice: multipleChoiceCount,
-                .trueFalse: trueFalseCount
-            ].filter { $0.value > 0 }
-            
-            // 로깅
-            print("🚀 Preparing to send data to OpenAI API:")
-            print("• Subject: \(subject.rawValue)")
-            print("• Difficulty: \(difficulty.rawValue)")
-            print("• Education Level: \(educationLevel.rawValue)")
-            print("• Question Types: \(questionTypes)")
-            
-            let questions = try await openAIService.generateQuestions(
-                from: input,
-                parameters: parameters
-            )
-            
-            // problemSetName이 비어있으면 기본 이름 사용
-            let finalName = problemSetName.isEmpty ? generateDefaultName() : problemSetName
-            
-            print("✅ Generated \(questions.count) questions")
-            await processGeneratedQuestions(questions, name: finalName)
-        } catch {
-            print("❌ Question generation error: \(error)")
-            self.error = error
-            showError(error)
-        }
-    }
     
     @MainActor
     func processGeneratedQuestions(_ questions: [Question], name: String) async {

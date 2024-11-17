@@ -47,7 +47,7 @@ struct QuestionAboutSection: View {
             .padding(.horizontal)
 
             // 🟢 useTextExtraction 토글 추가
-            Toggle("Enable Text Extraction", isOn: $viewModel.useTextExtraction)
+            Toggle("SpeedUp", isOn: $viewModel.useTextExtraction)
                 .padding(.horizontal)
                 .onChange(of: viewModel.useTextExtraction) { newValue in
                     print("📱 useTextExtraction changed to: \(newValue)")

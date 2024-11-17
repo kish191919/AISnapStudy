@@ -14,7 +14,7 @@ struct ImageSelectionSection: View {
             // Quick Text Mode Toggle
             Group {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Enable Text Extraction", isOn: $viewModel.useTextExtraction)
+                    Toggle("SpeedUp", isOn: $viewModel.useTextExtraction)
                         .padding()
                         .onAppear {
                             print("🔄 Toggle initialized with: \(viewModel.useTextExtraction)")

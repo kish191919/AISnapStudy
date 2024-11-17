@@ -4,23 +4,24 @@ import CoreData
 
 @MainActor
 class StudyViewModel: ObservableObject {
-   // OpenAIService 타입 참조 추가
-   typealias QuestionInput = OpenAIService.QuestionInput
-   typealias QuestionParameters = OpenAIService.QuestionParameters
+    // OpenAIService 타입 참조 추가
+    typealias QuestionInput = OpenAIService.QuestionInput
+    typealias QuestionParameters = OpenAIService.QuestionParameters
+    private weak var statViewModel: StatViewModel?
 
-   @Published private(set) var loadedQuestions: [Question] = []
-   @Published private(set) var loadingProgress = 0
-   
-   private let openAIService: OpenAIService
-   
-   @Published private(set) var currentQuestion: Question?
-   @Published var selectedAnswer: String?
-   @Published var showExplanation = false
-   private var questions: [Question] = []
-   private var cancellables = Set<AnyCancellable>()
-   @Published private(set) var currentIndex = 0
-   @Published var correctAnswers: Int = 0
-    
+    @Published private(set) var loadedQuestions: [Question] = []
+    @Published private(set) var loadingProgress = 0
+
+    private let openAIService: OpenAIService
+
+    @Published private(set) var currentQuestion: Question?
+    @Published var selectedAnswer: String?
+    @Published var showExplanation = false
+    private var questions: [Question] = []
+    private var cancellables = Set<AnyCancellable>()
+    @Published private(set) var currentIndex = 0
+    @Published var correctAnswers: Int = 0
+
     // 질문 생성 관련 프로퍼티 추가
     @Published var isGeneratingQuestions = false
     @Published var generatedQuestionCount = 0
@@ -28,38 +29,40 @@ class StudyViewModel: ObservableObject {
     @Published var generatedQuestions: [Question] = []
     @Published var isLoadingQuestions: Bool = false
     
+    func setStatViewModel(_ viewModel: StatViewModel) {
+        self.statViewModel = viewModel
+    }
 
-    
     func updateGeneratedQuestions(_ question: Question) {
         generatedQuestions.append(question)
         generatedQuestionCount = generatedQuestions.count
     }
-    
+
     func setTotalExpectedQuestions(_ total: Int) {
         totalExpectedQuestions = total
     }
-    
-   var totalQuestions: Int {
-       questions.count
-   }
-   
-   private let context: NSManagedObjectContext
-   private var currentSession: CDStudySession?
-   private let homeViewModel: HomeViewModel
-   
-   private var hasInitialized = false
-   
+
+    var totalQuestions: Int {
+        questions.count
+    }
+
+    private let context: NSManagedObjectContext
+    private var currentSession: CDStudySession?
+    private let homeViewModel: HomeViewModel
+
+    private var hasInitialized = false
+
     init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
         self.context = context
         self.homeViewModel = homeViewModel
-        
+
         // OpenAIService 초기화
         do {
             self.openAIService = try OpenAIService()
         } catch {
             fatalError("Failed to initialize OpenAI service: \(error)")
         }
-        
+
         Task { @MainActor in
             homeViewModel.$selectedProblemSet
                 .compactMap { $0 }
@@ -77,49 +80,38 @@ class StudyViewModel: ObservableObject {
                 }
                 .store(in: &self.cancellables)
         }
-        
+
         setupCurrentSession()
     }
-   
+
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
-        isLoadingQuestions = true  // 이제 할당 가능
+        isLoadingQuestions = true
         loadingProgress = 0
         loadedQuestions = []
         isGeneratingQuestions = true
         generatedQuestionCount = 0
         generatedQuestions = []
-        
+
         // 예상되는 총 질문 수 계산
         let totalQuestions = parameters.questionTypes.values.reduce(0, +)
         setTotalExpectedQuestions(totalQuestions)
-        
+
         do {
-            for try await question in openAIService.streamQuestions(from: input, parameters: parameters) {
-                await MainActor.run {
+            let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
+            await MainActor.run {
+                questions.forEach { question in
                     updateGeneratedQuestions(question)
                 }
             }
         } catch {
             print("Error generating questions: \(error)")
         }
-        
+
         await MainActor.run {
             isGeneratingQuestions = false
-        }
-
-        do {
-            for try await question in openAIService.streamQuestions(from: input, parameters: parameters) {
-                await MainActor.run {
-                    loadedQuestions.append(question)
-                    loadingProgress = min(100, Int((Float(loadedQuestions.count) / Float(parameters.questionTypes.values.reduce(0, +))) * 100))
-                }
-            }
-        } catch {
-            print("Error generating questions: \(error)")
-        }
-        
-        await MainActor.run {
-            isLoadingQuestions = false  // 이제 할당 가능
+            loadedQuestions = generatedQuestions
+            loadingProgress = 100
+            isLoadingQuestions = false
         }
     }
    
@@ -182,13 +174,11 @@ class StudyViewModel: ObservableObject {
         
         let isCorrect = trimmedSelected == trimmedCorrect
         
+
         print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
         print("Trimmed Correct: '\(trimmedCorrect)'")
         print("Final comparison result: \(isCorrect)")
         
-        if isCorrect {
-            correctAnswers += 1
-        }
         
         if let session = currentSession {
             let question = CDQuestion(context: context)

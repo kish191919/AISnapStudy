@@ -100,8 +100,8 @@ public class ImageService {
             }
             
         case .camera:
-            guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-                print("Camera Not Available")
+            guard UIImagePickerController.isSourceTypeAvailable(.camera),
+                  UIImagePickerController.isCameraDeviceAvailable(.rear) else {
                 throw ImageServiceError.unavailable
             }
             
@@ -242,3 +242,4 @@ public class ImageService {
         """)
     }
 }
+

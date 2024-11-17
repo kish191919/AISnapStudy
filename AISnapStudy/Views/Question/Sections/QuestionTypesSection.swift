@@ -1,12 +1,12 @@
 
 import SwiftUI
 
-// Question Types Section
+// Question Type Section
 struct QuestionTypesSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
     
     var body: some View {
-        Section("Question Types") {
+        Section("Type") {
             VStack(spacing: 10) {
                 QuestionTypeCounter(
                     title: "Multiple",

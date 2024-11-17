@@ -14,6 +14,12 @@ class QuestionSettingsViewModel: ObservableObject {
         }
     }
     
+    @Published var selectedLanguage: Language = .auto {
+        didSet {
+            UserDefaults.standard.set(selectedLanguage.rawValue, forKey: "selectedLanguage")
+        }
+    }
+    
     // TextExtraction 관련 상태들
     @Published var extractedTexts: [String: String] = [:]
     @Published var isLoadingTexts: [String: Bool] = [:]
@@ -124,6 +130,12 @@ class QuestionSettingsViewModel: ObservableObject {
          self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
          print("📱 Initial useTextExtraction value loaded: \(useTextExtraction)")
          
+         // 저장된 언어 설정 불러오기
+         if let savedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage"),
+            let language = Language(rawValue: savedLanguage) {
+             self.selectedLanguage = language
+         }
+         
          
          // Initialize OpenAI service
          do {
@@ -146,67 +158,6 @@ class QuestionSettingsViewModel: ObservableObject {
         let newId = generateImageId()
         imageIds[image] = newId
         return newId
-    }
-    
-    
-    
-    // addImage 함수 수정
-
-    @MainActor
-    func addImage(_ image: UIImage) async {
-        print("📸 Starting image processing...")
-        do {
-            let compressedData = try await Task {
-                try ImageService.shared.compressForAPI(image)
-            }.value
-
-            if let compressedImage = UIImage(data: compressedData) {
-                selectedImages.append(compressedImage)
-                let imageId = getImageId(for: compressedImage)
-
-                if useTextExtraction {
-                    print("🔍 Text extraction enabled for image: \(imageId)")
-                    isLoadingTexts[imageId] = true
-                    
-                    // FileProvider 에러와 상관없이 Vision API 사용
-                    do {
-                        // VisionService를 통한 텍스트 추출
-                        print("📝 Starting Vision API text extraction...")
-                        let extractedText = try await VisionService.shared.extractText(from: compressedImage)
-                        
-                        if !extractedText.isEmpty {
-                            print("✅ Text extracted successfully: \(extractedText)")
-                            await MainActor.run {
-                                extractedTexts[imageId] = extractedText
-                                extractionStatus[imageId] = true
-                                isLoadingTexts[imageId] = false
-                            }
-                            
-                            // OpenAI에 추출된 텍스트 전송
-                            print("🚀 Sending extracted text to OpenAI")
-                            try await OpenAIService.shared.sendTextExtractionResult(extractedText)
-                            return
-                        } else {
-                            print("⚠️ No text extracted from image")
-                        }
-                    } catch {
-                        print("❌ Text extraction failed: \(error.localizedDescription)")
-                    }
-                    
-                    // 텍스트 추출 실패 시 이미지 처리로 폴백
-                    print("⚠️ Falling back to image processing")
-                    try await OpenAIService.shared.sendImageDataToOpenAI(compressedData)
-                    
-                } else {
-                    print("ℹ️ Text extraction disabled - using image directly")
-                    try await OpenAIService.shared.sendImageDataToOpenAI(compressedData)
-                }
-            }
-        } catch {
-            print("❌ Error in image processing: \(error.localizedDescription)")
-            self.error = error
-            showError(error)
-        }
     }
 
     // 새로운 함수 추가
@@ -387,68 +338,181 @@ class QuestionSettingsViewModel: ObservableObject {
     }
 
     @MainActor
+    func addImage(_ image: UIImage) async {
+       print("📸 Starting addImage processing...")
+       do {
+           let compressedData = try await Task {
+               try ImageService.shared.compressForAPI(image)
+           }.value
+
+           if let compressedImage = UIImage(data: compressedData) {
+               selectedImages.append(compressedImage)
+               let imageId = getImageId(for: compressedImage)
+
+               if useTextExtraction {
+                   print("🔍 Text extraction enabled for image: \(imageId)")
+                   isLoadingTexts[imageId] = true
+                   
+                   // FileProvider 에러와 상관없이 Vision API 사용
+                   do {
+                       // VisionService를 통한 텍스트 추출
+                       print("📝 Starting Vision API text extraction...")
+                       let extractedText = try await VisionService.shared.extractText(from: compressedImage)
+                       
+                       if !extractedText.isEmpty {
+                           print("✅ Text extracted successfully: \(extractedText)")
+                           await MainActor.run {
+                               extractedTexts[imageId] = extractedText
+                               extractionStatus[imageId] = true
+                               isLoadingTexts[imageId] = false
+                           }
+                       } else {
+                           print("⚠️ No text extracted from image")
+                           await MainActor.run {
+                               extractionStatus[imageId] = false
+                               isLoadingTexts[imageId] = false
+                           }
+                       }
+                   } catch {
+                       print("❌ Text extraction failed: \(error.localizedDescription)")
+                       await MainActor.run {
+                           extractionStatus[imageId] = false
+                           isLoadingTexts[imageId] = false
+                       }
+                   }
+               } else {
+                   print("ℹ️ Text extraction disabled - using image directly")
+               }
+           }
+       } catch {
+           print("❌ Error in image processing: \(error.localizedDescription)")
+           self.error = error
+           showError(error)
+       }
+    }
+    
+    
+    @MainActor
     func sendAllImages() async {
-        print("🚀 Starting sendAllImages process...")
-        guard !selectedImages.isEmpty || !questionText.isEmpty else {
-            print("❌ No content to generate questions from")
-            return
-        }
-        
-        isLoading = true
-        studyViewModel?.isGeneratingQuestions = true
-        
-        do {
-            for image in selectedImages {
-                let imageId = getImageId(for: image)
-                print("📸 Processing image: \(imageId)")
-                
-                if useTextExtraction {
-                    print("🔍 Text extraction enabled - attempting to extract text...")
-                    let extractedText = try await VisionService.shared.extractText(from: image)
-                    
-                    if !extractedText.isEmpty {
-                        print("✅ Successfully extracted text: \(extractedText)")
-                        // 텍스트로 질문 생성
-                        let input = OpenAIService.QuestionInput(
-                            content: extractedText.data(using: .utf8) ?? Data(),
-                            isImage: false
-                        )
-                        print("📤 Sending extracted text to OpenAI")
-                        await generateQuestions(from: input, parameters: createParameters())
-                    } else {
-                        print("⚠️ No text extracted, falling back to image processing")
-                        try await processImageDirectly(image)  // try await 추가
-                    }
-                } else {
-                    print("ℹ️ Text extraction disabled - processing image directly")
-                    try await processImageDirectly(image)  // try await 추가
-                }
-            }
-            
-            isLoading = false
-            studyViewModel?.isGeneratingQuestions = false
-            showSuccess()
-            shouldShowStudyView = true
-            
-        } catch {
-            print("❌ Error in sendAllImages: \(error.localizedDescription)")
-            isLoading = false
-            studyViewModel?.isGeneratingQuestions = false
-            self.error = error
-            showError(error)
-        }
+       print("🚀 Starting sendAllImages process...")
+       guard !selectedImages.isEmpty || !questionText.isEmpty else {
+           print("❌ No content to generate questions from")
+           return
+       }
+       
+       isLoading = true
+       studyViewModel?.isGeneratingQuestions = true
+       
+       do {
+           var allExtractedText = ""
+           var imagesForDirectProcessing: [UIImage] = []
+           
+           // 이미지 처리
+           for image in selectedImages {
+               let imageId = getImageId(for: image)
+               print("📸 Processing image: \(imageId)")
+               
+               if useTextExtraction {
+                   print("🔍 Text extraction enabled - attempting to extract text...")
+                   do {
+                       let extractedText = try await VisionService.shared.extractText(from: image)
+                       if !extractedText.isEmpty {
+                           print("✅ Successfully extracted text: \(extractedText)")
+                           allExtractedText += extractedText + "\n"
+                       } else {
+                           print("⚠️ No text extracted, adding to direct processing queue")
+                           imagesForDirectProcessing.append(image)
+                       }
+                   } catch {
+                       print("❌ Error extracting text from image: \(error)")
+                       imagesForDirectProcessing.append(image)
+                   }
+               } else {
+                   print("ℹ️ Text extraction disabled - adding to direct processing queue")
+                   imagesForDirectProcessing.append(image)
+               }
+           }
+
+           // 텍스트 입력 처리
+           if !questionText.isEmpty {
+               let textInput = OpenAIService.QuestionInput(
+                   content: questionText.data(using: .utf8) ?? Data(),
+                   isImage: false
+               )
+               print("📝 Processing text input")
+               await generateQuestions(from: textInput, parameters: createParameters())
+           }
+           
+           // 추출된 텍스트 처리
+           if !allExtractedText.isEmpty {
+               let input = OpenAIService.QuestionInput(
+                   content: allExtractedText.data(using: .utf8) ?? Data(),
+                   isImage: false
+               )
+               print("📤 Sending extracted text to OpenAI")
+               await generateQuestions(from: input, parameters: createParameters())
+           }
+           
+           // 직접 이미지 처리가 필요한 경우 처리
+           if !imagesForDirectProcessing.isEmpty {
+               print("📸 Processing \(imagesForDirectProcessing.count) images directly")
+               for image in imagesForDirectProcessing {
+                   print("🖼️ Direct processing image")
+                   try await processImageDirectly(image)
+               }
+           }
+           
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
+           showSuccess()
+           shouldShowStudyView = true
+           
+       } catch {
+           print("❌ Error in sendAllImages: \(error.localizedDescription)")
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
+           self.error = error
+           showError(error)
+       }
+    }
+    // generateQuestions(from:parameters:) 보조 함수
+    private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
+       print("🔄 Starting question generation from input")
+       guard let openAIService = self.openAIService else {
+           print("❌ OpenAI service not initialized")
+           return
+       }
+       
+       do {
+           let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
+           print("✅ Successfully generated \(questions.count) questions")
+           
+           let name = problemSetName.isEmpty ? generateDefaultName() : problemSetName
+           await processGeneratedQuestions(questions, name: name)
+       } catch {
+           print("❌ Error generating questions: \(error)")
+           await MainActor.run {
+               self.error = error
+               showError(error)
+           }
+       }
     }
 
-    // 이미지 직접 처리를 위한 헬퍼 함수
-    private func processImageDirectly(_ image: UIImage) async throws {  // throws 추가
+    // 직접 이미지 처리를 위한 함수도 수정
+    private func processImageDirectly(_ image: UIImage) async throws {
         print("🖼️ Processing image directly...")
+        guard let openAIService = self.openAIService else {
+            throw NetworkError.apiError("OpenAI service not initialized")
+        }
+        
         let compressedData = try await imageService.compressForAPI(image)
         let input = OpenAIService.QuestionInput(
             content: compressedData,
             isImage: true
         )
         print("📤 Sending image to OpenAI")
-        await generateQuestions(from: input, parameters: createParameters())
+        let questions = try await openAIService.generateQuestions(from: input, parameters: createParameters())
+        await processGeneratedQuestions(questions, name: problemSetName)
     }
 
     private func createParameters() -> OpenAIService.QuestionParameters {
@@ -459,10 +523,10 @@ class QuestionSettingsViewModel: ObservableObject {
             questionTypes: [
                 .multipleChoice: multipleChoiceCount,
                 .trueFalse: trueFalseCount
-            ]
+            ],
+            language: selectedLanguage  // language 파라미터 추가
         )
     }
-    
     // MARK: - Image Capture Methods
     @MainActor
     func takePhoto() async {
@@ -495,7 +559,9 @@ class QuestionSettingsViewModel: ObservableObject {
 
         Task {
             do {
-                await addImage(image)
+                // 이미지 방향 보정 후 처리
+                let orientedImage = image.fixedOrientation()
+                await addImage(orientedImage)
                 hasCameraImage = true
                 hasSelectedCamera = true
                 print("✅ Camera image added successfully")
@@ -525,44 +591,6 @@ class QuestionSettingsViewModel: ObservableObject {
              }
          }
      }
-    
-    // MARK: - Question Generation
-    @MainActor
-    private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
-        guard let openAIService = openAIService else {
-            print("❌ OpenAI service not initialized")
-            return
-        }
-        
-        do {
-            let questionTypes: [QuestionType: Int] = [
-                .multipleChoice: multipleChoiceCount,
-                .trueFalse: trueFalseCount
-            ].filter { $0.value > 0 }
-            
-            // 로깅
-            print("🚀 Preparing to send data to OpenAI API:")
-            print("• Subject: \(subject.rawValue)")
-            print("• Difficulty: \(difficulty.rawValue)")
-            print("• Education Level: \(educationLevel.rawValue)")
-            print("• Question Types: \(questionTypes)")
-            
-            let questions = try await openAIService.generateQuestions(
-                from: input,
-                parameters: parameters
-            )
-            
-            // problemSetName이 비어있으면 기본 이름 사용
-            let finalName = problemSetName.isEmpty ? generateDefaultName() : problemSetName
-            
-            print("✅ Generated \(questions.count) questions")
-            await processGeneratedQuestions(questions, name: finalName)
-        } catch {
-            print("❌ Question generation error: \(error)")
-            self.error = error
-            showError(error)
-        }
-    }
     
     @MainActor
     func processGeneratedQuestions(_ questions: [Question], name: String) async {
@@ -662,24 +690,31 @@ import CoreData
 
 @MainActor
 class StatViewModel: ObservableObject {
+    
+    @Published var streak: Int = 0
+    @Published var correctAnswers: Int = 0
+    @Published var completedQuestions: Int = 0
+    @Published var accuracyRate: Double = 0.0
+    @Published var isLoading = false
+    
+    private weak var studyViewModel: StudyViewModel?
+    private weak var homeViewModel: HomeViewModel?
+    
+
+    
+    @Published var totalPoints: Int = 0      // 현재 세션의 점수
     @Published var weeklyProgress: [DailyProgress] = []
     @Published var totalQuestions = 0
     @Published var averageScore: Double = 0.0
     @Published var languageArtsProgress: Double = 0.0
     @Published var mathProgress: Double = 0.0
-    @Published var streak: Int = 0
-    @Published var totalPoints: Int = 0
-    @Published var completedQuestions: Int = 0
-    @Published var accuracyRate: Double = 0.0
-    @Published var correctAnswers: Int = 0
-    @Published var isLoading = false
     @Published var selectedTab: Int = 0
     
     private var cancellables = Set<AnyCancellable>()
     private let context: NSManagedObjectContext
     private let calendar = Calendar.current
-    private var homeViewModel: HomeViewModel?
-    private var studyViewModel: StudyViewModel?
+    
+
     
     init(context: NSManagedObjectContext,
          homeViewModel: HomeViewModel? = nil,
@@ -687,7 +722,33 @@ class StatViewModel: ObservableObject {
         self.context = context
         self.homeViewModel = homeViewModel
         self.studyViewModel = studyViewModel
+        
+        // Move the loadStats() call to the end of the init method
         loadStats()
+    }
+    
+    
+    func updateScore() {
+        if let studyVM = studyViewModel {
+            // correctAnswers는 StudyViewModel에서 관리되는 현재 세션의 정답 수
+            correctAnswers = studyVM.correctAnswers
+            // 각 문제당 10점씩 계산
+            totalPoints = correctAnswers * 10
+        }
+    }
+    
+    func updateStats(correctAnswers: Int, totalQuestions: Int) {
+        self.correctAnswers = correctAnswers
+        self.completedQuestions = totalQuestions
+        self.accuracyRate = totalQuestions > 0 ?
+            (Double(correctAnswers) / Double(totalQuestions)) * 100 : 0
+            
+        print("""
+        📊 Stats Updated:
+        • Correct Answers: \(correctAnswers)
+        • Total Score: \(correctAnswers * 10)
+        • Accuracy Rate: \(accuracyRate)%
+        """)
     }
     
     func setHomeViewModel(_ viewModel: HomeViewModel) {
@@ -761,6 +822,7 @@ class StatViewModel: ObservableObject {
             correctAnswers = 0
             completedQuestions = 0
             accuracyRate = 0
+            totalPoints = 0  // 점수 초기화
             
             // HomeViewModel을 통해 StudyViewModel에 접근
             guard let homeVM = homeViewModel else {
@@ -777,30 +839,30 @@ class StatViewModel: ObservableObject {
                 print("❌ No selected problem set found")
                 return
             }
-            
-            Task {
-                print("🔄 Resetting study state...")
-                await studyVM.resetState()
-                
-                await MainActor.run {
-                    print("🔄 Loading questions...")
-                    studyVM.loadQuestions(currentProblemSet.questions)
+            guard let homeVM = homeViewModel,
+                  let studyVM = homeVM.studyViewModel,
+                  let currentProblemSet = homeVM.selectedProblemSet else {
+                print("❌ Required view models not found")
+                return
+                }
+
+                Task {
+                    print("🔄 Resetting study state...")
+                    await studyVM.resetState()
                     
-                    print("""
-                    ✅ Reset complete:
-                    • ProblemSet: \(currentProblemSet.id)
-                    • Questions Count: \(currentProblemSet.questions.count)
-                    • Current Index: \(studyVM.currentIndex)
-                    • Current Question: \(studyVM.currentQuestion?.question ?? "None")
-                    """)
+                    await MainActor.run {
+                        print("🔄 Loading questions...")
+                        studyVM.loadQuestions(currentProblemSet.questions)
+                        
+                        print("""
+                        ✅ Reset complete:
+
+                        • Total Questions: \(currentProblemSet.questions.count)
+                        """)
+                    }
                 }
             }
-            
-            loadStats()
         }
-    
-
-}
 
 
 // ./AISnapStudy/ViewModels/HomeViewModel.swift
@@ -1013,7 +1075,7 @@ class HomeViewModel: ObservableObject {
 }
 
 
-// ./AISnapStudy/ViewModels/HistoryViewModel.swift
+// ./AISnapStudy/ViewModels/ReviewViewModel.swift
 
 
 import Foundation
@@ -1126,23 +1188,24 @@ import CoreData
 
 @MainActor
 class StudyViewModel: ObservableObject {
-   // OpenAIService 타입 참조 추가
-   typealias QuestionInput = OpenAIService.QuestionInput
-   typealias QuestionParameters = OpenAIService.QuestionParameters
+    // OpenAIService 타입 참조 추가
+    typealias QuestionInput = OpenAIService.QuestionInput
+    typealias QuestionParameters = OpenAIService.QuestionParameters
+    private weak var statViewModel: StatViewModel?
 
-   @Published private(set) var loadedQuestions: [Question] = []
-   @Published private(set) var loadingProgress = 0
-   
-   private let openAIService: OpenAIService
-   
-   @Published private(set) var currentQuestion: Question?
-   @Published var selectedAnswer: String?
-   @Published var showExplanation = false
-   private var questions: [Question] = []
-   private var cancellables = Set<AnyCancellable>()
-   @Published private(set) var currentIndex = 0
-   @Published var correctAnswers: Int = 0
-    
+    @Published private(set) var loadedQuestions: [Question] = []
+    @Published private(set) var loadingProgress = 0
+
+    private let openAIService: OpenAIService
+
+    @Published private(set) var currentQuestion: Question?
+    @Published var selectedAnswer: String?
+    @Published var showExplanation = false
+    private var questions: [Question] = []
+    private var cancellables = Set<AnyCancellable>()
+    @Published private(set) var currentIndex = 0
+    @Published var correctAnswers: Int = 0
+
     // 질문 생성 관련 프로퍼티 추가
     @Published var isGeneratingQuestions = false
     @Published var generatedQuestionCount = 0
@@ -1150,38 +1213,40 @@ class StudyViewModel: ObservableObject {
     @Published var generatedQuestions: [Question] = []
     @Published var isLoadingQuestions: Bool = false
     
+    func setStatViewModel(_ viewModel: StatViewModel) {
+        self.statViewModel = viewModel
+    }
 
-    
     func updateGeneratedQuestions(_ question: Question) {
         generatedQuestions.append(question)
         generatedQuestionCount = generatedQuestions.count
     }
-    
+
     func setTotalExpectedQuestions(_ total: Int) {
         totalExpectedQuestions = total
     }
-    
-   var totalQuestions: Int {
-       questions.count
-   }
-   
-   private let context: NSManagedObjectContext
-   private var currentSession: CDStudySession?
-   private let homeViewModel: HomeViewModel
-   
-   private var hasInitialized = false
-   
+
+    var totalQuestions: Int {
+        questions.count
+    }
+
+    private let context: NSManagedObjectContext
+    private var currentSession: CDStudySession?
+    private let homeViewModel: HomeViewModel
+
+    private var hasInitialized = false
+
     init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
         self.context = context
         self.homeViewModel = homeViewModel
-        
+
         // OpenAIService 초기화
         do {
             self.openAIService = try OpenAIService()
         } catch {
             fatalError("Failed to initialize OpenAI service: \(error)")
         }
-        
+
         Task { @MainActor in
             homeViewModel.$selectedProblemSet
                 .compactMap { $0 }
@@ -1199,49 +1264,38 @@ class StudyViewModel: ObservableObject {
                 }
                 .store(in: &self.cancellables)
         }
-        
+
         setupCurrentSession()
     }
-   
+
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
-        isLoadingQuestions = true  // 이제 할당 가능
+        isLoadingQuestions = true
         loadingProgress = 0
         loadedQuestions = []
         isGeneratingQuestions = true
         generatedQuestionCount = 0
         generatedQuestions = []
-        
+
         // 예상되는 총 질문 수 계산
         let totalQuestions = parameters.questionTypes.values.reduce(0, +)
         setTotalExpectedQuestions(totalQuestions)
-        
+
         do {
-            for try await question in openAIService.streamQuestions(from: input, parameters: parameters) {
-                await MainActor.run {
+            let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
+            await MainActor.run {
+                questions.forEach { question in
                     updateGeneratedQuestions(question)
                 }
             }
         } catch {
             print("Error generating questions: \(error)")
         }
-        
+
         await MainActor.run {
             isGeneratingQuestions = false
-        }
-
-        do {
-            for try await question in openAIService.streamQuestions(from: input, parameters: parameters) {
-                await MainActor.run {
-                    loadedQuestions.append(question)
-                    loadingProgress = min(100, Int((Float(loadedQuestions.count) / Float(parameters.questionTypes.values.reduce(0, +))) * 100))
-                }
-            }
-        } catch {
-            print("Error generating questions: \(error)")
-        }
-        
-        await MainActor.run {
-            isLoadingQuestions = false  // 이제 할당 가능
+            loadedQuestions = generatedQuestions
+            loadingProgress = 100
+            isLoadingQuestions = false
         }
     }
    
@@ -1304,13 +1358,11 @@ class StudyViewModel: ObservableObject {
         
         let isCorrect = trimmedSelected == trimmedCorrect
         
+
         print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
         print("Trimmed Correct: '\(trimmedCorrect)'")
         print("Final comparison result: \(isCorrect)")
         
-        if isCorrect {
-            correctAnswers += 1
-        }
         
         if let session = currentSession {
             let question = CDQuestion(context: context)
@@ -1388,61 +1440,6 @@ extension StudyViewModel {
            print("❌ Failed to toggle question save state: \(error)")
        }
    }
-}
-
-
-// ./AISnapStudy/ViewModels/ProfileViewModel.swift
-
-
-
-import SwiftUI
-
-class ProfileViewModel: ObservableObject {
-    @Published var user: User
-    @Published var isDarkMode: Bool {
-        didSet {
-            UserDefaults.standard.set(isDarkMode, forKey: "isDarkMode")
-        }
-    }
-    @Published var notificationsEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
-        }
-    }
-    
-    init() {
-        // 실제 앱에서는 사용자 데이터를 로드하는 로직 구현
-        self.user = User(
-            id: "1",
-            name: "Test User",
-            email: "test@example.com",
-            preferences: User.UserPreferences(
-                isDarkMode: false,
-                notificationsEnabled: true,
-                dailyGoal: 5,
-                preferredDifficulty: .medium
-            ),
-            createdAt: Date(),
-            lastActive: Date()
-        )
-        
-        self.isDarkMode = UserDefaults.standard.bool(forKey: "isDarkMode")
-        self.notificationsEnabled = UserDefaults.standard.bool(forKey: "notificationsEnabled")
-    }
-    
-    func showTerms() {
-        guard let url = URL(string: "https://example.com/terms") else { return }
-        UIApplication.shared.open(url)
-    }
-    
-    func showPrivacyPolicy() {
-        guard let url = URL(string: "https://example.com/privacy") else { return }
-        UIApplication.shared.open(url)
-    }
-    
-    func signOut() {
-        // 로그아웃 로직 구현
-    }
 }
 
 
@@ -1552,31 +1549,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     // MARK: - Memory Management
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         CoreDataService.shared.viewContext.refreshAllObjects()
-    }
-}
-
-
-// ./AISnapStudy/Utils/Constants.swift
-
-
-import SwiftUI
-
-enum Constants {
-    enum API {
-        static let baseURL = "https://api.openai.com/v1"
-        static let version = "v1"
-    }
-    
-    enum UI {
-        static let cornerRadius: CGFloat = 10
-        static let spacing: CGFloat = 16
-        static let padding: CGFloat = 20
-    }
-    
-    enum Storage {
-        static let problemSetsKey = "problemSets"
-        static let savedQuestionsKey = "savedQuestions"
-        static let userPreferencesKey = "userPreferences"
     }
 }
 
@@ -1711,137 +1683,6 @@ extension View {
             placeholder().opacity(shouldShow ? 1 : 0)
             self
         }
-    }
-}
-
-
-// ./AISnapStudy/Utils/Helpers/ImageCompressor.swift
-
-// Utils/Helpers/ImageCompressor.swift
-import UIKit
-
-enum ImageCompressorError: Error {
-    case compressionFailed
-    case invalidImage
-}
-
-class ImageCompressor {
-    static let shared = ImageCompressor()
-    
-    private enum Constraints {
-        // 파일 크기 제한을 더 낮게 설정 (400KB로 줄임)
-        static let targetFileSize = 400 * 1024  // 400KB
-        // 최대 치수를 더 작게 설정 (800 -> 640)
-        static let maxDimension: CGFloat = 640
-        static let minDimension: CGFloat = 320
-        // 최소 품질을 낮춤 (0.5 -> 0.3)
-        static let minimumQuality: CGFloat = 0.3
-    }
-    
-    private init() {}
-    
-    func compress(
-        image: UIImage,
-        maxSize: Int = Constraints.targetFileSize,
-        maxDimension: CGFloat = Constraints.maxDimension
-    ) throws -> Data {
-        let startTime = Date()
-        
-        // 원본 이미지 크기 로깅
-        if let originalData = image.jpegData(compressionQuality: 1.0) {
-            print("📸 Original image size: \(formatFileSize(originalData.count))")
-            print("📐 Original dimensions: \(Int(image.size.width))x\(Int(image.size.height))")
-        }
-        
-        // 리사이징
-        let resizedImage = resizeImage(image, maxDimension: maxDimension)
-        print("✂️ Resized dimensions: \(Int(resizedImage.size.width))x\(Int(resizedImage.size.height))")
-        
-        // 압축 시작 품질을 0.6에서 0.3으로 낮춤
-        var compression: CGFloat = 0.3
-        var compressedData = resizedImage.jpegData(compressionQuality: compression)!
-        
-        while compressedData.count > maxSize && compression > Constraints.minimumQuality {
-            compression -= 0.1
-            if let newData = resizedImage.jpegData(compressionQuality: compression) {
-                compressedData = newData
-                print("🔄 Trying compression quality: \(String(format: "%.1f", compression))")
-                print("📦 Current size: \(formatFileSize(compressedData.count))")
-            }
-        }
-        
-        if compressedData.count > maxSize {
-            let scale = sqrt(Double(maxSize) / Double(compressedData.count))
-            let newSize = CGSize(
-                width: resizedImage.size.width * scale,
-                height: resizedImage.size.height * scale
-            )
-            
-            let finalImage = UIGraphicsImageRenderer(size: newSize).image { _ in
-                resizedImage.draw(in: CGRect(origin: .zero, size: newSize))
-            }
-            
-            compressedData = finalImage.jpegData(compressionQuality: compression) ?? compressedData
-            print("📐 Final resize dimensions: \(Int(newSize.width))x\(Int(newSize.height))")
-        }
-        
-        print("""
-        ✅ Compression completed:
-        • Duration: \(String(format: "%.2f", Date().timeIntervalSince(startTime)))s
-        • Final size: \(formatFileSize(compressedData.count))
-        • Compression ratio: \(String(format: "%.1f", Float(compressedData.count) / Float(image.jpegData(compressionQuality: 1.0)?.count ?? 1) * 100))%
-        """)
-        
-        return compressedData
-    }
-
-    
-    private func resizeImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
-        let originalSize = image.size
-        var targetSize = originalSize
-        
-        // 최소/최대 크기 제한 적용
-        if originalSize.width > maxDimension || originalSize.height > maxDimension {
-            let widthRatio = maxDimension / originalSize.width
-            let heightRatio = maxDimension / originalSize.height
-            let ratio = min(widthRatio, heightRatio)
-            targetSize = CGSize(
-                width: max(Constraints.minDimension, originalSize.width * ratio),
-                height: max(Constraints.minDimension, originalSize.height * ratio)
-            )
-        }
-        
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        
-        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
-        return renderer.image { context in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-    }
-    
-    private func formatFileSize(_ bytes: Int) -> String {
-        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-}
-
-
-// ./AISnapStudy/Utils/Helpers/ErrorHandler.swift
-
-// Utils/Helpers/ErrorHandler.swift
-import Foundation
-
-enum AppError: Error {
-    case networkError(String)
-    case imageProcessingError(String)
-    case storageError(String)
-    case openAIError(String)
-}
-
-class ErrorHandler {
-    static func handle(_ error: Error) {
-        // 실제 구현에서는 에러 로깅, 사용자 알림 등을 처리
-        print("Error occurred: \(error.localizedDescription)")
     }
 }
 
@@ -1995,6 +1836,41 @@ struct QuestionGenerationSchema: Codable {
 }
 
 
+// ./AISnapStudy/Models/Language.swift
+
+// Language.swift (새로운 파일)
+enum Language: String, CaseIterable, Identifiable {
+    case auto = "AUTO"
+    case english = "ENGLISH"
+    case korean = "한국어"
+    case japanese = "日本語"
+    case chinese = "中文"
+    case spanish = "ESPAÑOL"
+    case french = "FRANÇAIS"
+    case german = "DEUTSCH"
+    case russian = "РУССКИЙ"
+    case italian = "ITALIANO"
+    
+    var id: String { self.rawValue }
+    
+    // OpenAI API에서 사용할 언어 코드
+    var languageCode: String {
+        switch self {
+        case .auto: return "auto"
+        case .english: return "en"
+        case .korean: return "ko"
+        case .japanese: return "ja"
+        case .chinese: return "zh"
+        case .spanish: return "es"
+        case .french: return "fr"
+        case .german: return "de"
+        case .russian: return "ru"
+        case .italian: return "it"
+        }
+    }
+}
+
+
 // ./AISnapStudy/Models/ProblemSet.swift
 
 
@@ -2059,7 +1935,7 @@ extension ProblemSet: Hashable {
 }
 
 
-// ./AISnapStudy/Models/HistoryFilter.swift
+// ./AISnapStudy/Models/ReviewFilter.swift
 
 
 import Foundation
@@ -2077,28 +1953,6 @@ enum ReviewFilter: String, CaseIterable {
     case inProgress = "In Progress"
 }
 
-
-
-// ./AISnapStudy/Models/User.swift
-
-
-import Foundation
-
-struct User: Codable, Identifiable {
-    let id: String
-    var name: String
-    var email: String
-    var preferences: UserPreferences
-    var createdAt: Date
-    var lastActive: Date
-    
-    struct UserPreferences: Codable {
-        var isDarkMode: Bool
-        var notificationsEnabled: Bool
-        var dailyGoal: Int
-        var preferredDifficulty: Difficulty
-    }
-}
 
 
 // ./AISnapStudy/Models/Question.swift
@@ -2589,6 +2443,7 @@ struct QuestionCardView: View {
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 struct QuestionSettingsView: View {
     @StateObject private var viewModel: QuestionSettingsViewModel
@@ -2619,169 +2474,238 @@ struct QuestionSettingsView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                // Question About Section
-                // 기존 코드 중복 호출 확인
-                Section {
-                    DisclosureGroup(
-                        isExpanded: .constant(true)
-                    ) {
-                        // ✅ 중복 확인 후 하나만 남기기
-                        QuestionAboutSection(
-                            viewModel: viewModel,
-                            isTextInputSelected: $isTextInputSelected
-                        )
-                    } label: {
-                        HStack {
-                            Text("Question About")
-                                .font(.headline)
-                            Spacer()
-                            if !viewModel.selectedImages.isEmpty {
-                                Text("\(viewModel.selectedImages.count) selected")
-                                    .foregroundColor(.green)
-                            } else if !viewModel.questionText.isEmpty {
-                                Text("Text input")
-                                    .foregroundColor(.green)
-                            }
-                        }
-                    }
-                }.listRowSpacing(0)
+       VStack(spacing: 0) {
+           Form {
+               // useTextExtraction Toggle과 Language 선택을 최상단에 배치
+               HStack {
+                   Toggle("SpeedUp", isOn: $viewModel.useTextExtraction)
+                   
+                   Spacer()
+                   
+                   Menu {
+                       ForEach(Language.allCases) { language in
+                           Button(action: {
+                               viewModel.selectedLanguage = language
+                           }) {
+                               HStack {
+                                   Text(language.rawValue)
+                                   if language == viewModel.selectedLanguage {
+                                       Image(systemName: "checkmark")
+                                   }
+                               }
+                           }
+                       }
+                   } label: {
+                       HStack {
+                           Text(viewModel.selectedLanguage.rawValue)
+                               .foregroundColor(.primary)
+                           Image(systemName: "chevron.down")
+                               .font(.caption)
+                               .foregroundColor(.gray)
+                       }
+                       .padding(.horizontal, 12)
+                       .padding(.vertical, 6)
+                       .background(Color.gray.opacity(0.1))
+                       .cornerRadius(8)
+                   }
+               }
+               .padding(.horizontal)
+               
+               // Image Selection Options
+               HStack(spacing: 12) {
+                   ImageOptionCard(
+                       icon: "camera.fill",
+                       isUsed: viewModel.hasSelectedCamera,
+                       isDisabled: !viewModel.canUseImageInput,
+                       action: {
+                           if viewModel.canUseImageInput {
+                               isTextInputSelected = false
+                               Task { await viewModel.takePhoto() }
+                           }
+                       }
+                   )
 
-                
-                // Learning Subject Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .learningSubject)
-                    ) {
-                        LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
-                    } label: {
-                        HStack {
-                            Text("Learning Subject")
-                                .font(.headline)
-                            Spacer()
-                            Text(viewModel.selectedSubject.displayName)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }.listRowSpacing(0)
-                
-                // Question Types Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .questionTypes)
-                    ) {
-                        QuestionTypesSelectionSection(viewModel: viewModel)
-                    } label: {
-                        HStack {
-                            Text("Question Types")
-                                .font(.headline)
-                            Spacer()
-                            Text("\(viewModel.totalQuestionCount) questions")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }.listRowSpacing(0)
-                
-                if isTextInputSelected {
-                    // Education Level Section
-                    Section {
-                        DisclosureGroup(
-                            isExpanded: isExpandedBinding(for: .educationLevel)
-                        ) {
-                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
-                        } label: {
-                            HStack {
-                                Text("Education Level")
-                                    .font(.headline)
-                                Spacer()
-                                Text(viewModel.educationLevel.displayName)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }.listRowSpacing(0)
-                    
-                    // Difficulty Level Section
-                    Section {
-                        DisclosureGroup(
-                            isExpanded: isExpandedBinding(for: .difficultyLevel)
-                        ) {
-                            DifficultyLevelSection(difficulty: $viewModel.difficulty)
-                        } label: {
-                            HStack {
-                                Text("Difficulty Level")
-                                    .font(.headline)
-                                Spacer()
-                                Text(viewModel.difficulty.displayName)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }.listRowSpacing(0)
-                }
-            }
-            .listSectionSpacing(4)
-            
-            // Generate Questions Button
-            VStack {
-                Button(action: {
-                    showNamePopup = true
-                    isGeneratingQuestions = true
-                    Task {
-                        await viewModel.sendAllImages()
-                    }
-                }) {
-                    Text("Generate Questions")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
-                        .cornerRadius(10)
-                }
-                .disabled(!isGenerateButtonEnabled)
-                .padding()
-            }
-            .background(Color(UIColor.systemGroupedBackground))
-        }
-        .overlay(popupOverlay)
-        .navigationBarItems(leading: cancelButton)
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $viewModel.showImagePicker) {
-            PhotoPicker(selectedImages: $viewModel.selectedImages)
-        }
-        .sheet(isPresented: $viewModel.showCamera) {
-            ImagePicker(
-                image: $viewModel.selectedImage,
-                sourceType: .camera,
-                onImageSelected: { image in
-                    Task {
-                        await viewModel.handleCameraImage(image)
-                    }
-                }
-            )
-        }
-        .alert(isPresented: $viewModel.showAlert) {
-            Alert(
-                title: Text(viewModel.alertTitle),
-                message: Text(viewModel.alertMessage),
-                dismissButton: .default(Text("OK")) {
-                    if viewModel.alertTitle == "Success" {
-                        dismiss()
-                    }
-                }
-            )
-        }
-        .onChange(of: viewModel.shouldShowStudyView) { show in
-            if show {
-                dismiss()
-                selectedTab = 1
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if viewModel.isLoading {
-                LoadingOverlay()
-            }
-        }
+                   ImageOptionCard(
+                       icon: "photo.fill",
+                       isUsed: viewModel.hasSelectedGallery,
+                       isDisabled: !viewModel.canUseImageInput,
+                       action: {
+                           if viewModel.canUseImageInput {
+                               isTextInputSelected = false
+                               Task { await viewModel.selectFromGallery() }
+                           }
+                       }
+                   )
+
+                   ImageOptionCard(
+                       icon: "text.bubble.fill",
+                       isUsed: viewModel.isTextInputActive,
+                       isDisabled: !viewModel.canUseTextInput,
+                       action: {
+                           isTextInputSelected.toggle()
+                           viewModel.toggleTextInput()
+                       }
+                   )
+               }
+               .padding(.horizontal)
+
+               // 텍스트 입력 필드
+               if viewModel.isTextInputActive {
+                   TextField("Enter your question here...", text: $viewModel.questionText)
+                       .textFieldStyle(RoundedBorderTextFieldStyle())
+                       .padding(.horizontal)
+               }
+
+               // 선택한 이미지 표시
+               if !viewModel.selectedImages.isEmpty {
+                   ScrollView(.horizontal, showsIndicators: false) {
+                       HStack(spacing: 12) {
+                           ForEach(viewModel.selectedImages.indices, id: \.self) { index in
+                               SelectedImageCell(
+                                   image: viewModel.selectedImages[index],
+                                   onDelete: {
+                                       viewModel.removeImage(at: index)
+                                   }
+                               )
+                           }
+                       }
+                       .padding(.vertical, 8)
+                   }
+               }
+               
+               // Learning Subject Section
+               Section {
+                   DisclosureGroup(
+                       isExpanded: isExpandedBinding(for: .learningSubject)
+                   ) {
+                       LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
+                   } label: {
+                       HStack {
+                           Text("Learning Subject")
+                               .font(.headline)
+                           Spacer()
+                           Text(viewModel.selectedSubject.displayName)
+                               .foregroundColor(.gray)
+                       }
+                   }
+               }.listRowSpacing(0)
+               
+               // Question Types Section
+               Section {
+                   DisclosureGroup(
+                       isExpanded: isExpandedBinding(for: .questionTypes)
+                   ) {
+                       QuestionTypesSelectionSection(viewModel: viewModel)
+                   } label: {
+                       HStack {
+                           Text("Question Types")
+                               .font(.headline)
+                           Spacer()
+                           Text("\(viewModel.totalQuestionCount) questions")
+                               .foregroundColor(.gray)
+                       }
+                   }
+               }.listRowSpacing(0)
+               
+               if isTextInputSelected {
+                   // Education Level Section
+                   Section {
+                       DisclosureGroup(
+                           isExpanded: isExpandedBinding(for: .educationLevel)
+                       ) {
+                           EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                       } label: {
+                           HStack {
+                               Text("Education Level")
+                                   .font(.headline)
+                               Spacer()
+                               Text(viewModel.educationLevel.displayName)
+                                   .foregroundColor(.gray)
+                           }
+                       }
+                   }.listRowSpacing(0)
+                   
+                   // Difficulty Level Section
+                   Section {
+                       DisclosureGroup(
+                           isExpanded: isExpandedBinding(for: .difficultyLevel)
+                       ) {
+                           DifficultyLevelSection(difficulty: $viewModel.difficulty)
+                       } label: {
+                           HStack {
+                               Text("Difficulty Level")
+                                   .font(.headline)
+                               Spacer()
+                               Text(viewModel.difficulty.displayName)
+                                   .foregroundColor(.gray)
+                           }
+                       }
+                   }.listRowSpacing(0)
+               }
+           }
+           .listSectionSpacing(4)
+           
+           // Generate Questions Button
+           VStack {
+               Button(action: {
+                   showNamePopup = true
+                   isGeneratingQuestions = true
+                   Task {
+                       await viewModel.sendAllImages()
+                   }
+               }) {
+                   Text("Generate Questions")
+                       .font(.headline)
+                       .foregroundColor(.white)
+                       .frame(maxWidth: .infinity)
+                       .padding()
+                       .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
+                       .cornerRadius(10)
+               }
+               .disabled(!isGenerateButtonEnabled)
+               .padding()
+           }
+           .background(Color(UIColor.systemGroupedBackground))
+       }
+       .overlay(popupOverlay)
+       .navigationBarItems(leading: cancelButton)
+       .navigationBarTitleDisplayMode(.inline)
+       .sheet(isPresented: $viewModel.showImagePicker) {
+           PhotoPicker(selectedImages: $viewModel.selectedImages)
+       }
+       .sheet(isPresented: $viewModel.showCamera) {
+           ImagePicker(
+               image: $viewModel.selectedImage,
+               sourceType: .camera,
+               onImageSelected: { image in
+                   Task {
+                       await viewModel.handleCameraImage(image)
+                   }
+               }
+           )
+       }
+       .alert(isPresented: $viewModel.showAlert) {
+           Alert(
+               title: Text(viewModel.alertTitle),
+               message: Text(viewModel.alertMessage),
+               dismissButton: .default(Text("OK")) {
+                   if viewModel.alertTitle == "Success" {
+                       dismiss()
+                   }
+               }
+           )
+       }
+       .onChange(of: viewModel.shouldShowStudyView) { show in
+           if show {
+               dismiss()
+               selectedTab = 1
+           }
+       }
+       .overlay(alignment: .bottom) {
+           if viewModel.isLoading {
+               LoadingOverlay()
+           }
+       }
     }
     
     private var cancelButton: some View {
@@ -3306,16 +3230,42 @@ struct PhotoPicker: UIViewControllerRepresentable {
     }
 }
 
+class CustomImagePickerController: UIImagePickerController {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .all // 모든 방향 지원
+    }
+}
+
 struct ImagePicker: UIViewControllerRepresentable {
     @Environment(\.presentationMode) private var presentationMode
     @Binding var image: UIImage?
     let sourceType: UIImagePickerController.SourceType
-    var onImageSelected: ((UIImage) -> Void)? // 추가
+    var onImageSelected: ((UIImage) -> Void)?
+    
+    class CustomImagePickerController: UIImagePickerController {
+        override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+            return .portrait // 카메라 UI는 항상 세로 모드로 유지
+        }
+    }
     
     func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = sourceType
+        let picker = CustomImagePickerController()
         picker.delegate = context.coordinator
+        picker.sourceType = sourceType
+        
+        if sourceType == .camera {
+            picker.cameraDevice = .rear
+            picker.cameraCaptureMode = .photo
+            picker.allowsEditing = false
+            
+            // 전체 화면 모드로 설정
+            picker.modalPresentationStyle = .fullScreen
+            
+            // 카메라 UI를 세로 모드로 고정
+            picker.navigationController?.navigationBar.isHidden = false
+            picker.navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+        }
+        
         return picker
     }
     
@@ -3332,19 +3282,66 @@ struct ImagePicker: UIViewControllerRepresentable {
             self.parent = parent
         }
         
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        func imagePickerController(_ picker: UIImagePickerController,
+                                 didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             if let image = info[.originalImage] as? UIImage {
+                // 이미지는 원래 방향 그대로 유지
                 parent.image = image
-                parent.onImageSelected?(image)  // 콜백 호출
-                print("📸 Image captured successfully")
+                parent.onImageSelected?(image)
             }
             parent.presentationMode.wrappedValue.dismiss()
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            print("📸 Camera capture cancelled")
             parent.presentationMode.wrappedValue.dismiss()
         }
+    }
+}
+
+// UIImage extension for orientation fixing
+extension UIImage {
+    func fixedOrientation() -> UIImage {
+        if imageOrientation == .up { return self }
+        
+        var transform = CGAffineTransform.identity
+        
+        switch imageOrientation {
+        case .down, .downMirrored:
+            transform = transform.translatedBy(x: size.width, y: size.height)
+            transform = transform.rotated(by: .pi)
+        case .left, .leftMirrored:
+            transform = transform.translatedBy(x: size.width, y: 0)
+            transform = transform.rotated(by: .pi/2)
+        case .right, .rightMirrored:
+            transform = transform.translatedBy(x: 0, y: size.height)
+            transform = transform.rotated(by: -.pi/2)
+        case .up, .upMirrored:
+            break
+        @unknown default:
+            break
+        }
+        
+        guard let cgImage = self.cgImage else { return self }
+        
+        let context = CGContext(data: nil,
+                              width: Int(size.width),
+                              height: Int(size.height),
+                              bitsPerComponent: cgImage.bitsPerComponent,
+                              bytesPerRow: 0,
+                              space: cgImage.colorSpace!,
+                              bitmapInfo: cgImage.bitmapInfo.rawValue)!
+        
+        context.concatenate(transform)
+        
+        switch imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size.height, height: size.width))
+        default:
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
+        }
+        
+        guard let newCGImage = context.makeImage() else { return self }
+        return UIImage(cgImage: newCGImage)
     }
 }
 
@@ -3680,7 +3677,7 @@ struct QuestionAboutSection: View {
             .padding(.horizontal)
 
             // 🟢 useTextExtraction 토글 추가
-            Toggle("Enable Text Extraction", isOn: $viewModel.useTextExtraction)
+            Toggle("SpeedUp", isOn: $viewModel.useTextExtraction)
                 .padding(.horizontal)
                 .onChange(of: viewModel.useTextExtraction) { newValue in
                     print("📱 useTextExtraction changed to: \(newValue)")
@@ -3947,6 +3944,38 @@ struct StatCard: View {
 }
 
 
+// ./AISnapStudy/Views/Components/ReviewProblemSetCard.swift
+
+import SwiftUI
+
+struct ReviewProblemSetCard: View {
+    let problemSet: ProblemSet
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(problemSet.name.isEmpty ? "No Name" : problemSet.name)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            if problemSet.isFavorite {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+            }
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(UIColor.systemBackground))
+                        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1))
+        .padding(.vertical, 4)
+    }
+}
+
+
 // ./AISnapStudy/Views/Components/SearchBar.swift
 
 
@@ -3973,79 +4002,6 @@ struct SearchBar: View {
         .padding(8)
         .background(Color.gray.opacity(0.1))
         .cornerRadius(10)
-    }
-}
-
-
-// ./AISnapStudy/Views/Components/HistoryCard.swift
-
-
-
-import SwiftUI
-
-struct ReviewCard: View {
-    let session: StudySession
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Spacer()
-                
-                Text(session.problemSet.subject.displayName)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(session.problemSet.subject.color.opacity(0.2))
-                    .foregroundColor(session.problemSet.subject.color)
-                    .cornerRadius(4)
-            }
-            
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Score")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(session.score ?? 0)%")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing) {
-                    Text("Time")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(session.duration?.formatted ?? "N/A")
-                        .font(.subheadline)
-                }
-            }
-            
-            HStack {
-                Text("Questions: \(session.answers.count)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                Text(session.startTime.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding()
-        .background(Color.white)
-        .cornerRadius(12)
-        .shadow(radius: 2)
-    }
-}
-
-// Helper extension for time formatting
-private extension TimeInterval {
-    var formatted: String {
-        let minutes = Int(self) / 60
-        let seconds = Int(self) % 60
-        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
@@ -4148,7 +4104,7 @@ struct ImageSelectionSection: View {
             // Quick Text Mode Toggle
             Group {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Enable Text Extraction", isOn: $viewModel.useTextExtraction)
+                    Toggle("SpeedUp", isOn: $viewModel.useTextExtraction)
                         .padding()
                         .onAppear {
                             print("🔄 Toggle initialized with: \(viewModel.useTextExtraction)")
@@ -4588,6 +4544,79 @@ struct MainActionButton: View {
 }
 
 
+// ./AISnapStudy/Views/Components/ReviewCard.swift
+
+
+
+import SwiftUI
+
+struct ReviewCard: View {
+    let session: StudySession
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Spacer()
+                
+                Text(session.problemSet.subject.displayName)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(session.problemSet.subject.color.opacity(0.2))
+                    .foregroundColor(session.problemSet.subject.color)
+                    .cornerRadius(4)
+            }
+            
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Score")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("\(session.score ?? 0)%")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing) {
+                    Text("Time")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(session.duration?.formatted ?? "N/A")
+                        .font(.subheadline)
+                }
+            }
+            
+            HStack {
+                Text("Questions: \(session.answers.count)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Text(session.startTime.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(Color.white)
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+}
+
+// Helper extension for time formatting
+private extension TimeInterval {
+    var formatted: String {
+        let minutes = Int(self) / 60
+        let seconds = Int(self) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+
 // ./AISnapStudy/Views/Components/SavedQuestionCard.swift
 
 import SwiftUI
@@ -4785,200 +4814,6 @@ struct QuestionTypeCounter: View {
 }
 
 
-// ./AISnapStudy/Views/Components/HistoryProblemSetCard.swift
-
-import SwiftUI
-
-struct ReviewProblemSetCard: View {
-    let problemSet: ProblemSet
-    
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(problemSet.name.isEmpty ? "No Name" : problemSet.name)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            if problemSet.isFavorite {
-                Image(systemName: "star.fill")
-                    .foregroundColor(.yellow)
-            }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(UIColor.systemBackground))
-                        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1))
-        .padding(.vertical, 4)
-    }
-}
-
-
-// ./AISnapStudy/Views/Profile/EditProfileView.swift
-
-
-
-import SwiftUI
-
-struct EditProfileView: View {
-    @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = EditProfileViewModel()
-    
-    var body: some View {
-        NavigationView {
-            Form {
-                Section {
-                    TextField("Name", text: $viewModel.name)
-                        .textContentType(.name)
-                    
-                    TextField("Email", text: $viewModel.email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                }
-                
-                Section {
-                    Button(action: viewModel.changePassword) {
-                        Text("Change Password")
-                    }
-                }
-            }
-            .navigationTitle("Edit Profile")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            await viewModel.saveChanges()
-                            dismiss()
-                        }
-                    }
-                    .disabled(!viewModel.hasChanges)
-                }
-            }
-        }
-    }
-}
-
-class EditProfileViewModel: ObservableObject {
-    @Published var name: String = ""
-    @Published var email: String = ""
-    private var originalName: String = ""
-    private var originalEmail: String = ""
-    
-    var hasChanges: Bool {
-        name != originalName || email != originalEmail
-    }
-    
-    init() {
-        // 실제 앱에서는 현재 사용자 데이터를 로드
-        let currentUser = User(
-            id: "1",
-            name: "Test User",
-            email: "test@example.com",
-            preferences: User.UserPreferences(
-                isDarkMode: false,
-                notificationsEnabled: true,
-                dailyGoal: 5,
-                preferredDifficulty: .medium
-            ),
-            createdAt: Date(),
-            lastActive: Date()
-        )
-        
-        self.name = currentUser.name
-        self.email = currentUser.email
-        self.originalName = currentUser.name
-        self.originalEmail = currentUser.email
-    }
-    
-    func changePassword() {
-        // 비밀번호 변경 로직 구현
-    }
-    
-    func saveChanges() async {
-        // 프로필 변경 저장 로직 구현
-    }
-}
-
-
-// ./AISnapStudy/Views/Profile/StudyPreferencesView.swift
-
-
-import SwiftUI
-
-struct StudyPreferencesView: View {
-    @StateObject private var viewModel = StudyPreferencesViewModel()
-    
-    var body: some View {
-        Form {
-            Section(header: Text("Daily Goals")) {
-                Stepper("Questions per day: \(viewModel.dailyGoal)",
-                        value: $viewModel.dailyGoal, in: 1...20)
-            }
-            
-            Section(header: Text("Preferred Difficulty")) {
-                Picker("Default Difficulty", selection: $viewModel.preferredDifficulty) {
-                    ForEach(Difficulty.allCases, id: \.self) { difficulty in
-                        Text(difficulty.displayName)
-                            .tag(difficulty)
-                    }
-                }
-                .pickerStyle(.segmented)
-            }
-            
-            Section(header: Text("Study Reminders")) {
-                Toggle("Daily Reminder", isOn: $viewModel.dailyReminder)
-                if viewModel.dailyReminder {
-                    DatePicker("Reminder Time",
-                              selection: $viewModel.reminderTime,
-                              displayedComponents: .hourAndMinute)
-                }
-            }
-        }
-        .navigationTitle("Study Preferences")
-    }
-}
-
-class StudyPreferencesViewModel: ObservableObject {
-    @Published var dailyGoal: Int = UserDefaults.standard.integer(forKey: "dailyGoal") {
-        didSet {
-            UserDefaults.standard.set(dailyGoal, forKey: "dailyGoal")
-        }
-    }
-    
-    @Published var preferredDifficulty: Difficulty = Difficulty(rawValue:
-        UserDefaults.standard.string(forKey: "preferredDifficulty") ?? "medium"
-    ) ?? .medium {
-        didSet {
-            UserDefaults.standard.set(preferredDifficulty.rawValue, forKey: "preferredDifficulty")
-        }
-    }
-    
-    @Published var dailyReminder: Bool = UserDefaults.standard.bool(forKey: "dailyReminder") {
-        didSet {
-            UserDefaults.standard.set(dailyReminder, forKey: "dailyReminder")
-        }
-    }
-    
-    @Published var reminderTime: Date = Date(timeIntervalSince1970:
-        UserDefaults.standard.double(forKey: "reminderTime")
-    ) {
-        didSet {
-            UserDefaults.standard.set(reminderTime.timeIntervalSince1970, forKey: "reminderTime")
-        }
-    }
-}
-
-
-
 // ./AISnapStudy/Views/Main/MainTabView.swift
 
 import SwiftUI
@@ -5009,6 +4844,12 @@ struct MainTabView: View {
         )
         self._studyViewModel = StateObject(wrappedValue: studyVM)
         
+        let statVM = StatViewModel(
+            context: CoreDataService.shared.viewContext,
+            homeViewModel: homeVM,
+            studyViewModel: studyVM
+        )
+        
         // StatViewModel도 studyViewModel 참조 추가
         self._statViewModel = StateObject(wrappedValue: StatViewModel(
              context: CoreDataService.shared.viewContext,
@@ -5023,6 +4864,9 @@ struct MainTabView: View {
         
         // homeViewModel에 studyViewModel 설정
         homeVM.setStudyViewModel(studyVM)
+        
+        // StatViewModel을 StudyViewModel에 연결
+        studyVM.setStatViewModel(statVM)
     }
     
     var body: some View {
@@ -5090,14 +4934,15 @@ import Charts
 import CoreData
 
 struct StatView: View {
-    @ObservedObject var viewModel: StatViewModel // Change to ObservedObject
+    @ObservedObject var viewModel: StatViewModel
     @Binding var selectedTab: Int
+    
     let correctAnswers: Int
     let totalQuestions: Int
     
- 
+    
     @EnvironmentObject private var homeViewModel: HomeViewModel
-
+    
     
     init(correctAnswers: Int,
          totalQuestions: Int,
@@ -5110,39 +4955,61 @@ struct StatView: View {
     }
     
     var body: some View {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text("학습 통계")
-                        .font(.title)
-                        .padding(.top)
-                    
-                    // 현재 스트릭
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("현재 스트릭")
-                                .font(.headline)
-                            Text("\(viewModel.streak)일")
-                                .font(.title)
-                                .foregroundColor(.blue)
-                        }
-                        Spacer()
-                        Image(systemName: "flame.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(.orange)
+        ScrollView {
+            VStack(spacing: 20) {
+                Text("학습 통계")
+                    .font(.title)
+                    .padding(.top)
+                
+                // 현재 스트릭
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("현재 스트릭")
+                            .font(.headline)
+                        Text("\(viewModel.streak)일")
+                            .font(.title)
+                            .foregroundColor(.blue)
                     }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(10)
-                    
-                    // 통계 그리드
+                    Spacer()
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.orange)
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(10)
+                
+                // 통계 그리드
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ], spacing: 20) {
                     LazyVGrid(columns: [
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ], spacing: 20) {
-                        StatCard(title: "총 점수", value: "\(viewModel.totalPoints)점", icon: "star.fill", color: .yellow)
-                        StatCard(title: "완료한 문제", value: "\(viewModel.completedQuestions)개", icon: "checkmark.circle.fill", color: .green)
-                        StatCard(title: "정답률", value: String(format: "%.1f%%", viewModel.accuracyRate), icon: "percent", color: .blue)
-                        StatCard(title: "정답 수", value: "\(viewModel.correctAnswers)개", icon: "target", color: .red)
+                        StatCard(
+                            title: "총 점수",
+                            value: "\(viewModel.correctAnswers * 10)점",  // 맞은 개수 * 10점
+                            icon: "star.fill",
+                            color: .yellow
+                        )
+                        
+                        StatCard(
+                            title: "정답률",
+                            value: String(format: "%.1f%%", viewModel.accuracyRate),
+                            icon: "percent",
+                            color: .blue
+                        )
+                        
+                        StatCard(title: "완료한 문제",
+                                 value: "\(viewModel.completedQuestions)개",
+                                 icon: "checkmark.circle.fill",
+                                 color: .green)
+                        StatCard(title: "정답 수",
+                                 value: "\(viewModel.correctAnswers)개",
+                                 icon: "target",
+                                 color: .red)
                     }
                     .padding()
                     
@@ -5153,7 +5020,7 @@ struct StatView: View {
                         
                         // Study View로 전환하기 직전 상태 확인을 위해 viewModel에서 로그 출력
                         viewModel.logCurrentQuestionState()
-
+                        
                         // 바로 Study 탭으로 이동
                         withAnimation {
                             selectedTab = 1
@@ -5172,88 +5039,89 @@ struct StatView: View {
             }
         }
     }
+}
 
 
 // ./AISnapStudy/Views/Main/ProfileView.swift
 
-
-import SwiftUI
-
-struct ProfileView: View {
-    @State private var showingEditProfile = false
-    @StateObject private var viewModel = ProfileViewModel()
-    
-    var body: some View {
-        NavigationView {
-            List {
-                // Profile Section
-                Section {
-                    HStack {
-                        Image(systemName: "person.circle.fill")
-                            .resizable()
-                            .frame(width: 60, height: 60)
-                            .foregroundColor(.accentColor)
-                        
-                        VStack(alignment: .leading) {
-                            Text(viewModel.user.name)
-                                .font(.headline)
-                            Text(viewModel.user.email)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 8)
-                }
-                
-                // Settings Section
-                Section("Settings") {
-                    Toggle("Dark Mode", isOn: $viewModel.isDarkMode)
-                    Toggle("Notifications", isOn: $viewModel.notificationsEnabled)
-                    
-                    NavigationLink("Study Preferences") {
-                        StudyPreferencesView()
-                    }
-                }
-                
-                // App Info Section
-                Section("App Info") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(Bundle.main.appVersion)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Button("Terms of Service") {
-                        viewModel.showTerms()
-                    }
-                    
-                    Button("Privacy Policy") {
-                        viewModel.showPrivacyPolicy()
-                    }
-                }
-                
-                // Account Actions
-                Section {
-                    Button("Sign Out", role: .destructive) {
-                        viewModel.signOut()
-                    }
-                }
-            }
-            .navigationTitle("Profile")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Edit") {
-                        showingEditProfile = true
-                    }
-                }
-            }
-            .sheet(isPresented: $showingEditProfile) {
-                EditProfileView()
-            }
-        }
-    }
-}
+//
+//import SwiftUI
+//
+//struct ProfileView: View {
+//    @State private var showingEditProfile = false
+//    @StateObject private var viewModel = ProfileViewModel()
+//    
+//    var body: some View {
+//        NavigationView {
+//            List {
+//                // Profile Section
+//                Section {
+//                    HStack {
+//                        Image(systemName: "person.circle.fill")
+//                            .resizable()
+//                            .frame(width: 60, height: 60)
+//                            .foregroundColor(.accentColor)
+//                        
+//                        VStack(alignment: .leading) {
+//                            Text(viewModel.user.name)
+//                                .font(.headline)
+//                            Text(viewModel.user.email)
+//                                .font(.subheadline)
+//                                .foregroundColor(.secondary)
+//                        }
+//                    }
+//                    .padding(.vertical, 8)
+//                }
+//                
+//                // Settings Section
+//                Section("Settings") {
+//                    Toggle("Dark Mode", isOn: $viewModel.isDarkMode)
+//                    Toggle("Notifications", isOn: $viewModel.notificationsEnabled)
+//                    
+//                    NavigationLink("Study Preferences") {
+//                        StudyPreferencesView()
+//                    }
+//                }
+//                
+//                // App Info Section
+//                Section("App Info") {
+//                    HStack {
+//                        Text("Version")
+//                        Spacer()
+//                        Text(Bundle.main.appVersion)
+//                            .foregroundColor(.secondary)
+//                    }
+//                    
+//                    Button("Terms of Service") {
+//                        viewModel.showTerms()
+//                    }
+//                    
+//                    Button("Privacy Policy") {
+//                        viewModel.showPrivacyPolicy()
+//                    }
+//                }
+//                
+//                // Account Actions
+//                Section {
+//                    Button("Sign Out", role: .destructive) {
+//                        viewModel.signOut()
+//                    }
+//                }
+//            }
+//            .navigationTitle("Profile")
+//            .toolbar {
+//                ToolbarItem(placement: .navigationBarTrailing) {
+//                    Button("Edit") {
+//                        showingEditProfile = true
+//                    }
+//                }
+//            }
+//            .sheet(isPresented: $showingEditProfile) {
+//                EditProfileView()
+//            }
+//        }
+//    }
+//}
 
 
 // ./AISnapStudy/Views/Main/HomeView.swift
@@ -5313,7 +5181,7 @@ struct HomeView: View {
 }
 
 
-// ./AISnapStudy/Views/Main/HistoryView.swift
+// ./AISnapStudy/Views/Main/ReviewView.swift
 
 import SwiftUI
 
@@ -5916,8 +5784,8 @@ public class ImageService {
             }
             
         case .camera:
-            guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-                print("Camera Not Available")
+            guard UIImagePickerController.isSourceTypeAvailable(.camera),
+                  UIImagePickerController.isCameraDeviceAvailable(.rear) else {
                 throw ImageServiceError.unavailable
             }
             
@@ -6058,6 +5926,7 @@ public class ImageService {
         """)
     }
 }
+
 
 
 // ./AISnapStudy/Services/StorageService.swift
@@ -6400,17 +6269,20 @@ class OpenAIService {
         let difficulty: Difficulty
         let educationLevel: EducationLevel
         let questionTypes: [QuestionType: Int]
+        let language: Language
         
         public init(    // public init 추가
             subject: Subject,
             difficulty: Difficulty,
             educationLevel: EducationLevel,
-            questionTypes: [QuestionType: Int]
+            questionTypes: [QuestionType: Int],
+            language: Language
         ) {
             self.subject = subject
             self.difficulty = difficulty
             self.educationLevel = educationLevel
             self.questionTypes = questionTypes
+            self.language = language
         }
     }
     private func buildMessages(input: QuestionInput, prompts: (system: String, user: String)) -> [[String: Any]] {
@@ -6490,87 +6362,6 @@ class OpenAIService {
         } catch {
             // JSON이 아직 완성되지 않았거나 파싱할 수 없는 경우
             return nil
-        }
-    }
-    
-    // 스트리밍을 위한 새로운 메서드 추가
-    public func streamQuestions(
-        from input: QuestionInput,
-        parameters: QuestionParameters
-    ) -> AsyncThrowingStream<Question, Error> {
-        return AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    print("🔄 Starting question stream generation...")
-                    let (schema, prompts) = try await preparePromptAndSchema(input: input, parameters: parameters)
-                    
-                    var request = URLRequest(url: URL(string: baseURL)!)
-                    request.httpMethod = "POST"
-                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    
-                    let requestBody: [String: Any] = [
-                        "model": OpenAIModel.gpt4Vision,
-                        "messages": buildMessages(input: input, prompts: prompts),
-                        "stream": true,  // 스트리밍 활성화
-                        "max_tokens": OpenAIModel.maxTokens,
-                        "temperature": 0.7,
-                        "response_format": ["type": "json_object"]  // JSON 응답 형식 지정
-                    ]
-                    
-                    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                    
-                    print("🌐 Starting streaming request...")
-                    let (result, response) = try await session.bytes(for: request)
-                    
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw NetworkError.invalidResponse
-                    }
-                    
-                    print("📡 Stream connected with status: \(httpResponse.statusCode)")
-                    
-                    var questionBuffer = ""
-                    var questionCount = 0
-                    
-                    for try await line in result.lines {
-                        if line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8) {
-                            if let streamResponse = try? JSONDecoder().decode(StreamResponse.self, from: data),
-                               let content = streamResponse.choices.first?.delta.content {
-                                questionBuffer += content
-                                
-                                // JSON 객체가 완성되면 파싱
-                                if let questionData = try? extractCompleteQuestion(from: questionBuffer) {
-                                    questionCount += 1
-                                    print("✅ Streaming question \(questionCount): \(questionData.question)")
-                                    
-                                    let question = Question(
-                                        id: UUID().uuidString,
-                                        type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
-                                        subject: parameters.subject,
-                                        difficulty: parameters.difficulty,
-                                        question: questionData.question,
-                                        options: questionData.options,
-                                        correctAnswer: questionData.correctAnswer,
-                                        explanation: questionData.explanation,
-                                        hint: questionData.hint,
-                                        isSaved: false,
-                                        createdAt: Date()
-                                    )
-                                    
-                                    continuation.yield(question)
-                                    questionBuffer = ""
-                                }
-                            }
-                        }
-                    }
-                    
-                    print("✅ Stream completed: Generated \(questionCount) questions")
-                    continuation.finish()
-                } catch {
-                    print("❌ Stream error: \(error)")
-                    continuation.finish(throwing: error)
-                }
-            }
         }
     }
     
@@ -6654,12 +6445,13 @@ class OpenAIService {
     }
     
     // MARK: - Subject-Specific Prompts
-    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty) -> SubjectPrompt {
+    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty,     language: Language) -> SubjectPrompt {
         if isImageInput {
             return SubjectPrompt(
                 systemPrompt: """
                    You are an \(subject.displayName) expert creating image-based questions.
-                   Important : Generate questions in the exact same language as any visible text in the image.
+                   Important: Generate questions in \(language.rawValue) language.
+                   If language is set to AUTO, maintain the same language as the input content.
                    Important : Ensure questions are clear and unambiguous and specific and detailed. 
                    """,
                 userPromptTemplate: """
@@ -6726,7 +6518,8 @@ class OpenAIService {
             parameters.subject,
             isImageInput: input.isImage,
             educationLevel: parameters.educationLevel,
-            difficulty: parameters.difficulty
+            difficulty: parameters.difficulty,
+            language: parameters.language
         )
         let schema = try await generateSchema(for: parameters.questionTypes)
         
@@ -6968,11 +6761,11 @@ class VisionService {
                     let text = candidate.string
                     let confidence = candidate.confidence
                     
-                    print("""
-                        🔤 Extracted text segment:
-                        • Text: \(text)
-                        • Confidence: \(confidence)
-                        """)
+//                    print("""
+//                        🔤 Extracted text segment:
+//                        • Text: \(text)
+//                        • Confidence: \(confidence)
+//                        """)
                     
                     if confidence > 0.3 { // 신뢰도 임계값을 낮춤
                         extractedTexts.append(text)
@@ -6981,7 +6774,7 @@ class VisionService {
             }
             
             let finalText = extractedTexts.joined(separator: "\n")
-            print("✅ Final extracted text:\n\(finalText)")
+//            print("✅ Final extracted text:\n\(finalText)")
             
             // 텍스트 검증
             guard !finalText.isEmpty else {

@@ -3,6 +3,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 struct QuestionSettingsView: View {
     @StateObject private var viewModel: QuestionSettingsViewModel
@@ -35,35 +36,81 @@ struct QuestionSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
-                // Question About Section
-                // 기존 코드 중복 호출 확인
+                // Speed Up and Language Selection Section
                 Section {
-                    DisclosureGroup(
-                        isExpanded: .constant(true)
-                    ) {
-                        // ✅ 중복 확인 후 하나만 남기기
-                        QuestionAboutSection(
-                            viewModel: viewModel,
-                            isTextInputSelected: $isTextInputSelected
-                        )
-                    } label: {
-                        HStack {
-                            Text("Question About")
-                                .font(.headline)
-                            Spacer()
-                            if !viewModel.selectedImages.isEmpty {
-                                Text("\(viewModel.selectedImages.count) selected")
-                                    .foregroundColor(.green)
-                            } else if !viewModel.questionText.isEmpty {
-                                Text("Text input")
-                                    .foregroundColor(.green)
+                    SpeedUpSection(useTextExtraction: $viewModel.useTextExtraction)
+                }
+                .listRowSpacing(0)
+
+                Section {
+                    LanguageSection(selectedLanguage: $viewModel.selectedLanguage)
+                }
+                .listRowSpacing(0)
+
+
+                // Image Selection Options
+                HStack(spacing: 12) {
+                    ImageOptionCard(
+                        icon: "camera.fill",
+                        isUsed: viewModel.hasSelectedCamera,
+                        isDisabled: !viewModel.canUseImageInput,
+                        action: {
+                            if viewModel.canUseImageInput {
+                                isTextInputSelected = false
+                                Task { await viewModel.takePhoto() }
                             }
                         }
-                    }
-                }.listRowSpacing(0)
+                    )
 
+                    ImageOptionCard(
+                        icon: "photo.fill",
+                        isUsed: viewModel.hasSelectedGallery,
+                        isDisabled: !viewModel.canUseImageInput,
+                        action: {
+                            if viewModel.canUseImageInput {
+                                isTextInputSelected = false
+                                Task { await viewModel.selectFromGallery() }
+                            }
+                        }
+                    )
+
+                    ImageOptionCard(
+                        icon: "text.bubble.fill",
+                        isUsed: viewModel.isTextInputActive,
+                        isDisabled: !viewModel.canUseTextInput,
+                        action: {
+                            isTextInputSelected.toggle()
+                            viewModel.toggleTextInput()
+                        }
+                    )
+                }
+                .padding(.horizontal)
+
+                // Text Input Field
+                if viewModel.isTextInputActive {
+                    TextField("Enter your question here...", text: $viewModel.questionText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding(.horizontal)
+                }
+
+                // Selected Images Display
+                if !viewModel.selectedImages.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(viewModel.selectedImages.indices, id: \.self) { index in
+                                SelectedImageCell(
+                                    image: viewModel.selectedImages[index],
+                                    onDelete: {
+                                        viewModel.removeImage(at: index)
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
                 
-                // Learning Subject Section
+                // Subject Section
                 Section {
                     DisclosureGroup(
                         isExpanded: isExpandedBinding(for: .learningSubject)
@@ -71,7 +118,7 @@ struct QuestionSettingsView: View {
                         LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
                     } label: {
                         HStack {
-                            Text("Learning Subject")
+                            Text("Subject")
                                 .font(.headline)
                             Spacer()
                             Text(viewModel.selectedSubject.displayName)
@@ -88,7 +135,7 @@ struct QuestionSettingsView: View {
                         QuestionTypesSelectionSection(viewModel: viewModel)
                     } label: {
                         HStack {
-                            Text("Question Types")
+                            Text("Type")
                                 .font(.headline)
                             Spacer()
                             Text("\(viewModel.totalQuestionCount) questions")
@@ -189,11 +236,6 @@ struct QuestionSettingsView: View {
             if show {
                 dismiss()
                 selectedTab = 1
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if viewModel.isLoading {
-                LoadingOverlay()
             }
         }
     }
@@ -383,19 +425,6 @@ struct GenerateQuestionsFooter: View {
         .background(Color(UIColor.systemGroupedBackground))
     }
 }
-
-struct LoadingOverlay: View {
-    var body: some View {
-        LoadingView()
-            .frame(maxHeight: 120)
-            .background(Color.black.opacity(0.7))
-            .cornerRadius(10)
-            .padding()
-    }
-}
-
-
-
 
 struct SubjectSelectionButton: View {
    let subject: Subject
@@ -587,7 +616,7 @@ struct QuestionTypesSelectionSection: View {
             VStack(spacing: 8) {
                 // 총 문제 수 표시
                 HStack {
-                    Text("Question Types")
+                    Text("Type")
                         .font(.headline)
                     Spacer()
                     Text("Total: \(viewModel.totalQuestionCount)/10")
@@ -657,7 +686,7 @@ struct SubjectSelectionSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
     
     var body: some View {
-        Section("Learning Subject") {
+        Section("Subject") {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(Subject.allCases, id: \.self) { subject in
@@ -720,16 +749,42 @@ struct PhotoPicker: UIViewControllerRepresentable {
     }
 }
 
+class CustomImagePickerController: UIImagePickerController {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .all // 모든 방향 지원
+    }
+}
+
 struct ImagePicker: UIViewControllerRepresentable {
     @Environment(\.presentationMode) private var presentationMode
     @Binding var image: UIImage?
     let sourceType: UIImagePickerController.SourceType
-    var onImageSelected: ((UIImage) -> Void)? // 추가
+    var onImageSelected: ((UIImage) -> Void)?
+    
+    class CustomImagePickerController: UIImagePickerController {
+        override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+            return .portrait // 카메라 UI는 항상 세로 모드로 유지
+        }
+    }
     
     func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = sourceType
+        let picker = CustomImagePickerController()
         picker.delegate = context.coordinator
+        picker.sourceType = sourceType
+        
+        if sourceType == .camera {
+            picker.cameraDevice = .rear
+            picker.cameraCaptureMode = .photo
+            picker.allowsEditing = false
+            
+            // 전체 화면 모드로 설정
+            picker.modalPresentationStyle = .fullScreen
+            
+            // 카메라 UI를 세로 모드로 고정
+            picker.navigationController?.navigationBar.isHidden = false
+            picker.navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+        }
+        
         return picker
     }
     
@@ -746,40 +801,66 @@ struct ImagePicker: UIViewControllerRepresentable {
             self.parent = parent
         }
         
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        func imagePickerController(_ picker: UIImagePickerController,
+                                 didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             if let image = info[.originalImage] as? UIImage {
+                // 이미지는 원래 방향 그대로 유지
                 parent.image = image
-                parent.onImageSelected?(image)  // 콜백 호출
-                print("📸 Image captured successfully")
+                parent.onImageSelected?(image)
             }
             parent.presentationMode.wrappedValue.dismiss()
         }
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            print("📸 Camera capture cancelled")
             parent.presentationMode.wrappedValue.dismiss()
         }
     }
 }
 
-struct LoadingView: View {
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .edgesIgnoringSafeArea(.all)
-            
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                Text("Processing...")
-                    .font(.headline)
-                    .foregroundColor(.white)
-            }
-            .padding()
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(10)
+// UIImage extension for orientation fixing
+extension UIImage {
+    func fixedOrientation() -> UIImage {
+        if imageOrientation == .up { return self }
+        
+        var transform = CGAffineTransform.identity
+        
+        switch imageOrientation {
+        case .down, .downMirrored:
+            transform = transform.translatedBy(x: size.width, y: size.height)
+            transform = transform.rotated(by: .pi)
+        case .left, .leftMirrored:
+            transform = transform.translatedBy(x: size.width, y: 0)
+            transform = transform.rotated(by: .pi/2)
+        case .right, .rightMirrored:
+            transform = transform.translatedBy(x: 0, y: size.height)
+            transform = transform.rotated(by: -.pi/2)
+        case .up, .upMirrored:
+            break
+        @unknown default:
+            break
         }
+        
+        guard let cgImage = self.cgImage else { return self }
+        
+        let context = CGContext(data: nil,
+                              width: Int(size.width),
+                              height: Int(size.height),
+                              bitsPerComponent: cgImage.bitsPerComponent,
+                              bytesPerRow: 0,
+                              space: cgImage.colorSpace!,
+                              bitmapInfo: cgImage.bitmapInfo.rawValue)!
+        
+        context.concatenate(transform)
+        
+        switch imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size.height, height: size.width))
+        default:
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
+        }
+        
+        guard let newCGImage = context.makeImage() else { return self }
+        return UIImage(cgImage: newCGImage)
     }
 }
 

@@ -25,14 +25,11 @@ struct StudyView: View {
         VStack {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
-                    ProgressView(value: Double(studyViewModel.generatedQuestionCount),
-                               total: Double(studyViewModel.totalExpectedQuestions)) {
-                        Text("Generating Questions...")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                    }
-                    .progressViewStyle(.linear)
-                    .padding()
+                    QuestionGeneratingView(
+                        generatedCount: studyViewModel.generatedQuestionCount,
+                        totalCount: studyViewModel.totalExpectedQuestions,
+                        questions: studyViewModel.generatedQuestions
+                    )
                     
                     Text("\(studyViewModel.generatedQuestionCount) / \(studyViewModel.totalExpectedQuestions)")
                         .font(.title3)
@@ -327,4 +324,162 @@ private struct ActionButton: View {
        }
        .disabled(!viewModel.canSubmit)
    }
+}
+
+
+
+struct QuestionGeneratingView: View {
+    let generatedCount: Int
+    let totalCount: Int
+    let questions: [Question]
+    @State private var animationAmount = 1.0
+    @State private var showingPreview = false
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            // Progress Circle Animation
+            ZStack {
+                Circle()
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 8)
+                    .frame(width: 100, height: 100)
+                
+                Circle()
+                    .trim(from: 0, to: CGFloat(generatedCount) / CGFloat(totalCount))
+                    .stroke(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                    )
+                    .frame(width: 100, height: 100)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeInOut(duration: 0.6), value: generatedCount)
+                
+                VStack {
+                    Text("\(generatedCount)/\(totalCount)")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Text("Questions")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+            }
+            .padding(.bottom, 10)
+            
+            // Status Text with Animation
+            HStack(spacing: 4) {
+                Text("Generating Questions")
+                    .font(.headline)
+                ForEach(0..<3) { index in
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 6, height: 6)
+                        .scaleEffect(animationAmount)
+                        .animation(
+                            .easeInOut(duration: 0.5)
+                            .repeatForever()
+                            .delay(Double(index) * 0.2),
+                            value: animationAmount
+                        )
+                }
+            }
+            
+            // Generated Questions Preview
+            if !questions.isEmpty {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("Preview Generated Questions")
+                            .font(.headline)
+                        Spacer()
+                        Button(action: { showingPreview.toggle() }) {
+                            Image(systemName: "chevron.down")
+                                .rotationEffect(.degrees(showingPreview ? 180 : 0))
+                                .animation(.spring(), value: showingPreview)
+                        }
+                    }
+                    .padding(.horizontal)
+                    
+                    if showingPreview {
+                        ScrollView {
+                            VStack(spacing: 12) {
+                                ForEach(questions) { question in
+                                    GeneratedQuestionPreviewCard(question: question)
+                                        .transition(.opacity.combined(with: .slide))
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                        .frame(maxHeight: 300)
+                    }
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(15)
+                .animation(.spring(), value: showingPreview)
+            }
+            
+            // Tips Section
+            VStack(spacing: 12) {
+                Text("Did you know?")
+                    .font(.headline)
+                    .foregroundColor(.blue)
+                
+                Text(randomTip)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            .padding()
+            .background(Color.blue.opacity(0.1))
+            .cornerRadius(12)
+            .padding()
+        }
+        .padding()
+        .onAppear {
+            animationAmount = 1.2
+        }
+    }
+    
+    private var randomTip: String {
+        let tips = [
+            "AI analyzes your content to create personalized questions tailored to your learning needs.",
+            "Questions are designed to help you understand the content more deeply.",
+            "Each question includes detailed explanations to help you learn better.",
+            "You can save interesting questions for later review.",
+            "The difficulty adapts to your learning level."
+        ]
+        return tips.randomElement() ?? tips[0]
+    }
+}
+
+struct GeneratedQuestionPreviewCard: View {
+    let question: Question
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: question.type == .multipleChoice ? "list.bullet.circle.fill" : "checkmark.circle.fill")
+                    .foregroundColor(.blue)
+                Text(question.type == .multipleChoice ? "Multiple Choice" : "True/False")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                Spacer()
+                Text(question.difficulty.displayName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Text(question.question)
+                .font(.subheadline)
+                .lineLimit(2)
+                .foregroundColor(.primary)
+        }
+        .padding()
+        .background(Color.white)
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+    }
 }

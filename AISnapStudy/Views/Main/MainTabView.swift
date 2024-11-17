@@ -26,6 +26,12 @@ struct MainTabView: View {
         )
         self._studyViewModel = StateObject(wrappedValue: studyVM)
         
+        let statVM = StatViewModel(
+            context: CoreDataService.shared.viewContext,
+            homeViewModel: homeVM,
+            studyViewModel: studyVM
+        )
+        
         // StatViewModel도 studyViewModel 참조 추가
         self._statViewModel = StateObject(wrappedValue: StatViewModel(
              context: CoreDataService.shared.viewContext,
@@ -40,6 +46,9 @@ struct MainTabView: View {
         
         // homeViewModel에 studyViewModel 설정
         homeVM.setStudyViewModel(studyVM)
+        
+        // StatViewModel을 StudyViewModel에 연결
+        studyVM.setStatViewModel(statVM)
     }
     
     var body: some View {

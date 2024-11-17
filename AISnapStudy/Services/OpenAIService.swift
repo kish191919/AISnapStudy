@@ -100,17 +100,20 @@ class OpenAIService {
         let difficulty: Difficulty
         let educationLevel: EducationLevel
         let questionTypes: [QuestionType: Int]
+        let language: Language
         
         public init(    // public init 추가
             subject: Subject,
             difficulty: Difficulty,
             educationLevel: EducationLevel,
-            questionTypes: [QuestionType: Int]
+            questionTypes: [QuestionType: Int],
+            language: Language
         ) {
             self.subject = subject
             self.difficulty = difficulty
             self.educationLevel = educationLevel
             self.questionTypes = questionTypes
+            self.language = language
         }
     }
     private func buildMessages(input: QuestionInput, prompts: (system: String, user: String)) -> [[String: Any]] {
@@ -190,87 +193,6 @@ class OpenAIService {
         } catch {
             // JSON이 아직 완성되지 않았거나 파싱할 수 없는 경우
             return nil
-        }
-    }
-    
-    // 스트리밍을 위한 새로운 메서드 추가
-    public func streamQuestions(
-        from input: QuestionInput,
-        parameters: QuestionParameters
-    ) -> AsyncThrowingStream<Question, Error> {
-        return AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    print("🔄 Starting question stream generation...")
-                    let (schema, prompts) = try await preparePromptAndSchema(input: input, parameters: parameters)
-                    
-                    var request = URLRequest(url: URL(string: baseURL)!)
-                    request.httpMethod = "POST"
-                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    
-                    let requestBody: [String: Any] = [
-                        "model": OpenAIModel.gpt4Vision,
-                        "messages": buildMessages(input: input, prompts: prompts),
-                        "stream": true,  // 스트리밍 활성화
-                        "max_tokens": OpenAIModel.maxTokens,
-                        "temperature": 0.7,
-                        "response_format": ["type": "json_object"]  // JSON 응답 형식 지정
-                    ]
-                    
-                    request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-                    
-                    print("🌐 Starting streaming request...")
-                    let (result, response) = try await session.bytes(for: request)
-                    
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw NetworkError.invalidResponse
-                    }
-                    
-                    print("📡 Stream connected with status: \(httpResponse.statusCode)")
-                    
-                    var questionBuffer = ""
-                    var questionCount = 0
-                    
-                    for try await line in result.lines {
-                        if line.hasPrefix("data: "), let data = line.dropFirst(6).data(using: .utf8) {
-                            if let streamResponse = try? JSONDecoder().decode(StreamResponse.self, from: data),
-                               let content = streamResponse.choices.first?.delta.content {
-                                questionBuffer += content
-                                
-                                // JSON 객체가 완성되면 파싱
-                                if let questionData = try? extractCompleteQuestion(from: questionBuffer) {
-                                    questionCount += 1
-                                    print("✅ Streaming question \(questionCount): \(questionData.question)")
-                                    
-                                    let question = Question(
-                                        id: UUID().uuidString,
-                                        type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
-                                        subject: parameters.subject,
-                                        difficulty: parameters.difficulty,
-                                        question: questionData.question,
-                                        options: questionData.options,
-                                        correctAnswer: questionData.correctAnswer,
-                                        explanation: questionData.explanation,
-                                        hint: questionData.hint,
-                                        isSaved: false,
-                                        createdAt: Date()
-                                    )
-                                    
-                                    continuation.yield(question)
-                                    questionBuffer = ""
-                                }
-                            }
-                        }
-                    }
-                    
-                    print("✅ Stream completed: Generated \(questionCount) questions")
-                    continuation.finish()
-                } catch {
-                    print("❌ Stream error: \(error)")
-                    continuation.finish(throwing: error)
-                }
-            }
         }
     }
     
@@ -354,62 +276,67 @@ class OpenAIService {
     }
     
     // MARK: - Subject-Specific Prompts
-    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty) -> SubjectPrompt {
+    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty,     language: Language) -> SubjectPrompt {
+        let languageInstruction_text = language == .auto ?
+            "Generate questions in the exact same language as the input text" :
+            "Generate questions in \(language.rawValue) regardless of the input text language"
+        
+        let languageInstruction_image = language == .auto ?
+            "Generate questions in the exact same language as any visible text in the image" :
+            "Generate questions in \(language.rawValue) regardless of the visible text language"
+        
         if isImageInput {
             return SubjectPrompt(
                 systemPrompt: """
                    You are an \(subject.displayName) expert creating image-based questions.
-                   Important : Generate questions in the exact same language as any visible text in the image.
-                   Important : Ensure questions are clear and unambiguous and specific and detailed. 
+                   Important: \(languageInstruction_image).
+                   Must to create self-contained questions that provide all necessary context within each question.
                    """,
                 userPromptTemplate: """
                    Create self-contained questions that provide all necessary context within each question.
-                   Keep the same language as the image text.
-                   Important : Include specific details from the content
+                   Important: \(languageInstruction_image).
+                   Include detailed explanations and hints
+                   
                    Example format:
                    BAD: "What does the text explain?"
                    BAD: "what is the title of this image?"
                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                   Good: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                   How many apples does Sarah have now?
+                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0
                    """
             )
         } else {
             return SubjectPrompt(
                 systemPrompt: """
                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                   Important : Generate questions in the exact same language as the input text.
-                   Important : Create self-contained questions that provide all necessary context within each question.
+                   Important: \(languageInstruction_text).
+                   Must to create self-contained questions that provide all necessary context within each question.
                    
                    Questions should:
-                   - be made understandable at the level of \(educationLevel.displayName) school students. 
-                   - Preserve the input text's language
-                   - Use clear, precise language 
+                   - Be made understandable at the level of \(educationLevel.displayName) school students. 
+                   - \(languageInstruction_text)
                    - Include detailed explanations and hints
-                   - Never reference any images when input is text
                    """,
                 userPromptTemplate: """
-                   question creation guidelines:
-                   Important - Generates questions in exactly the same language as the input text.
-                   Important - Create self-contained questions that provide all necessary context within each question.
-
-                   1. CONTEXT & CONTENT
+                   Create self-contained questions that provide all necessary context within each question.
+                   Important: \(languageInstruction_image).
+                   
+                    Question creation guidelines:
+                   - Include detailed explanations and hints
                    - Generate questions directly from the user's input content
                    - Create questions at the \(educationLevel.displayName) school student
-
-                   2. LANGUAGE & STRUCTURE
-                   - Include specific dates, names, and events when relevant
                    - Avoid broad, oversimplified questions
 
-                   3. EXAMPLE FORMATS
-                   BAD:
-                   - Overly general: "What happened during World War II?"
-                   - Misleading premise: "When did America create democracy?"
-                   - Missing context: "Why did they sign the document?"
-
-                   GOOD:
-                   - Specific: "How did the ratification of the 14th Amendment (1868) change citizenship rights in the United States?"
-                   - Analytical: "What economic and social factors led to the Great Depression between 1929-1933?"
-                   - Contextual: "How did the invention of the cotton gin by Eli Whitney in 1793 impact slavery in the Southern states?"
+                   Example format:
+                   BAD: "What does the text explain?"
+                   BAD: "what is the title of this image?"
+                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                   How many apples does Sarah have now?
+                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0G
                    """
             )
         }
@@ -426,7 +353,8 @@ class OpenAIService {
             parameters.subject,
             isImageInput: input.isImage,
             educationLevel: parameters.educationLevel,
-            difficulty: parameters.difficulty
+            difficulty: parameters.difficulty,
+            language: parameters.language
         )
         let schema = try await generateSchema(for: parameters.questionTypes)
         
