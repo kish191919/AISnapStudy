@@ -7,22 +7,22 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		9840E04A2CE22E3400365757 /* CDProblemSet+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9840E0492CE22E3400365757 /* CDProblemSet+CoreDataProperties.swift */; };
-		9840E04B2CE22E3400365757 /* CDProblemSet+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9840E0482CE22E3400365757 /* CDProblemSet+CoreDataClass.swift */; };
 		9858D8A72CE18737000A04C0 /* CDStudySession+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */; };
 		9858D8AA2CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */; };
 		9866D7382CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9866D7362CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift */; };
 		9866D7392CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9866D7372CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift */; };
+		98AA6F062CE876C9004E716C /* CDProblemSet+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AA6F042CE876C9004E716C /* CDProblemSet+CoreDataClass.swift */; };
+		98AA6F072CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AA6F052CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		9840E0482CE22E3400365757 /* CDProblemSet+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift"; sourceTree = "<group>"; };
-		9840E0492CE22E3400365757 /* CDProblemSet+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift"; sourceTree = "<group>"; };
 		9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		9866D7362CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataClass.swift"; sourceTree = "<group>"; };
 		9866D7372CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		989CC9FD2CE135CA00E25D14 /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		98AA6F042CE876C9004E716C /* CDProblemSet+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift"; sourceTree = "<group>"; };
+		98AA6F052CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -60,10 +60,10 @@
 		989CC9F42CE135CA00E25D14 = {
 			isa = PBXGroup;
 			children = (
+				98AA6F042CE876C9004E716C /* CDProblemSet+CoreDataClass.swift */,
+				98AA6F052CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift */,
 				9866D7362CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift */,
 				9866D7372CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift */,
-				9840E0482CE22E3400365757 /* CDProblemSet+CoreDataClass.swift */,
-				9840E0492CE22E3400365757 /* CDProblemSet+CoreDataProperties.swift */,
 				9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */,
 				9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */,
 				989CC9FF2CE135CA00E25D14 /* AISnapStudy */,
@@ -155,10 +155,10 @@
 			files = (
 				9866D7382CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift in Sources */,
 				9866D7392CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift in Sources */,
+				98AA6F062CE876C9004E716C /* CDProblemSet+CoreDataClass.swift in Sources */,
+				98AA6F072CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift in Sources */,
 				9858D8A72CE18737000A04C0 /* CDStudySession+CoreDataClass.swift in Sources */,
 				9858D8AA2CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift in Sources */,
-				9840E04A2CE22E3400365757 /* CDProblemSet+CoreDataProperties.swift in Sources */,
-				9840E04B2CE22E3400365757 /* CDProblemSet+CoreDataClass.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

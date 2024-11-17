@@ -4,7 +4,6 @@ import Foundation
 
 public enum QuestionType: String, Codable {
     case multipleChoice = "multiple_choice"
-    case fillInBlanks = "fill_in_blanks"
     case trueFalse = "true_false"  
 }
 

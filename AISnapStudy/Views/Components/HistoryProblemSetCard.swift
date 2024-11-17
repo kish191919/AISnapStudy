@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct HistoryProblemSetCard: View {
+struct ReviewProblemSetCard: View {
     let problemSet: ProblemSet
     
     var body: some View {
@@ -9,9 +9,6 @@ struct HistoryProblemSetCard: View {
                 Text(problemSet.name.isEmpty ? "No Name" : problemSet.name)
                     .font(.headline)
                     .foregroundColor(.primary)
-                Text(problemSet.title.isEmpty ? "No Title" : problemSet.title)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
                 Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)
                     .foregroundColor(.secondary)

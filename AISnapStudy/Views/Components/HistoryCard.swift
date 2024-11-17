@@ -2,14 +2,12 @@
 
 import SwiftUI
 
-struct HistoryCard: View {
+struct ReviewCard: View {
     let session: StudySession
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(session.problemSet.title)
-                    .font(.headline)
                 Spacer()
                 
                 Text(session.problemSet.subject.displayName)

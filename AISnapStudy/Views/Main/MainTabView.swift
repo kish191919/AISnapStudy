@@ -68,9 +68,9 @@ struct MainTabView: View {
                     .tag(1)
             }
             
-            HistoryView()
+            ReviewView()
                 .tabItem {
-                    Label("History", systemImage: "clock.fill")
+                    Label("Review", systemImage: "clock.fill")
                 }
                 .tag(2)
             

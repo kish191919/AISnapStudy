@@ -12,7 +12,6 @@ extension CDProblemSet {
 
         return ProblemSet(
             id: self.id ?? UUID().uuidString,
-            title: self.title ?? "",
             subject: Subject(rawValue: self.subject ?? "") ?? .math,
             difficulty: Difficulty(rawValue: self.difficulty ?? "") ?? .medium,
             questions: questions,
@@ -54,7 +53,6 @@ extension CDStudySession {
             id: self.id ?? UUID().uuidString,
             problemSet: self.problemSet?.toDomain() ?? ProblemSet(
                 id: UUID().uuidString,
-                title: "Unknown",
                 subject: .math,
                 difficulty: .medium,
                 questions: [],

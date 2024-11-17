@@ -240,11 +240,10 @@ class CoreDataService {
                         )
                     } ?? []
                 
-                print("📚 Loaded \(questions.count) questions for ProblemSet: \(cdProblemSet.id ?? "")")
+                // print("📚 Loaded \(questions.count) questions for ProblemSet: \(cdProblemSet.id ?? "")")
                 
                 return ProblemSet(
                     id: cdProblemSet.id ?? UUID().uuidString,
-                    title: cdProblemSet.title ?? "",
                     subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
                     difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
                     questions: questions,
@@ -265,7 +264,6 @@ class CoreDataService {
         
         let cdProblemSet = CDProblemSet(context: viewContext)
         cdProblemSet.id = problemSet.id
-        cdProblemSet.title = problemSet.title
         cdProblemSet.subject = problemSet.subject.rawValue
         cdProblemSet.difficulty = problemSet.difficulty.rawValue
         cdProblemSet.createdAt = problemSet.createdAt

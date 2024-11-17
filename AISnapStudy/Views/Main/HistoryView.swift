@@ -1,12 +1,12 @@
 import SwiftUI
 
-struct HistoryView: View {
+struct ReviewView: View {
     @EnvironmentObject var homeViewModel: HomeViewModel
-    @StateObject private var viewModel: HistoryViewModel
+    @StateObject private var viewModel: ReviewViewModel
     @State private var searchText = ""
     
     init() {
-        let vm = HistoryViewModel(homeViewModel: HomeViewModel.shared)
+        let vm = ReviewViewModel(homeViewModel: HomeViewModel.shared)
         self._viewModel = StateObject(wrappedValue: vm)
     }
     
@@ -56,7 +56,7 @@ struct HistoryView: View {
                     }
                 }
                 .listStyle(InsetGroupedListStyle())
-                .navigationTitle("History")
+                .navigationTitle("Review")
                 .navigationBarTitleDisplayMode(.inline)  // 이 줄을 추가
                 .refreshable {
                     viewModel.refreshData()
@@ -92,13 +92,12 @@ struct SavedQuestionsView: View {
                     // Create a temporary ProblemSet for the saved question
                     let problemSet = ProblemSet(
                         id: UUID().uuidString,
-                        title: "Saved Question",
                         subject: question.subject,
                         difficulty: question.difficulty,
                         questions: [question],
                         createdAt: Date(),
                         educationLevel: .elementary,
-                        name: "Saved Question Practice"
+                        name: "Saved Question"
                     )
                     homeViewModel.setSelectedProblemSet(problemSet)
                     showStudyView = true
@@ -135,7 +134,7 @@ struct ProblemSetsListView: View {
                 homeViewModel.setSelectedProblemSet(problemSet)
                 isShowingStudyView = true
             }) {
-                HistoryProblemSetCard(problemSet: problemSet)
+                ReviewProblemSetCard(problemSet: problemSet)
             }
             .background(
                 NavigationLink(

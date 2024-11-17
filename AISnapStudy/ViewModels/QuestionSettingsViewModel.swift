@@ -5,23 +5,37 @@ import PhotosUI
 
 @MainActor
 class QuestionSettingsViewModel: ObservableObject {
+    // Quick Text Mode 상태가 @Published로 선언되어 있는지 확인
+    @Published var useTextExtraction: Bool = true {
+        didSet {
+            UserDefaults.standard.set(useTextExtraction, forKey: "useTextExtraction")
+        }
+    }
+    
+    // TextExtraction 관련 상태들
+    @Published var extractedTexts: [String: String] = [:]
+    @Published var isLoadingTexts: [String: Bool] = [:]
+    @Published var extractionStatus: [String: Bool] = [:]
+    
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
     private let imageService = ImageService.shared
     private var openAIService: OpenAIService?
     private let totalMaximumQuestions = 10
-    private var studyViewModel: StudyViewModel? // 추가
-
+    private var studyViewModel: StudyViewModel?
     
-    // UserDefaults keys
+    // MARK: - UserDefaults keys
     private enum UserDefaultsKeys {
         static let lastSubject = "lastSelectedSubject"
         static let lastEducationLevel = "lastEducationLevel"
         static let lastDifficulty = "lastDifficulty"
         static let lastMultipleChoiceCount = "lastMultipleChoiceCount"
-        static let lastFillInBlanksCount = "lastFillInBlanksCount"
         static let lastTrueFalseCount = "lastTrueFalseCount"
     }
+    
+    // MARK: - Published Properties
+
+    private var imageIds: [UIImage: String] = [:]
     
     @Published var selectedImages: [UIImage] = []
     @Published var hasCameraImage: Bool = false
@@ -35,11 +49,18 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var shouldShowStudyView: Bool = false
     @Published var isGeneratingQuestions: Bool = false
     @Published var problemSetName: String = ""
+    @Published var isLoading: Bool = false
+    @Published var error: Error?
+    @Published var networkError: NetworkError?
+    @Published var isNetworkAvailable: Bool = true
+    @Published var showImagePicker = false
+    @Published var showCamera = false
+    @Published var selectedImage: UIImage?
+    @Published var showAlert: Bool = false
+    @Published var alertTitle: String = ""
+    @Published var alertMessage: String = ""
     
-    let subject: Subject
-    
-    // MARK: - Published Properties with UserDefaults persistence
-     @Published var selectedSubject: Subject {
+    @Published var selectedSubject: Subject {
          didSet {
              UserDefaults.standard.set(selectedSubject.rawValue, forKey: UserDefaultsKeys.lastSubject)
          }
@@ -48,7 +69,6 @@ class QuestionSettingsViewModel: ObservableObject {
      @Published var educationLevel: EducationLevel {
          didSet {
              UserDefaults.standard.set(educationLevel.rawValue, forKey: UserDefaultsKeys.lastEducationLevel)
-             print("📚 ViewModel - Education Level updated from \(oldValue) to \(educationLevel)")
          }
      }
      
@@ -61,63 +81,47 @@ class QuestionSettingsViewModel: ObservableObject {
      @Published var multipleChoiceCount: Int {
          didSet {
              UserDefaults.standard.set(multipleChoiceCount, forKey: UserDefaultsKeys.lastMultipleChoiceCount)
-             print("ViewModel - Multiple Choice Count updated to: \(multipleChoiceCount)")
          }
      }
-     
-     @Published var fillInBlanksCount: Int {
-         didSet {
-             UserDefaults.standard.set(fillInBlanksCount, forKey: UserDefaultsKeys.lastFillInBlanksCount)
-             print("ViewModel - Fill in Blanks Count updated to: \(fillInBlanksCount)")
-         }
-     }
-     
      
      @Published var trueFalseCount: Int {
          didSet {
              UserDefaults.standard.set(trueFalseCount, forKey: UserDefaultsKeys.lastTrueFalseCount)
-             print("ViewModel - True/False Count updated to: \(trueFalseCount)")
          }
      }
      
-     
+     let subject: Subject
      
      // MARK: - Initialization
-    @MainActor
      init(subject: Subject, homeViewModel: HomeViewModel) {
+         
          self.subject = subject
          self.homeViewModel = homeViewModel
          self.studyViewModel = homeViewModel.studyViewModel
          
-         // Load last used values from UserDefaults
+         // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
          let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
-         let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
          let lastDifficultyRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastDifficulty)
+         let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
+
          
-         // Initialize with last used values or defaults
+         // 기본값을 하드코딩하지 않고 파라미터나 null 처리
          self.selectedSubject = Subject(rawValue: lastSubjectRaw ?? "") ?? subject
-         self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
-         self.difficulty = Difficulty(rawValue: lastDifficultyRaw ?? "") ?? .medium
+         self.difficulty = Difficulty(rawValue: lastDifficultyRaw ?? "") ?? .medium  // 기본값을 .medium으로 변경
          
-         // Load last question counts
+         self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
          self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
-         self.fillInBlanksCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastFillInBlanksCount)
          self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
          
-         self.isLoading = false
-         self.networkError = nil
-         self.isNetworkAvailable = true
-         self.showImagePicker = false
-         self.showCamera = false
-         self.selectedImages = []
-         self.showAlert = false
-         self.alertTitle = ""
-         self.alertMessage = ""
-         self.trueFalseCount = 0
-         self.selectedImages = []
-         
-         // After all properties are initialized, setup network monitoring
+         // Initialize network monitoring
          self.isNetworkAvailable = networkMonitor.isReachable
+         
+         // 기본값 설정
+         UserDefaults.standard.register(defaults: ["useTextExtraction": true])
+         // 저장된 값 로드
+         self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
+         print("📱 Initial useTextExtraction value loaded: \(useTextExtraction)")
+         
          
          // Initialize OpenAI service
          do {
@@ -127,6 +131,140 @@ class QuestionSettingsViewModel: ObservableObject {
              print("Failed to initialize OpenAI service:", error)
          }
      }
+     
+     // MARK: - Image Management
+     private func generateImageId() -> String {
+         return UUID().uuidString
+     }
+     
+    func getImageId(for image: UIImage) -> String {
+        if let existingId = imageIds[image] {
+            return existingId
+        }
+        let newId = generateImageId()
+        imageIds[image] = newId
+        return newId
+    }
+    
+    
+    
+    // addImage 함수 수정
+
+    @MainActor
+    func addImage(_ image: UIImage) async {
+        print("📸 Starting addImage processing...")
+        do {
+            let compressedData = try await Task {
+                try ImageService.shared.compressForAPI(image)
+            }.value
+
+            if let compressedImage = UIImage(data: compressedData) {
+                selectedImages.append(compressedImage)
+                let imageId = getImageId(for: compressedImage)
+
+                if useTextExtraction {
+                    print("🔍 Text extraction enabled for image: \(imageId)")
+                    isLoadingTexts[imageId] = true
+                    
+                    // FileProvider 에러와 상관없이 Vision API 사용
+                    do {
+                        // VisionService를 통한 텍스트 추출
+                        print("📝 Starting Vision API text extraction...")
+                        let extractedText = try await VisionService.shared.extractText(from: compressedImage)
+                        
+                        if !extractedText.isEmpty {
+                            print("✅ Text extracted successfully: \(extractedText)")
+                            await MainActor.run {
+                                extractedTexts[imageId] = extractedText
+                                extractionStatus[imageId] = true
+                                isLoadingTexts[imageId] = false
+                            }
+                            
+                            // OpenAI에 추출된 텍스트 전송
+                            print("🚀 Sending extracted text to OpenAI")
+                            try await OpenAIService.shared.sendTextExtractionResult(extractedText)
+                            return
+                        } else {
+                            print("⚠️ No text extracted from image")
+                        }
+                    } catch {
+                        print("❌ Text extraction failed: \(error.localizedDescription)")
+                    }
+                    
+                    // 텍스트 추출 실패 시 이미지 처리로 폴백
+                    print("⚠️ Falling back to image processing")
+                    try await OpenAIService.shared.sendImageDataToOpenAI(compressedData)
+                    
+                } else {
+                    print("ℹ️ Text extraction disabled - using image directly")
+                    try await OpenAIService.shared.sendImageDataToOpenAI(compressedData)
+                }
+            }
+        } catch {
+            print("❌ Error in image processing: \(error.localizedDescription)")
+            self.error = error
+            showError(error)
+        }
+    }
+
+    // 새로운 함수 추가
+    private func sendExtractedTextToOpenAI(_ text: String) async throws {
+        print("📤 Preparing to send extracted text to OpenAI")
+        guard let openAIService = openAIService else {
+            print("❌ OpenAI service not initialized")
+            return
+        }
+        
+        do {
+            let response = try await openAIService.sendTextExtractionResult(text)
+            print("✅ OpenAI processing completed for extracted text")
+            print("📥 OpenAI Response: \(response)")
+        } catch {
+            print("❌ Failed to process extracted text with OpenAI: \(error)")
+            throw error
+        }
+    }
+
+    private func sendImageToOpenAI(_ imageData: Data) async throws {
+        print("📤 Preparing to send image to OpenAI")
+        guard let openAIService = openAIService else {
+            print("❌ OpenAI service not initialized")
+            return
+        }
+        
+        do {
+            try await openAIService.sendImageDataToOpenAI(imageData)
+            print("✅ Image successfully sent to OpenAI")
+        } catch {
+            print("❌ Failed to send image to OpenAI: \(error)")
+            throw error
+        }
+    }
+
+    
+    func removeImage(at index: Int) {
+        guard index < selectedImages.count else { return }
+        
+        let imageToRemove = selectedImages[index]
+        if let imageId = imageIds[imageToRemove] {
+            // Remove extracted text for this image
+            extractedTexts.removeValue(forKey: imageId)
+            imageIds.removeValue(forKey: imageToRemove)
+            print("🗑️ Removed text for image: \(imageId)")
+        }
+        
+        selectedImages.remove(at: index)
+        
+        if selectedImages.isEmpty {
+            hasCameraImage = false
+            hasGalleryImages = false
+            isUsingTextInput = false
+            hasSelectedCamera = false
+            hasSelectedGallery = false
+        }
+    }
+    
+    
     func saveProblemSetName() {
         if problemSetName.isEmpty {
             problemSetName = generateDefaultName()
@@ -147,7 +285,7 @@ class QuestionSettingsViewModel: ObservableObject {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMdd_HHmm"
         let dateString = dateFormatter.string(from: Date())
-        let totalQuestions = multipleChoiceCount + fillInBlanksCount + trueFalseCount
+        let totalQuestions = multipleChoiceCount + trueFalseCount
         
         return "\(selectedSubject.displayName)_\(totalQuestions)Q_\(dateString)"
         // 예: "Math_10Q_0515_1430"
@@ -157,7 +295,6 @@ class QuestionSettingsViewModel: ObservableObject {
      func resetCounts() {
          // Reset counts without clearing UserDefaults
          multipleChoiceCount = 0
-         fillInBlanksCount = 0
          trueFalseCount = 0
          hasCameraImage = false
          hasGalleryImages = false
@@ -169,7 +306,6 @@ class QuestionSettingsViewModel: ObservableObject {
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastEducationLevel)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastDifficulty)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
-         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastFillInBlanksCount)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastTrueFalseCount)
          
          // Reset to defaults
@@ -178,18 +314,6 @@ class QuestionSettingsViewModel: ObservableObject {
          difficulty = .medium
          resetCounts()
      }
-    
-    
-    @Published var isLoading: Bool
-    @Published var error: Error?
-    @Published var networkError: NetworkError?
-    @Published var isNetworkAvailable: Bool
-    @Published var showImagePicker = false
-    @Published var showCamera = false
-    @Published var selectedImage: UIImage?
-    @Published var showAlert: Bool
-    @Published var alertTitle: String
-    @Published var alertMessage: String
     
     // questionText가 비어있지 않으면 이미지 옵션을 숨기기 위한 계산 속성
     var shouldShowImageOptions: Bool {
@@ -235,7 +359,7 @@ class QuestionSettingsViewModel: ObservableObject {
         }
 
     var totalQuestionCount: Int {
-        multipleChoiceCount + fillInBlanksCount + trueFalseCount
+        multipleChoiceCount + trueFalseCount
     }
     
     func canAddMoreQuestions() -> Bool {
@@ -252,150 +376,100 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     
     var hasValidQuestionCount: Bool {
-        multipleChoiceCount + fillInBlanksCount + trueFalseCount > 0
+        multipleChoiceCount + trueFalseCount > 0
     }
     
     @MainActor
     func loadData() async {
         await homeViewModel.loadData()
     }
-    
-    // MARK: - Image Management
+
     @MainActor
-    func addImage(_ image: UIImage) async {
+    func sendAllImages() async {
+        print("🚀 Starting sendAllImages process...")
+        guard !selectedImages.isEmpty || !questionText.isEmpty else {
+            print("❌ No content to generate questions from")
+            return
+        }
+        
+        isLoading = true
+        studyViewModel?.isGeneratingQuestions = true
+        
         do {
-            let compressedData = try await Task {
-                try ImageService.shared.compressForAPI(image)
-            }.value
+            var allExtractedText = ""
             
-            if let compressedImage = UIImage(data: compressedData) {
-                selectedImages.append(compressedImage)
-                if hasCameraImage {
-                    hasSelectedCamera = true
-                }
-                if hasGalleryImages {
-                    hasSelectedGallery = true
+            // 모든 이미지에 대해 텍스트 추출 시도
+            for image in selectedImages {
+                let imageId = getImageId(for: image)
+                print("📸 Processing image: \(imageId)")
+                
+                if useTextExtraction {
+                    print("🔍 Text extraction enabled - attempting to extract text...")
+                    do {
+                        let extractedText = try await VisionService.shared.extractText(from: image)
+                        if !extractedText.isEmpty {
+                            print("✅ Successfully extracted text: \(extractedText)")
+                            allExtractedText += extractedText + "\n"
+                        } else {
+                            print("⚠️ No text extracted, falling back to image processing")
+                            try await processImageDirectly(image)
+                        }
+                    } catch {
+                        print("❌ Error extracting text from image: \(error)")
+                        // 에러 처리 로직 추가
+                    }
+                } else {
+                    print("ℹ️ Text extraction disabled - processing image directly")
+                    try await processImageDirectly(image)
                 }
             }
+            
+            // 모든 이미지의 텍스트를 한 번에 OpenAI에 전송
+            if !allExtractedText.isEmpty {
+                let input = OpenAIService.QuestionInput(
+                    content: allExtractedText.data(using: .utf8) ?? Data(),
+                    isImage: false
+                )
+                print("📤 Sending all extracted text to OpenAI")
+                await generateQuestions(from: input, parameters: createParameters())
+            }
+            
+            isLoading = false
+            studyViewModel?.isGeneratingQuestions = false
+            showSuccess()
+            shouldShowStudyView = true
+            
         } catch {
+            print("❌ Error in sendAllImages: \(error.localizedDescription)")
+            isLoading = false
+            studyViewModel?.isGeneratingQuestions = false
             self.error = error
             showError(error)
         }
     }
-    
 
-    func removeImage(at index: Int) {
-        selectedImages.remove(at: index)
-        if selectedImages.isEmpty {
-            hasCameraImage = false
-            hasGalleryImages = false
-            isUsingTextInput = false
-            hasSelectedCamera = false    // Reset states
-            hasSelectedGallery = false   // Reset states
-        }
+    // 이미지 직접 처리를 위한 헬퍼 함수
+    private func processImageDirectly(_ image: UIImage) async throws {  // throws 추가
+        print("🖼️ Processing image directly...")
+        let compressedData = try await imageService.compressForAPI(image)
+        let input = OpenAIService.QuestionInput(
+            content: compressedData,
+            isImage: true
+        )
+        print("📤 Sending image to OpenAI")
+        await generateQuestions(from: input, parameters: createParameters())
     }
-    
-    @MainActor
-    func sendAllImages() async {
-       print("\n🚀 Starting sendAllImages")
-       print("Current state:")
-       print("• Selected Subject: \(selectedSubject.displayName)")
-       print("• Selected Images: \(selectedImages.count)")
-       print("• Question Text: \(questionText.isEmpty ? "Empty" : "Has content")")
-       print("• Is Loading: \(isLoading)")
-       
-       guard !selectedImages.isEmpty || !questionText.isEmpty else {
-           print("❌ No content to generate questions from")
-           return
-       }
-       
-       guard networkMonitor.isReachable else {
-           print("❌ No network connection")
-           showError(NetworkError.noConnection as Error)
-           return
-       }
-       
-       // OpenAI로 데이터 전송 시 LoadingView 표시
-       isLoading = true
-       print("🔄 Started loading state")
-       
-       do {
-           let questionTypes: [QuestionType: Int] = [
-               .multipleChoice: multipleChoiceCount,
-               .fillInBlanks: fillInBlanksCount,
-               .trueFalse: trueFalseCount
-           ].filter { $0.value > 0 }
-           
-           let parameters = OpenAIService.QuestionParameters(
-               subject: selectedSubject,
-               difficulty: difficulty,
-               educationLevel: educationLevel,
-               questionTypes: questionTypes
-           )
-           
-           if problemSetName.isEmpty {
-               problemSetName = generateDefaultName()
-           }
-           
-           print("""
-           📝 Question Generation Parameters:
-           • Subject: \(selectedSubject.displayName)
-           • Difficulty: \(difficulty.displayName)
-           • Education Level: \(educationLevel.displayName)
-           • Question Types: \(questionTypes.map { "- \($0.key.rawValue): \($0.value)" }.joined(separator: "\n"))
-           """)
-           
-           // 데이터 전송이 완료되면 LoadingView를 숨기고
-           // StudyView의 질문 생성 진행 상태 표시 시작
-           isLoading = false
-           studyViewModel?.isGeneratingQuestions = true
-           
-           if !selectedImages.isEmpty {
-               print("📸 Processing \(selectedImages.count) images")
-               for (index, image) in selectedImages.enumerated() {
-                   print("🖼️ Processing image \(index + 1) of \(selectedImages.count)")
-                   let compressedData = try await Task {
-                       try ImageService.shared.compressForAPI(image)
-                   }.value
-                   
-                   let input = OpenAIService.QuestionInput(
-                       content: compressedData,
-                       isImage: true
-                   )
-                   
-                   await generateQuestions(from: input, parameters: parameters)
-               }
-               selectedImages.removeAll()
-               print("✅ All images processed and cleared")
-           } else if !questionText.isEmpty {
-               print("📝 Processing text input: \(questionText)")
-               guard let textData = questionText.data(using: .utf8) else {
-                   throw NetworkError.invalidData
-               }
-               let input = OpenAIService.QuestionInput(
-                   content: textData,
-                   isImage: false
-               )
-               
-               await generateQuestions(from: input, parameters: parameters)
-               print("✅ Text input processed")
-           }
-           
-           // 질문 생성이 완료되면 진행 상태 표시 종료
-           studyViewModel?.isGeneratingQuestions = false
-           print("✅ Successfully generated questions")
-           showSuccess()
-           
-           // Study View로 전환
-           shouldShowStudyView = true
-           
-       } catch {
-           print("❌ Error in sendAllImages: \(error)")
-           self.error = error
-           showError(error)
-           isLoading = false
-           studyViewModel?.isGeneratingQuestions = false
-       }
+
+    private func createParameters() -> OpenAIService.QuestionParameters {
+        return OpenAIService.QuestionParameters(
+            subject: selectedSubject,
+            difficulty: difficulty,
+            educationLevel: educationLevel,
+            questionTypes: [
+                .multipleChoice: multipleChoiceCount,
+                .trueFalse: trueFalseCount
+            ]
+        )
     }
     
     // MARK: - Image Capture Methods
@@ -472,7 +546,6 @@ class QuestionSettingsViewModel: ObservableObject {
         do {
             let questionTypes: [QuestionType: Int] = [
                 .multipleChoice: multipleChoiceCount,
-                .fillInBlanks: fillInBlanksCount,
                 .trueFalse: trueFalseCount
             ].filter { $0.value > 0 }
             
@@ -488,8 +561,11 @@ class QuestionSettingsViewModel: ObservableObject {
                 parameters: parameters
             )
             
+            // problemSetName이 비어있으면 기본 이름 사용
+            let finalName = problemSetName.isEmpty ? generateDefaultName() : problemSetName
+            
             print("✅ Generated \(questions.count) questions")
-            await processGeneratedQuestions(questions)
+            await processGeneratedQuestions(questions, name: finalName)
         } catch {
             print("❌ Question generation error: \(error)")
             self.error = error
@@ -498,7 +574,7 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     
     @MainActor
-    func processGeneratedQuestions(_ questions: [Question]) async {
+    func processGeneratedQuestions(_ questions: [Question], name: String) async {
         print("\n🔄 Processing Generated Questions:")
         print("Number of questions by type:")
         let questionsByType = Dictionary(grouping: questions, by: { $0.type })
@@ -509,13 +585,12 @@ class QuestionSettingsViewModel: ObservableObject {
         let subject = questions.first?.subject ?? self.subject
         let problemSet = ProblemSet(
             id: UUID().uuidString,
-            title: "Generated Questions",
             subject: subject,
             difficulty: difficulty,
             questions: questions,
             createdAt: Date(),
-            educationLevel: self.educationLevel, // 추가
-            name: "Default Name" // 추가
+            educationLevel: self.educationLevel,
+            name: name  // 전달받은 이름 사용
         )
 
         

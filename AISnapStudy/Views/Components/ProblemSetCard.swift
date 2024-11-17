@@ -12,9 +12,6 @@ struct ProblemSetCard: View {
                     Text(problemSet.name.isEmpty ? "No Name" : problemSet.name)
                         .font(.headline)
                         .foregroundColor(.primary)
-                    Text(problemSet.title.isEmpty ? "No Title" : problemSet.title)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
                 }
                 Spacer()
                 if problemSet.isFavorite {

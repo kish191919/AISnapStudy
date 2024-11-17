@@ -8,12 +8,26 @@ struct AISnapStudyApp: App {
     init() {
         SecureArrayTransformer.register()
         setupAppearance()
+        setupMetal()
     }
 
     var body: some Scene {
         WindowGroup {
             MainTabView()
                 .environment(\.managedObjectContext, CoreDataService.shared.viewContext)
+        }
+    }
+    
+    private func setupMetal() {
+        // Metal 디바이스 체크
+        guard MTLCreateSystemDefaultDevice() != nil else {
+            print("Metal is not supported on this device")
+            return
+        }
+        
+        // MetalTools 프레임워크 초기화 지연
+        DispatchQueue.main.async {
+            // MetalTools 관련 작업
         }
     }
     

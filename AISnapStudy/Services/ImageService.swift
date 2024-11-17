@@ -21,8 +21,8 @@ public class ImageService {
     
     public struct VisionDetail {
         public static let maxDimension: CGFloat = 1024
-        public static let maxFileSize = 1024 * 1024  // 100KB
-        public static let compressionQuality: CGFloat = 1.0
+        public static let maxFileSize = 512 * 1024  // 100KB
+        public static let compressionQuality: CGFloat = 0.8
     }
     
     func compressForAPI(_ image: UIImage) throws -> Data {

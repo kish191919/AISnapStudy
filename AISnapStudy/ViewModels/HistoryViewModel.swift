@@ -4,7 +4,7 @@ import Foundation
 import Foundation
 
 @MainActor
-class HistoryViewModel: ObservableObject {
+class ReviewViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published private(set) var studySessions: [StudySession] = []
     @Published private(set) var isLoading = false
@@ -39,7 +39,7 @@ class HistoryViewModel: ObservableObject {
             }
             
             print("""
-            📚 History Data Loaded:
+            📚 Review Data Loaded:
             • Study Sessions: \(studySessions.count)
             • Problem Sets: \(problemSets.count)
             • Saved Questions: \(savedQuestions.count)
@@ -87,7 +87,7 @@ class HistoryViewModel: ObservableObject {
         // Update data immediately when HomeViewModel is set
         problemSets = viewModel.problemSets
         savedQuestions = viewModel.savedQuestions
-        print("📱 HomeViewModel reference set in HistoryViewModel")
+        print("📱 HomeViewModel reference set in ReviewViewModel")
     }
     
     // MARK: - Data Access Methods

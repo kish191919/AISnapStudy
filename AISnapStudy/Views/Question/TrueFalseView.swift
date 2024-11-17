@@ -20,7 +20,7 @@ struct TrueFalseView: View {
             VStack(alignment: .leading, spacing: 12) {
                 TrueFalseButton(
                     title: "True",
-                    isSelected: selectedAnswer == "true",
+                    isSelected: selectedAnswer?.lowercased() == "true",
                     disabled: showExplanation
                 ) {
                     selectedAnswer = "true"
@@ -28,7 +28,7 @@ struct TrueFalseView: View {
                 
                 TrueFalseButton(
                     title: "False",
-                    isSelected: selectedAnswer == "false",
+                    isSelected: selectedAnswer?.lowercased() == "false",
                     disabled: showExplanation
                 ) {
                     selectedAnswer = "false"

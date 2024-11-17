@@ -7,6 +7,81 @@ class OpenAIService {
     private let session: URLSession
     private let cache = NSCache<NSString, NSArray>()
     
+    static let shared: OpenAIService = {
+        do {
+            return try OpenAIService()
+        } catch {
+            fatalError("Failed to initialize OpenAIService: \(error)")
+        }
+    }()
+    
+    
+    func sendTextExtractionResult(_ extractedText: String) async throws -> String {
+        print("🔄 Processing extracted text in OpenAI service...")
+        print("📝 Input text: \(extractedText)")
+        
+        let url = URL(string: baseURL)!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let body: [String: Any] = [
+            "model": "gpt-4o",
+            "messages": [
+                ["role": "system", "content": "You are an expert at analyzing extracted text."],
+                ["role": "user", "content": extractedText]
+            ],
+            "temperature": 0.7,
+            "max_tokens": 2000
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        print("🌐 Sending request to OpenAI API...")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            print("❌ Invalid response received")
+            throw NetworkError.invalidResponse
+        }
+        
+        print("📡 Response status code: \(httpResponse.statusCode)")
+        
+        guard httpResponse.statusCode == 200 else {
+            print("❌ API request failed with status code: \(httpResponse.statusCode)")
+            throw NetworkError.apiError("API request failed with status \(httpResponse.statusCode)")
+        }
+
+        let result = String(data: data, encoding: .utf8) ?? "No response"
+        print("✅ OpenAI processing completed: \(result)")
+        return result
+    }
+
+
+        func sendImageDataToOpenAI(_ imageData: Data) async throws {
+            let url = URL(string: "https://api.openai.com/v1/images")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.addValue("Bearer YOUR_API_KEY", forHTTPHeaderField: "Authorization")
+
+            let body: [String: Any] = [
+                "image": imageData.base64EncodedString(),
+                "purpose": "image-analysis"
+            ]
+
+            request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw NSError(domain: "OpenAIService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get valid response from OpenAI API"])
+            }
+
+            let result = String(data: data, encoding: .utf8) ?? "No response"
+            print("✅ Image sent to OpenAI. Response: \(result)")
+        }
+    
     // MARK: - Models
     public struct QuestionInput {    // private -> public 으로 변경
         let content: Data

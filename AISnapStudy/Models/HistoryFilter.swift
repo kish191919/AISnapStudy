@@ -1,7 +1,7 @@
 
 import Foundation
 
-enum HistoryFilter: String, CaseIterable {
+enum ReviewFilter: String, CaseIterable {
     case all = "All"
     case language = "Language"
     case math = "Math"

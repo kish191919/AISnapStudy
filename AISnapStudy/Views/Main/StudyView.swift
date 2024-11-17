@@ -8,7 +8,7 @@ struct StudyView: View {
    let questions: [Question]
    
    @State private var showExplanation: Bool = false
-   @State private var isCorrect: Bool? = nil
+    @State private var isCorrect: Bool? = nil  // 이 부분이 중요합니다
    @State private var isSaved: Bool = false
    @State private var previewSelectedAnswer: String? = nil  // 추가
    @State private var previewIsCorrect: Bool? = nil        // 추가
@@ -21,134 +21,148 @@ struct StudyView: View {
        self.studyViewModel = studyViewModel
    }
    
-   var body: some View {
-       VStack {
-           // 질문 생성중일 때의 뷰
-           if studyViewModel.isGeneratingQuestions {
-               VStack(spacing: 16) {
-                   ProgressView(value: Double(studyViewModel.generatedQuestionCount),
-                              total: Double(studyViewModel.totalExpectedQuestions)) {
-                       Text("Generating Questions...")
-                           .font(.headline)
-                   }
-                   .progressViewStyle(.linear)
-                   .padding()
-                   
-                   Text("\(studyViewModel.generatedQuestionCount) / \(studyViewModel.totalExpectedQuestions)")
-                       .font(.subheadline)
-                       .foregroundColor(.secondary)
-                   
-                   // 생성된 질문들 미리보기
-                   if !studyViewModel.generatedQuestions.isEmpty {
-                       ScrollView {
-                           LazyVStack(spacing: 12) {
-                               ForEach(studyViewModel.generatedQuestions) { question in
-                                   QuestionPreviewCard(
-                                       question: question,
-                                       selectedAnswer: $previewSelectedAnswer,
-                                       isCorrect: $previewIsCorrect,
-                                       onAnswerSelected: { correct in
-                                           print("Answer selected: \(correct)")
-                                       }
-                                   )
-                                   .transition(.slide)
-                               }
-                           }
-                           .padding()
-                       }
-                   }
-               }
-           }
-           // 일반 학습 뷰
-           else {
-               ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
-                           total: Double(studyViewModel.totalQuestions))
-                   .progressViewStyle(.linear)
-                   .padding()
-               
-               Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
-                   .font(.subheadline)
-                   .foregroundColor(.secondary)
-               
-               if !studyViewModel.hasQuestions {
-                   Text("No questions available")
-                       .font(.headline)
-                       .foregroundColor(.gray)
-               } else {
-                   ScrollView {
-                       VStack(alignment: .leading, spacing: 20) {
-                           if let currentQuestion = studyViewModel.currentQuestion {
-                               switch currentQuestion.type {
-                               case .multipleChoice:
-                                   MultipleChoiceView(
-                                       question: currentQuestion,
-                                       selectedAnswer: $studyViewModel.selectedAnswer,
-                                       showExplanation: studyViewModel.showExplanation,
-                                       isCorrect: isCorrect
-                                   )
-                                   
-                               case .fillInBlanks:
-                                   FillInBlanksView(
-                                       question: currentQuestion,
-                                       answer: $studyViewModel.selectedAnswer,
-                                       showExplanation: studyViewModel.showExplanation,
-                                       isCorrect: isCorrect
-                                   )
-                                   
-                               case .trueFalse:
-                                   TrueFalseView(
-                                       question: currentQuestion,
-                                       selectedAnswer: $studyViewModel.selectedAnswer,
-                                       showExplanation: studyViewModel.showExplanation,
-                                       isCorrect: isCorrect
-                                   )
-                               }
-                               
-                               if showExplanation && studyViewModel.showExplanation {
-                                   ExplanationView(explanation: currentQuestion.explanation)
-                               }
-                           }
-                       }
-                       .padding()
-                   }
-                   
-                   // Action Buttons
-                   VStack {
-                       Divider()
-                       
-                       HStack(spacing: 12) {
-                           if studyViewModel.showExplanation {
-                               UtilityButtons(
-                                   showExplanation: $showExplanation,
-                                   isSaved: $isSaved,
-                                   studyViewModel: studyViewModel
-                               )
-                           }
-                           
-                           ActionButton(
-                               viewModel: studyViewModel,
-                               selectedTab: $selectedTab,
-                               isCorrect: $isCorrect,
-                               showExplanation: $showExplanation
-                           )
-                       }
-                       .padding()
-                       .background(Color(UIColor.systemBackground))
-                   }
-               }
-           }
-       }
-       .onAppear {
-           if let currentQuestion = studyViewModel.currentQuestion {
-               isSaved = currentQuestion.isSaved
-           }
-       }
-       .onChange(of: studyViewModel.currentQuestion) { newQuestion in
-           if let question = newQuestion {
-               isSaved = question.isSaved
-           }
-       }
-   }
+    var body: some View {
+        VStack {
+            if studyViewModel.isGeneratingQuestions {
+                VStack(spacing: 16) {
+                    ProgressView(value: Double(studyViewModel.generatedQuestionCount),
+                               total: Double(studyViewModel.totalExpectedQuestions)) {
+                        Text("Generating Questions...")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                    }
+                    .progressViewStyle(.linear)
+                    .padding()
+                    
+                    Text("\(studyViewModel.generatedQuestionCount) / \(studyViewModel.totalExpectedQuestions)")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                    
+                    if !studyViewModel.generatedQuestions.isEmpty {
+                        ScrollView {
+                            LazyVStack(spacing: 12) {
+                                ForEach(studyViewModel.generatedQuestions) { question in
+                                    QuestionPreviewCard(
+                                        question: question,
+                                        selectedAnswer: $previewSelectedAnswer,
+                                        isCorrect: $previewIsCorrect,
+                                        onAnswerSelected: { correct in
+                                            print("Answer selected: \(correct)")
+                                        }
+                                    )
+                                    .transition(.slide)
+                                }
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            } else {
+                VStack {
+                    Spacer()
+                        .frame(height: 20)
+                    
+                    ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
+                               total: Double(studyViewModel.totalQuestions))
+                        .progressViewStyle(CustomProgressViewStyle())
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 10)
+                    
+                    Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 20)
+                    
+                    if !studyViewModel.hasQuestions {
+                        Text("No questions available")
+                            .font(.title3)
+                            .foregroundColor(.gray)
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                if let currentQuestion = studyViewModel.currentQuestion {
+                                    switch currentQuestion.type {
+                                    case .multipleChoice:
+                                        MultipleChoiceView(
+                                            question: currentQuestion,
+                                            selectedAnswer: $studyViewModel.selectedAnswer,
+                                            showExplanation: studyViewModel.showExplanation,
+                                            isCorrect: isCorrect
+                                        )
+                                        
+                                    case .trueFalse:
+                                        TrueFalseView(
+                                            question: currentQuestion,
+                                            selectedAnswer: $studyViewModel.selectedAnswer,
+                                            showExplanation: studyViewModel.showExplanation,
+                                            isCorrect: isCorrect  // 여기 isCorrect 바인딩이 문제일 수 있습니다
+                                        )
+                                    }
+                                    
+                                    if showExplanation && studyViewModel.showExplanation {
+                                        ExplanationView(explanation: currentQuestion.explanation)
+                                    }
+                                }
+                            }
+                            .padding()
+                        }
+                        
+                        VStack {
+                            Divider()
+                            
+                            HStack(spacing: 12) {
+                                if studyViewModel.showExplanation {
+                                    UtilityButtons(
+                                        showExplanation: $showExplanation,
+                                        isSaved: $isSaved,
+                                        studyViewModel: studyViewModel
+                                    )
+                                }
+                                
+                                ActionButton(
+                                    viewModel: studyViewModel,
+                                    selectedTab: $selectedTab,
+                                    isCorrect: $isCorrect,
+                                    showExplanation: $showExplanation
+                                )
+                            }
+                            .padding()
+                            .background(Color(UIColor.systemBackground))
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear {
+            if let currentQuestion = studyViewModel.currentQuestion {
+                isSaved = currentQuestion.isSaved
+            }
+        }
+        .onChange(of: studyViewModel.currentQuestion) { newQuestion in
+            if let question = newQuestion {
+                isSaved = question.isSaved
+            }
+        }
+    }
+}
+
+struct CustomProgressViewStyle: ProgressViewStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(height: 12)
+                
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.blue)
+                    .frame(width: CGFloat(configuration.fractionCompleted ?? 0) * geometry.size.width,
+                           height: 12)
+            }
+        }
+        .frame(height: 12)
+    }
 }
 
 // 새로 추가된 미리보기 카드 뷰
@@ -290,12 +304,15 @@ private struct ActionButton: View {
                    selectedTab = 3
                } else {
                    viewModel.nextQuestion()
-                   isCorrect = nil
+                   isCorrect = nil  // 다음 문제로 넘어갈 때 리셋
                    showExplanation = false
                }
            } else {
                viewModel.submitAnswer()
-               isCorrect = viewModel.selectedAnswer == viewModel.currentQuestion?.correctAnswer
+               if let currentQuestion = viewModel.currentQuestion,
+                  let selectedAnswer = viewModel.selectedAnswer {
+                   isCorrect = currentQuestion.correctAnswer.lowercased() == selectedAnswer.lowercased()
+               }
            }
        }) {
            Text(viewModel.showExplanation ?

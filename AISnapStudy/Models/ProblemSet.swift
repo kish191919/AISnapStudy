@@ -3,7 +3,6 @@ import Foundation
 
 public struct ProblemSet: Identifiable, Codable {
     public let id: String
-    public let title: String
     public let subject: Subject
     public let difficulty: Difficulty
     public let questions: [Question]
@@ -24,7 +23,6 @@ public struct ProblemSet: Identifiable, Codable {
     
     public init(
           id: String,
-          title: String,
           subject: Subject,
           difficulty: Difficulty,
           questions: [Question],
@@ -37,7 +35,6 @@ public struct ProblemSet: Identifiable, Codable {
           isFavorite: Bool = false
       ) {
           self.id = id
-          self.title = title
           self.subject = subject
           self.difficulty = difficulty
           self.questions = questions

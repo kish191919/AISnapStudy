@@ -164,24 +164,42 @@ class StudyViewModel: ObservableObject {
        saveContext()
    }
    
-   func submitAnswer() {
-       guard let currentQuestion = currentQuestion else { return }
-       
-       let isCorrect = currentQuestion.correctAnswer == selectedAnswer
-       if isCorrect {
-           correctAnswers += 1
-       }
-       
-       if let session = currentSession {
-           let question = CDQuestion(context: context)
-           question.isCorrect = isCorrect
-           question.question = currentQuestion.question
-           question.session = session
-           saveContext()
-       }
-       
-       showExplanation = true
-   }
+    func submitAnswer() {
+        guard let currentQuestion = currentQuestion else { return }
+        
+        print("Debug True/False Detailed:")
+        print("Selected Answer (raw): \(selectedAnswer ?? "nil")")
+        print("Selected Answer (lowercased): \(selectedAnswer?.lowercased() ?? "nil")")
+        print("Correct Answer (raw): \(currentQuestion.correctAnswer)")
+        print("Correct Answer (lowercased): \(currentQuestion.correctAnswer.lowercased())")
+        print("Are they equal? \(currentQuestion.correctAnswer.lowercased() == selectedAnswer?.lowercased())")
+        print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
+        print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
+        
+        // 공백 제거하고 비교
+        let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        let isCorrect = trimmedSelected == trimmedCorrect
+        
+        print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
+        print("Trimmed Correct: '\(trimmedCorrect)'")
+        print("Final comparison result: \(isCorrect)")
+        
+        if isCorrect {
+            correctAnswers += 1
+        }
+        
+        if let session = currentSession {
+            let question = CDQuestion(context: context)
+            question.isCorrect = isCorrect
+            question.question = currentQuestion.question
+            question.session = session
+            saveContext()
+        }
+        
+        showExplanation = true
+    }
    
    func nextQuestion() {
        guard currentIndex < questions.count - 1 else { return }
@@ -220,7 +238,7 @@ class StudyViewModel: ObservableObject {
        guard let question = currentQuestion else { return false }
        
        switch question.type {
-       case .multipleChoice, .fillInBlanks, .trueFalse:
+       case .multipleChoice, .trueFalse:
            return selectedAnswer != nil
        }
    }

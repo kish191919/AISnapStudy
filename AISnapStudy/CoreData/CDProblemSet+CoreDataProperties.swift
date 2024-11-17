@@ -1,4 +1,10 @@
-
+//
+//  CDProblemSet+CoreDataProperties.swift
+//  AISnapStudy
+//
+//  Created by sunghwan ki on 11/16/24.
+//
+//
 
 import Foundation
 import CoreData
@@ -20,7 +26,6 @@ extension CDProblemSet {
     @NSManaged public var problemSetDescription: String?
     @NSManaged public var subject: String?
     @NSManaged public var tags: NSArray?
-    @NSManaged public var title: String?
     @NSManaged public var questions: NSSet?
 
 }

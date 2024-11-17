@@ -11,7 +11,6 @@
         <attribute name="problemSetDescription" optional="YES" attributeType="String"/>
         <attribute name="subject" optional="YES" attributeType="String"/>
         <attribute name="tags" optional="YES" attributeType="Transformable" valueTransformerName="SecureArrayTransformer" customClassName="NSArray"/>
-        <attribute name="title" optional="YES" attributeType="String"/>
         <relationship name="questions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="CDQuestion"/>
     </entity>
     <entity name="CDQuestion" representedClassName=".CDQuestion" syncable="YES">

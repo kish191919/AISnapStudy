@@ -1,306 +1,254 @@
 
-// File: ./AISnapStudy/Views/Question/QuestionSettingsView.swift
-
-import SwiftUI
-import PhotosUI
-import UIKit
 
 import SwiftUI
 import PhotosUI
 import UIKit
 
 struct QuestionSettingsView: View {
-   let subject: Subject
     @StateObject private var viewModel: QuestionSettingsViewModel
-   @Environment(\.dismiss) private var dismiss
-   @Binding var selectedTab: Int
-   @State private var expandedSections: Set<SectionType> = []
-   @State private var isTextInputSelected = false
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedTab: Int
+    @State private var expandedSections: Set<SectionType> = []
+    @State private var isTextInputSelected = false
     @State private var showNamePopup = false
     @State private var isGeneratingQuestions = false
-    @State private var problemSetName: String = ""
-   
-   enum SectionType {
-       case learningSubject
-       case educationLevel
-       case difficultyLevel
-       case questionTypes
-   }
-   
-   init(subject: Subject,
-        homeViewModel: HomeViewModel,
-        selectedTab: Binding<Int>) {
-       self.subject = subject
-       self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(
-           subject: subject,
-           homeViewModel: homeViewModel
-       ))
-       self._selectedTab = selectedTab
-   }
-   
-   var body: some View {
-       VStack(spacing: 0) {
-           Form {
-               // Question About Section
-               Section {
-                   DisclosureGroup(
-                       isExpanded: .constant(true)
-                   ) {
-                       VStack(spacing: 16) {
-                           HStack(spacing: 12) {
-                               ImageOptionCard(
-                                   icon: "camera.fill",
-                                   isUsed: viewModel.hasSelectedCamera,
-                                   isDisabled: !viewModel.canUseImageInput,
-                                   action: {
-                                       if viewModel.canUseImageInput {
-                                           isTextInputSelected = false
-                                           Task { await viewModel.takePhoto() }
-                                       }
-                                   }
-                               )
-                               
-                               ImageOptionCard(
-                                   icon: "photo.fill",
-                                   isUsed: viewModel.hasSelectedGallery,
-                                   isDisabled: !viewModel.canUseImageInput,
-                                   action: {
-                                       if viewModel.canUseImageInput {
-                                           isTextInputSelected = false
-                                           Task { await viewModel.selectFromGallery() }
-                                       }
-                                   }
-                               )
-                               
-                               ImageOptionCard(
-                                   icon: "text.bubble.fill",
-                                   isUsed: viewModel.isTextInputActive,
-                                   isDisabled: !viewModel.canUseTextInput,
-                                   action: {
-                                       isTextInputSelected.toggle()
-                                       viewModel.toggleTextInput()
-                                   }
-                               )
-                           }
-                           .padding(.horizontal)
-                           
-                           if viewModel.isTextInputActive {
-                               TextField("Enter your question here...", text: $viewModel.questionText)
-                                   .textFieldStyle(RoundedBorderTextFieldStyle())
-                           }
-                           
-                           if !viewModel.selectedImages.isEmpty {
-                               ScrollView(.horizontal, showsIndicators: false) {
-                                   HStack(spacing: 12) {
-                                       ForEach(viewModel.selectedImages.indices, id: \.self) { index in
-                                           SelectedImageCell(
-                                               image: viewModel.selectedImages[index],
-                                               onDelete: {
-                                                   viewModel.removeImage(at: index)
-                                               }
-                                           )
-                                       }
-                                   }
-                                   .padding(.vertical, 8)
-                               }
-                           }
-                       }
-                   } label: {
-                       HStack {
-                           Text("Question About")
-                               .font(.headline)
-                           Spacer()
-                           if !viewModel.selectedImages.isEmpty {
-                               Text("\(viewModel.selectedImages.count) selected")
-                                   .foregroundColor(.green)
-                           } else if !viewModel.questionText.isEmpty {
-                               Text("Text input")
-                                   .foregroundColor(.green)
-                           }
-                       }
-                   }
-               }.listRowSpacing(0)
-               
-               // Learning Subject Section
-               Section {
-                   DisclosureGroup(
-                       isExpanded: isExpandedBinding(for: .learningSubject)
-                   ) {
-                       LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
-                   } label: {
-                       HStack {
-                           Text("Learning Subject")
-                               .font(.headline)
-                           Spacer()
-                           Text(viewModel.selectedSubject.displayName)
-                               .foregroundColor(.gray)
-                       }
-                   }
-               }.listRowSpacing(0)
-               
-               // Question Types Section
-               Section {
-                   DisclosureGroup(
-                       isExpanded: isExpandedBinding(for: .questionTypes)
-                   ) {
-                       QuestionTypesSelectionSection(viewModel: viewModel)
-                   } label: {
-                       HStack {
-                           Text("Question Types")
-                               .font(.headline)
-                           Spacer()
-                           Text("\(viewModel.totalQuestionCount) questions")
-                               .foregroundColor(.gray)
-                       }
-                   }
-               }.listRowSpacing(0)
-               
-               if isTextInputSelected {
-                   // Education Level Section
-                   Section {
-                       DisclosureGroup(
-                           isExpanded: isExpandedBinding(for: .educationLevel)
-                       ) {
-                           EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
-                       } label: {
-                           HStack {
-                               Text("Education Level")
-                                   .font(.headline)
-                               Spacer()
-                               Text(viewModel.educationLevel.displayName)
-                                   .foregroundColor(.gray)
-                           }
-                       }
-                   }.listRowSpacing(0)
-                   
-                   // Difficulty Level Section
-                   Section {
-                       DisclosureGroup(
-                           isExpanded: isExpandedBinding(for: .difficultyLevel)
-                       ) {
-                           DifficultyLevelSection(difficulty: $viewModel.difficulty)
-                       } label: {
-                           HStack {
-                               Text("Difficulty Level")
-                                   .font(.headline)
-                               Spacer()
-                               Text(viewModel.difficulty.displayName)
-                                   .foregroundColor(.gray)
-                           }
-                       }
-                   }.listRowSpacing(0)
-               }
-           }.listSectionSpacing(4)
-           
-           // Generate Questions Button
-           VStack {
-               Button(action: {
-                       showNamePopup = true
-                       isGeneratingQuestions = true
-                       Task {
-                           await viewModel.sendAllImages()
-                       }
-                   }) {
-                   Text("Generate Questions")
-                       .font(.headline)
-                       .foregroundColor(.white)
-                       .frame(maxWidth: .infinity)
-                       .padding()
-                       .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
-                       .cornerRadius(10)
-               }
-               .disabled(!isGenerateButtonEnabled)
-               .padding()
-           }
-           .background(Color(UIColor.systemGroupedBackground))
-       }
-       .overlay {
-           if showNamePopup {
-               ProblemSetNamePopup(
-                   isPresented: $showNamePopup,
-                   problemSetName: $viewModel.problemSetName,
-                   isGeneratingQuestions: $viewModel.isGeneratingQuestions,
-                   defaultName: viewModel.generateDefaultName()
-               ) {
-                   viewModel.saveProblemSetName()
-                   showNamePopup = false
-                   viewModel.shouldShowStudyView = true  
-               }
-               .transition(.opacity)
-               .animation(.easeInOut, value: showNamePopup)
-           }
-       }
-       .navigationBarItems(
-           leading: Button("Cancel") {
-               viewModel.resetCounts()
-               dismiss()
-           }
-       )
-       .navigationBarTitleDisplayMode(.inline)
-       .sheet(isPresented: $viewModel.showImagePicker) {
-           PhotoPicker(selectedImages: $viewModel.selectedImages)
-       }
-       .sheet(isPresented: $viewModel.showCamera) {
-           ImagePicker(
-               image: $viewModel.selectedImage,
-               sourceType: .camera,
-               onImageSelected: { image in
-                   Task {
-                       await viewModel.handleCameraImage(image)
-                   }
-               }
-           )
-       }
-       .alert(isPresented: $viewModel.showAlert) {
-           Alert(
-               title: Text(viewModel.alertTitle),
-               message: Text(viewModel.alertMessage),
-               dismissButton: .default(Text("OK")) {
-                   if viewModel.alertTitle == "Success" {
-                       dismiss()
-                   }
-               }
-           )
-       }
-       .onChange(of: viewModel.shouldShowStudyView) { show in
-           if show {
-               dismiss()
-               selectedTab = 1  // Study 탭으로 전환
-           }
-       }
-       .overlay(alignment: .bottom) {
-           if viewModel.isLoading {
-               LoadingView()
-                   .frame(maxHeight: 120)  // LoadingView의 높이를 제한
-                   .background(Color.black.opacity(0.7))
-                   .cornerRadius(10)
-                   .padding()
-           }
-       }
-   }
-   
-   private var isGenerateButtonEnabled: Bool {
-       let hasInput = !viewModel.selectedImages.isEmpty ||
-                     (!viewModel.questionText.isEmpty && viewModel.isTextInputActive)
-       let hasQuestionType = viewModel.totalQuestionCount > 0
-       return hasInput && hasQuestionType
-   }
-   
-   private func isExpandedBinding(for section: SectionType) -> Binding<Bool> {
-       Binding(
-           get: { expandedSections.contains(section) },
-           set: { isExpanded in
-               withAnimation {
-                   if isExpanded {
-                       expandedSections.insert(section)
-                   } else {
-                       expandedSections.remove(section)
-                   }
-               }
-           }
-       )
-   }
+    
+    let subject: Subject
+    
+    public enum SectionType: Hashable {
+        case questionAbout
+        case learningSubject
+        case questionTypes
+        case educationLevel
+        case difficultyLevel
+    }
+    
+    init(subject: Subject, homeViewModel: HomeViewModel, selectedTab: Binding<Int>) {
+        self.subject = subject
+        self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(
+            subject: subject,
+            homeViewModel: homeViewModel
+        ))
+        self._selectedTab = selectedTab
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                // Question About Section
+                // 기존 코드 중복 호출 확인
+                Section {
+                    DisclosureGroup(
+                        isExpanded: .constant(true)
+                    ) {
+                        // ✅ 중복 확인 후 하나만 남기기
+                        QuestionAboutSection(
+                            viewModel: viewModel,
+                            isTextInputSelected: $isTextInputSelected
+                        )
+                    } label: {
+                        HStack {
+                            Text("Question About")
+                                .font(.headline)
+                            Spacer()
+                            if !viewModel.selectedImages.isEmpty {
+                                Text("\(viewModel.selectedImages.count) selected")
+                                    .foregroundColor(.green)
+                            } else if !viewModel.questionText.isEmpty {
+                                Text("Text input")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+                }.listRowSpacing(0)
+
+                
+                // Learning Subject Section
+                Section {
+                    DisclosureGroup(
+                        isExpanded: isExpandedBinding(for: .learningSubject)
+                    ) {
+                        LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
+                    } label: {
+                        HStack {
+                            Text("Learning Subject")
+                                .font(.headline)
+                            Spacer()
+                            Text(viewModel.selectedSubject.displayName)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }.listRowSpacing(0)
+                
+                // Question Types Section
+                Section {
+                    DisclosureGroup(
+                        isExpanded: isExpandedBinding(for: .questionTypes)
+                    ) {
+                        QuestionTypesSelectionSection(viewModel: viewModel)
+                    } label: {
+                        HStack {
+                            Text("Question Types")
+                                .font(.headline)
+                            Spacer()
+                            Text("\(viewModel.totalQuestionCount) questions")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }.listRowSpacing(0)
+                
+                if isTextInputSelected {
+                    // Education Level Section
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .educationLevel)
+                        ) {
+                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                        } label: {
+                            HStack {
+                                Text("Education Level")
+                                    .font(.headline)
+                                Spacer()
+                                Text(viewModel.educationLevel.displayName)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }.listRowSpacing(0)
+                    
+                    // Difficulty Level Section
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .difficultyLevel)
+                        ) {
+                            DifficultyLevelSection(difficulty: $viewModel.difficulty)
+                        } label: {
+                            HStack {
+                                Text("Difficulty Level")
+                                    .font(.headline)
+                                Spacer()
+                                Text(viewModel.difficulty.displayName)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }.listRowSpacing(0)
+                }
+            }
+            .listSectionSpacing(4)
+            
+            // Generate Questions Button
+            VStack {
+                Button(action: {
+                    showNamePopup = true
+                    isGeneratingQuestions = true
+                    Task {
+                        await viewModel.sendAllImages()
+                    }
+                }) {
+                    Text("Generate Questions")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
+                        .cornerRadius(10)
+                }
+                .disabled(!isGenerateButtonEnabled)
+                .padding()
+            }
+            .background(Color(UIColor.systemGroupedBackground))
+        }
+        .overlay(popupOverlay)
+        .navigationBarItems(leading: cancelButton)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $viewModel.showImagePicker) {
+            PhotoPicker(selectedImages: $viewModel.selectedImages)
+        }
+        .sheet(isPresented: $viewModel.showCamera) {
+            ImagePicker(
+                image: $viewModel.selectedImage,
+                sourceType: .camera,
+                onImageSelected: { image in
+                    Task {
+                        await viewModel.handleCameraImage(image)
+                    }
+                }
+            )
+        }
+        .alert(isPresented: $viewModel.showAlert) {
+            Alert(
+                title: Text(viewModel.alertTitle),
+                message: Text(viewModel.alertMessage),
+                dismissButton: .default(Text("OK")) {
+                    if viewModel.alertTitle == "Success" {
+                        dismiss()
+                    }
+                }
+            )
+        }
+        .onChange(of: viewModel.shouldShowStudyView) { show in
+            if show {
+                dismiss()
+                selectedTab = 1
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if viewModel.isLoading {
+                LoadingOverlay()
+            }
+        }
+    }
+    
+    private var cancelButton: some View {
+        Button("Cancel") {
+            viewModel.resetCounts()
+            dismiss()
+        }
+    }
+    
+    private var popupOverlay: some View {
+        Group {
+            if showNamePopup {
+                ProblemSetNamePopup(
+                    isPresented: $showNamePopup,
+                    problemSetName: $viewModel.problemSetName,
+                    isGeneratingQuestions: $viewModel.isGeneratingQuestions,
+                    defaultName: viewModel.generateDefaultName()
+                ) {
+                    viewModel.saveProblemSetName()
+                    showNamePopup = false
+                    viewModel.shouldShowStudyView = true
+                }
+                .transition(.opacity)
+                .animation(.easeInOut, value: showNamePopup)
+            }
+        }
+    }
+    
+    private var isGenerateButtonEnabled: Bool {
+        let hasInput = !viewModel.selectedImages.isEmpty ||
+            (!viewModel.questionText.isEmpty && viewModel.isTextInputActive)
+        let hasQuestionType = viewModel.totalQuestionCount > 0
+        return hasInput && hasQuestionType
+    }
+    
+    private func isExpandedBinding(for section: SectionType) -> Binding<Bool> {
+        Binding(
+            get: { expandedSections.contains(section) },
+            set: { isExpanded in
+                withAnimation {
+                    if isExpanded {
+                        expandedSections.insert(section)
+                    } else {
+                        expandedSections.remove(section)
+                    }
+                }
+            }
+        )
+    }
 }
+
+
+
 struct GeneratingQuestionsOverlay: View {
     let questionCount: Int
     @State private var animatingDots = false
@@ -405,31 +353,49 @@ struct ProblemSetNamePopup: View {
     }
 }
 
-struct LearningSubjectSection: View {
-   @Binding var selectedSubject: Subject
-   
-   let columns = [
-       GridItem(.flexible()),
-       GridItem(.flexible()),
-       GridItem(.flexible())
-   ]
-   
-   var body: some View {
-       LazyVGrid(columns: columns, spacing: 12) {
-           ForEach(Subject.allCases, id: \.self) { subject in
-               SubjectSelectionButton(
-                   subject: subject,
-                   isSelected: selectedSubject == subject
-               ) {
-                   withAnimation(.spring()) {
-                       selectedSubject = subject
-                   }
-               }
-           }
-       }
-       .padding(.vertical, 8)
-   }
+// Generate Questions Footer
+struct GenerateQuestionsFooter: View {
+    @ObservedObject var viewModel: QuestionSettingsViewModel
+    @Binding var isGeneratingQuestions: Bool
+    @Binding var showNamePopup: Bool
+    let isGenerateButtonEnabled: Bool
+    
+    var body: some View {
+        VStack {
+            Button(action: {
+                showNamePopup = true
+                isGeneratingQuestions = true
+                Task {
+                    await viewModel.sendAllImages()
+                }
+            }) {
+                Text("Generate Questions")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
+                    .cornerRadius(10)
+            }
+            .disabled(!isGenerateButtonEnabled)
+            .padding()
+        }
+        .background(Color(UIColor.systemGroupedBackground))
+    }
 }
+
+struct LoadingOverlay: View {
+    var body: some View {
+        LoadingView()
+            .frame(maxHeight: 120)
+            .background(Color.black.opacity(0.7))
+            .cornerRadius(10)
+            .padding()
+    }
+}
+
+
+
 
 struct SubjectSelectionButton: View {
    let subject: Subject
@@ -624,7 +590,7 @@ struct QuestionTypesSelectionSection: View {
                     Text("Question Types")
                         .font(.headline)
                     Spacer()
-                    Text("Total: \(viewModel.totalQuestionCount)/20")
+                    Text("Total: \(viewModel.totalQuestionCount)/10")
                         .font(.subheadline)
                         .foregroundColor(viewModel.totalQuestionCount > 0 ? .green : .gray)
                 }
@@ -636,13 +602,6 @@ struct QuestionTypesSelectionSection: View {
                         title: "Multiple",
                         icon: "list.bullet.circle.fill",
                         count: $viewModel.multipleChoiceCount
-                    )
-                    
-                    QuestionTypeCard(
-                        viewModel: viewModel,
-                        title: "Fill in Blanks",
-                        icon: "square.and.pencil",
-                        count: $viewModel.fillInBlanksCount
                     )
                     
                     QuestionTypeCard(
@@ -707,6 +666,7 @@ struct SubjectSelectionSection: View {
                             isSelected: viewModel.selectedSubject == subject
                         ) {
                             viewModel.selectedSubject = subject
+                            print("Selected subject: \(subject.rawValue)")  // 로깅 추가
                         }
                     }
                 }
@@ -715,66 +675,6 @@ struct SubjectSelectionSection: View {
         }
     }
 }
-
-// Education Level Section
-struct EducationLevelSection: View {
-    @ObservedObject var viewModel: QuestionSettingsViewModel
-    
-    var body: some View {
-        Section("Education Level") {
-            HStack(spacing: 12) {
-                ForEach(EducationLevel.allCases, id: \.self) { level in
-                    EducationLevelButton(
-                        level: level,
-                        isSelected: viewModel.educationLevel == level
-                    ) {
-                        viewModel.educationLevel = level
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Difficulty Section
-struct DifficultySection: View {
-    @ObservedObject var viewModel: QuestionSettingsViewModel
-    
-    var body: some View {
-        Section("Difficulty Level") {
-            Picker("Difficulty", selection: $viewModel.difficulty) {
-                ForEach(Difficulty.allCases, id: \.self) { difficulty in
-                    Text(difficulty.rawValue.capitalized)
-                        .tag(difficulty)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-}
-
-// Question Types Section
-struct QuestionTypesSection: View {
-    @ObservedObject var viewModel: QuestionSettingsViewModel
-    
-    var body: some View {
-        Section("Question Types") {
-            VStack(spacing: 10) {
-                QuestionTypeCounter(
-                    title: "Multiple",
-                    count: $viewModel.multipleChoiceCount
-                )
-                
-                QuestionTypeCounter(
-                    title: "Fill in the Blanks",
-                    count: $viewModel.fillInBlanksCount
-                )
-                
-            }
-        }
-    }
-}
-
 
 // ImagePicker, PhotoPicker, LoadingView 도 추가
 struct PhotoPicker: UIViewControllerRepresentable {
@@ -882,8 +782,6 @@ struct LoadingView: View {
         }
     }
 }
-
-
 
 
 
