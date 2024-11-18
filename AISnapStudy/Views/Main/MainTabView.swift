@@ -84,10 +84,10 @@ struct MainTabView: View {
                 .tag(2)
             
             StatView(
-                correctAnswers: homeViewModel.correctAnswers,
-                totalQuestions: homeViewModel.totalQuestions,
                 viewModel: statViewModel,
-                selectedTab: $selectedTab
+                selectedTab: $selectedTab,
+                correctAnswers: studyViewModel.correctAnswers,  // StudyViewModel에서 직접 가져옴
+                totalQuestions: studyViewModel.totalQuestions  // StudyViewModel에서 직접 가져옴
             )
             .tabItem {
                 Label("Stats", systemImage: "chart.bar.fill")

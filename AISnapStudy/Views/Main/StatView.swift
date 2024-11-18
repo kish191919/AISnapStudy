@@ -2,26 +2,27 @@ import SwiftUI
 import Charts
 import CoreData
 
+
 struct StatView: View {
     @ObservedObject var viewModel: StatViewModel
     @Binding var selectedTab: Int
-    
     let correctAnswers: Int
     let totalQuestions: Int
-    
-    
     @EnvironmentObject private var homeViewModel: HomeViewModel
     
-    
-    init(correctAnswers: Int,
-         totalQuestions: Int,
-         viewModel: StatViewModel, // Pass viewModel directly
-         selectedTab: Binding<Int>) {
+    // 초기화 함수의 매개변수 순서 수정
+    init(
+        viewModel: StatViewModel,
+        selectedTab: Binding<Int>,
+        correctAnswers: Int,
+        totalQuestions: Int
+    ) {
+        self.viewModel = viewModel
+        self._selectedTab = selectedTab
         self.correctAnswers = correctAnswers
         self.totalQuestions = totalQuestions
-        self.viewModel = viewModel // Direct assignment without StateObject
-        self._selectedTab = selectedTab
     }
+    
     
     var body: some View {
         ScrollView {
@@ -53,58 +54,57 @@ struct StatView: View {
                     GridItem(.flexible()),
                     GridItem(.flexible())
                 ], spacing: 20) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible()),
-                        GridItem(.flexible())
-                    ], spacing: 20) {
-                        StatCard(
-                            title: "총 점수",
-                            value: "\(viewModel.correctAnswers * 10)점",  // 맞은 개수 * 10점
-                            icon: "star.fill",
-                            color: .yellow
-                        )
-                        
-                        StatCard(
-                            title: "정답률",
-                            value: String(format: "%.1f%%", viewModel.accuracyRate),
-                            icon: "percent",
-                            color: .blue
-                        )
-                        
-                        StatCard(title: "완료한 문제",
-                                 value: "\(viewModel.completedQuestions)개",
-                                 icon: "checkmark.circle.fill",
-                                 color: .green)
-                        StatCard(title: "정답 수",
-                                 value: "\(viewModel.correctAnswers)개",
-                                 icon: "target",
-                                 color: .red)
-                    }
-                    .padding()
+                    StatCard(
+                        title: "이번 세트 점수",
+                        value: "\(correctAnswers * 10)점",  // correctAnswers 직접 사용
+                        icon: "star.fill",
+                        color: .yellow
+                    )
                     
-                    // 다시 풀기 버튼
-                    Button(action: {
-                        // 먼저 상태 리셋
-                        viewModel.resetProgress()
-                        
-                        // Study View로 전환하기 직전 상태 확인을 위해 viewModel에서 로그 출력
-                        viewModel.logCurrentQuestionState()
-                        
-                        // 바로 Study 탭으로 이동
-                        withAnimation {
-                            selectedTab = 1
-                        }
-                    }) {
-                        Text("다시 풀기")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.blue)
-                            .cornerRadius(10)
-                    }
-                    .padding()
+                    StatCard(
+                        title: "정답률",
+                        value: String(format: "%.1f%%",
+                            Double(correctAnswers) / Double(totalQuestions) * 100),
+                        icon: "percent",
+                        color: .blue
+                    )
+                    
+                    StatCard(
+                        title: "완료한 문제",
+                        value: "\(totalQuestions)개",
+                        icon: "checkmark.circle.fill",
+                        color: .green
+                    )
+                    
+                    StatCard(
+                        title: "정답 수",
+                        value: "\(correctAnswers)개",
+                        icon: "target",
+                        color: .red
+                    )
                 }
+                .padding()
+                
+                Spacer()  // 나머지 공간을 채움
+                
+                // 다시 풀기 버튼을 맨 아래에 배치
+                Button(action: {
+                    viewModel.resetProgress()
+                    viewModel.logCurrentQuestionState()
+                    withAnimation {
+                        selectedTab = 1
+                    }
+                }) {
+                    Text("다시 풀기")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 20)  // 하단 여백 추가
             }
         }
     }

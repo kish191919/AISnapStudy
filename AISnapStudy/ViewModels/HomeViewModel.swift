@@ -5,14 +5,16 @@ import Combine
 
 @MainActor
 class HomeViewModel: ObservableObject {
+    
     @Published var studyViewModel: StudyViewModel?
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
-    @Published var correctAnswers: Int = 0
+    @Published var selectedProblemSet: ProblemSet?
+//    @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
-    @Published private(set) var selectedProblemSet: ProblemSet?
+
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
@@ -27,8 +29,15 @@ class HomeViewModel: ObservableObject {
             await loadInitialData()
         }
     }
+    // 현재 세션의 점수 관련 속성 추가
+    var currentSessionScore: Int {
+        return studyViewModel?.correctAnswers ?? 0
+    }
     
-        
+    var currentSessionTotalQuestions: Int {
+        return selectedProblemSet?.questions.count ?? 0
+    }
+    
     func setStudyViewModel(_ viewModel: StudyViewModel) {
         print("📱 Setting StudyViewModel in HomeViewModel")
         self.studyViewModel = viewModel

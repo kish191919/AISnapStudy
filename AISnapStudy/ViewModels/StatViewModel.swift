@@ -4,16 +4,19 @@ import CoreData
 
 @MainActor
 class StatViewModel: ObservableObject {
-    
     @Published var streak: Int = 0
-    @Published var correctAnswers: Int = 0
+    @Published var correctAnswers: Int = 0 {
+        didSet {
+            // 점수가 변경될 때마다 출력되는 디버그 로그
+            print("📊 StatViewModel score updated: \(correctAnswers * 10) points")
+        }
+    }
     @Published var completedQuestions: Int = 0
     @Published var accuracyRate: Double = 0.0
     @Published var isLoading = false
     
     private weak var studyViewModel: StudyViewModel?
     private weak var homeViewModel: HomeViewModel?
-    
 
     
     @Published var totalPoints: Int = 0      // 현재 세션의 점수
@@ -41,13 +44,24 @@ class StatViewModel: ObservableObject {
         loadStats()
     }
     
+    var currentSessionScore: Int {
+        return correctAnswers * 10  // 계산 속성으로 변경
+    }
+    
+    // StudyViewModel 설정 메서드
+    func setStudyViewModel(_ viewModel: StudyViewModel?) {
+        self.studyViewModel = viewModel
+        print("📱 StudyViewModel connected to StatViewModel")
+    }
+
     
     func updateScore() {
         if let studyVM = studyViewModel {
-            // correctAnswers는 StudyViewModel에서 관리되는 현재 세션의 정답 수
-            correctAnswers = studyVM.correctAnswers
-            // 각 문제당 10점씩 계산
-            totalPoints = correctAnswers * 10
+            // correctAnswers 값을 업데이트
+            self.correctAnswers = studyVM.correctAnswers
+            self.totalQuestions = studyVM.totalQuestions
+            // 디버그를 위한 로그
+            print("📊 Score Updated - Correct: \(correctAnswers), Total: \(totalQuestions), Score: \(currentSessionScore)")
         }
     }
     

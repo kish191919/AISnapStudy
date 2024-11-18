@@ -25,15 +25,10 @@ struct StudyView: View {
         VStack {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
-                    QuestionGeneratingView(
-                        generatedCount: studyViewModel.generatedQuestionCount,
-                        totalCount: studyViewModel.totalExpectedQuestions,
-                        questions: studyViewModel.generatedQuestions
-                    )
-                    
-                    Text("\(studyViewModel.generatedQuestionCount) / \(studyViewModel.totalExpectedQuestions)")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
+                    QuestionGeneratingView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.white)
+                        .transition(.opacity)
                     
                     if !studyViewModel.generatedQuestions.isEmpty {
                         ScrollView {
@@ -326,133 +321,119 @@ private struct ActionButton: View {
    }
 }
 
-
-
 struct QuestionGeneratingView: View {
-    let generatedCount: Int
-    let totalCount: Int
-    let questions: [Question]
-    @State private var animationAmount = 1.0
-    @State private var showingPreview = false
+    @State private var rotation: Double = 0
+    @State private var dotScale: CGFloat = 1.0
+    @State private var currentTipIndex = 0
+    let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     
     var body: some View {
-        VStack(spacing: 20) {
-            // Progress Circle Animation
+        VStack(spacing: 30) {
+            // Main Animation Circle - 크기 증가 및 색상 조정
             ZStack {
+                // Outer rotating circle
                 Circle()
-                    .stroke(Color.gray.opacity(0.2), lineWidth: 8)
-                    .frame(width: 100, height: 100)
+                    .stroke(lineWidth: 6)  // 선 두께 증가
+                    .frame(width: 200, height: 200)  // 크기 증가
+                    .foregroundColor(.blue.opacity(0.3))
+                    .rotationEffect(.degrees(rotation))
                 
+                // Inner gradient circle
                 Circle()
-                    .trim(from: 0, to: CGFloat(generatedCount) / CGFloat(totalCount))
                     .stroke(
                         LinearGradient(
                             gradient: Gradient(colors: [.blue, .purple]),
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            startPoint: .top,
+                            endPoint: .bottom
                         ),
-                        style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                        lineWidth: 10  // 선 두께 증가
                     )
-                    .frame(width: 100, height: 100)
-                    .rotationEffect(.degrees(-90))
-                    .animation(.easeInOut(duration: 0.6), value: generatedCount)
+                    .frame(width: 180, height: 180)  // 크기 증가
+                    .rotationEffect(.degrees(-rotation))
                 
-                VStack {
-                    Text("\(generatedCount)/\(totalCount)")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                // Center content
+                VStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 40))  // 아이콘 크기 증가
+                        .foregroundColor(.blue)
+                    Text("Generating")
+                        .font(.title)  // 폰트 크기 증가
+                        .foregroundColor(.primary)
                     Text("Questions")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                        .font(.title2)  // 폰트 크기 증가
+                        .foregroundColor(.primary)
                 }
             }
-            .padding(.bottom, 10)
+            .onAppear {
+                withAnimation(
+                    .linear(duration: 4)
+                    .repeatForever(autoreverses: false)
+                ) {
+                    rotation = 360
+                }
+            }
             
-            // Status Text with Animation
-            HStack(spacing: 4) {
-                Text("Generating Questions")
-                    .font(.headline)
+            // Animated Dots - 크기 및 색상 조정
+            HStack(spacing: 8) {
                 ForEach(0..<3) { index in
                     Circle()
                         .fill(Color.blue)
-                        .frame(width: 6, height: 6)
-                        .scaleEffect(animationAmount)
+                        .frame(width: 12, height: 12)  // 크기 증가
+                        .scaleEffect(dotScale)
                         .animation(
-                            .easeInOut(duration: 0.5)
+                            .easeInOut(duration: 0.6)
                             .repeatForever()
                             .delay(Double(index) * 0.2),
-                            value: animationAmount
+                            value: dotScale
                         )
                 }
             }
-            
-            // Generated Questions Preview
-            if !questions.isEmpty {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("Preview Generated Questions")
-                            .font(.headline)
-                        Spacer()
-                        Button(action: { showingPreview.toggle() }) {
-                            Image(systemName: "chevron.down")
-                                .rotationEffect(.degrees(showingPreview ? 180 : 0))
-                                .animation(.spring(), value: showingPreview)
-                        }
-                    }
-                    .padding(.horizontal)
-                    
-                    if showingPreview {
-                        ScrollView {
-                            VStack(spacing: 12) {
-                                ForEach(questions) { question in
-                                    GeneratedQuestionPreviewCard(question: question)
-                                        .transition(.opacity.combined(with: .slide))
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                        .frame(maxHeight: 300)
-                    }
-                }
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(15)
-                .animation(.spring(), value: showingPreview)
+            .onAppear {
+                dotScale = 0.5
             }
             
-            // Tips Section
+            // Tips Section - 배경 및 텍스트 색상 조정
             VStack(spacing: 12) {
-                Text("Did you know?")
-                    .font(.headline)
-                    .foregroundColor(.blue)
-                
-                Text(randomTip)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                Text(tips[currentTipIndex])
+                    .font(.headline)  // 폰트 크기 증가
+                    .foregroundColor(.white)  // 텍스트 색상을 흰색으로 변경
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
+                    .frame(height: 60)
+                    .transition(.opacity.combined(with: .slide))
+                    .id(currentTipIndex)
+                    .animation(.easeInOut, value: currentTipIndex)
+                
+                // Progress Dots
+                HStack(spacing: 6) {
+                    ForEach(0..<tips.count) { index in
+                        Circle()
+                            .fill(index == currentTipIndex ? Color.white : Color.gray)  // 활성 도트 색상을 흰색으로 변경
+                            .frame(width: 8, height: 8)
+                    }
+                }
             }
             .padding()
-            .background(Color.blue.opacity(0.1))
-            .cornerRadius(12)
-            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 15)
+                    .fill(Color.blue.opacity(0.8))  // 배경 색상을 진한 파란색으로 변경
+            )
         }
-        .padding()
-        .onAppear {
-            animationAmount = 1.2
+        .padding(30)
+        .onReceive(timer) { _ in
+            withAnimation {
+                currentTipIndex = (currentTipIndex + 1) % tips.count
+            }
         }
     }
     
-    private var randomTip: String {
-        let tips = [
-            "AI analyzes your content to create personalized questions tailored to your learning needs.",
-            "Questions are designed to help you understand the content more deeply.",
-            "Each question includes detailed explanations to help you learn better.",
-            "You can save interesting questions for later review.",
-            "The difficulty adapts to your learning level."
-        ]
-        return tips.randomElement() ?? tips[0]
-    }
+    private let tips = [
+        "Creating personalized questions just for you...",
+        "Analyzing content to ensure the best learning experience...",
+        "Getting ready to challenge your knowledge...",
+        "Preparing explanations to help you understand better...",
+        "Almost there! Your questions are being finalized..."
+    ]
 }
 
 struct GeneratedQuestionPreviewCard: View {

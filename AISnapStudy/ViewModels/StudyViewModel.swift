@@ -84,6 +84,7 @@ class StudyViewModel: ObservableObject {
         setupCurrentSession()
     }
 
+
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
         isLoadingQuestions = true
         loadingProgress = 0
@@ -168,18 +169,26 @@ class StudyViewModel: ObservableObject {
         print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
         print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
         
-        // 공백 제거하고 비교
         let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
         let isCorrect = trimmedSelected == trimmedCorrect
         
-
+        if isCorrect {
+            correctAnswers += 1
+            // StatViewModel에 직접 점수 업데이트
+            DispatchQueue.main.async {
+                self.statViewModel?.correctAnswers = self.correctAnswers
+                // 디버그를 위한 로그
+                print("✅ Correct answer! Total correct: \(self.correctAnswers)")
+            }
+        }
+    
         print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
         print("Trimmed Correct: '\(trimmedCorrect)'")
         print("Final comparison result: \(isCorrect)")
         
-        
+
         if let session = currentSession {
             let question = CDQuestion(context: context)
             question.isCorrect = isCorrect

@@ -276,68 +276,118 @@ class OpenAIService {
     }
     
     // MARK: - Subject-Specific Prompts
-    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty,     language: Language) -> SubjectPrompt {
+    private func getSubjectPrompt(
+        _ subject: Subject,
+        isImageInput: Bool,
+        isExtractedText: Bool,  // 새로운 매개변수 추가
+        educationLevel: EducationLevel,
+        difficulty: Difficulty,
+        language: Language
+    ) -> SubjectPrompt {
         let languageInstruction_text = language == .auto ?
             "Generate questions in the exact same language as the input text" :
-            "Generate questions in \(language.rawValue) regardless of the input text language"
+            """
+            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
+            DO NOT use the input text's language.
+            Even if the input is in a different language, your output must be in \(language.displayName) only.
+            """
         
         let languageInstruction_image = language == .auto ?
             "Generate questions in the exact same language as any visible text in the image" :
-            "Generate questions in \(language.rawValue) regardless of the visible text language"
-        
-        if isImageInput {
+            """
+            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
+            DO NOT use the input text's language.
+            Even if the input text is in a different language, your output must be in \(language.displayName) only.
+            """
+
+        if isImageInput && !isExtractedText {
+            // 순수 이미지 분석 케이스
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an \(subject.displayName) expert creating image-based questions.
-                   Important: \(languageInstruction_image).
-                   Must to create self-contained questions that provide all necessary context within each question.
-                   """,
+                    You are an \(subject.displayName) expert creating image-based questions.
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    
+                    STRICT LANGUAGE REQUIREMENT:
+                    - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
+                    - Maintain consistent language throughout all content
+                    - Translate concepts from input while maintaining accuracy
+                    """,
                 userPromptTemplate: """
-                   Create self-contained questions that provide all necessary context within each question.
-                   Important: \(languageInstruction_image).
-                   Include detailed explanations and hints
-                   
-                   Example format:
-                   BAD: "What does the text explain?"
-                   BAD: "what is the title of this image?"
-                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                   How many apples does Sarah have now?
-                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0
-                   """
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Important: \(languageInstruction_image)
+                    Include detailed explanations and hints.
+                    
+                    Example format:
+                    BAD: "What does the text explain?"
+                    BAD: "True or False: The Earth revolves around the Sun."
+                    BAD: "According to the text, what is his job"
+                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                    How many apples does Sarah have now?
+                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    """
+            )
+        } else if isImageInput && isExtractedText {
+            // 이미지에서 추출된 텍스트 분석 케이스
+            return SubjectPrompt(
+                systemPrompt: """
+                    You are an \(subject.displayName) expert analyzing extracted text from images.
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    
+                    STRICT LANGUAGE REQUIREMENT:
+                    - Output language: \(language == .auto ? "Same as extracted text" : language.displayName)
+                    - Maintain consistent language throughout all content
+                    - Preserve technical terms and proper nouns while translating
+                    """,
+                userPromptTemplate: """
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Important: \(languageInstruction_image)
+                    Include detailed explanations and hints.
+                    
+                    Example format:
+                    BAD: "What does the text explain?"
+                    BAD: "True or False: The Earth revolves around the Sun."
+                    BAD: "According to the text, what is his job"
+                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                    How many apples does Sarah have now?
+                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    """
             )
         } else {
+            // 일반 텍스트 입력 케이스 (기존 로직)
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                   Important: \(languageInstruction_text).
-                   Must to create self-contained questions that provide all necessary context within each question.
-                   
-                   Questions should:
-                   - Be made understandable at the level of \(educationLevel.displayName) school students. 
-                   - \(languageInstruction_text)
-                   - Include detailed explanations and hints
-                   """,
+                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Include detailed explanations and hints.
+                    
+                    STRICT LANGUAGE REQUIREMENT:
+                    - Output language: \(language == .auto ? "Same as input" : language.displayName)
+                    - Maintain consistent language throughout all content
+                    - Translate concepts from input while maintaining accuracy
+                    """,
                 userPromptTemplate: """
-                   Create self-contained questions that provide all necessary context within each question.
-                   Important: \(languageInstruction_image).
-                   
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Important: \(languageInstruction_text)
+                    Include detailed explanations and hints.
+                    
                     Question creation guidelines:
-                   - Include detailed explanations and hints
-                   - Generate questions directly from the user's input content
-                   - Create questions at the \(educationLevel.displayName) school student
-                   - Avoid broad, oversimplified questions
+                    - Generate questions directly from the user's input content
+                    - Create questions for \(educationLevel.displayName) school student
+                    - Avoid broad, oversimplified questions
 
-                   Example format:
-                   BAD: "What does the text explain?"
-                   BAD: "what is the title of this image?"
-                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                   How many apples does Sarah have now?
-                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0G
-                   """
+                    Example format:
+                    BAD: "What does the text explain?"
+                    BAD: "True or False: The Earth revolves around the Sun."
+                    BAD: "According to the text, what is his job"
+                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                    GOOD: "What lesson does the person mentioned in the text want to convey to us through 'trying to endure many hardships while worrying about how to repay the mortgaged house price'"
+                    GOOD: "If Sarah has 12 apples and gives 5 to Emma, then buys 8 more, how many apples does she have?"
+                    GOOD: "Solve for x: 2x² - 3x - 5 = 0"
+                    """
             )
         }
     }
@@ -352,6 +402,7 @@ class OpenAIService {
         let subjectPrompt = getSubjectPrompt(
             parameters.subject,
             isImageInput: input.isImage,
+            isExtractedText: !input.isImage && input.content.count > 0,  // 텍스트 추출 여부 확인
             educationLevel: parameters.educationLevel,
             difficulty: parameters.difficulty,
             language: parameters.language
@@ -516,12 +567,21 @@ class OpenAIService {
         let questionSchema = try JSONDecoder().decode(QuestionGenerationSchema.self, from: jsonData)
 
         let questions = questionSchema.questions.map { questionData in
-            Question(
+            // True/False 질문에서 접두사 제거
+            let processedQuestion = questionData.type == "true_false" ?
+                questionData.question.replacingOccurrences(
+                    of: "^(True or False:|True/False:|T/F:)\\s*",
+                    with: "",
+                    options: [.regularExpression, .caseInsensitive]
+                ).trimmingCharacters(in: .whitespacesAndNewlines) :
+                questionData.question
+
+            return Question(
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
                 difficulty: parameters.difficulty,
-                question: questionData.question,
+                question: processedQuestion,  // 처리된 질문 사용
                 options: questionData.options,
                 correctAnswer: questionData.correctAnswer,
                 explanation: questionData.explanation,

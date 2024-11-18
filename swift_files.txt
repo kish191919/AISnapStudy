@@ -1838,37 +1838,7 @@ struct QuestionGenerationSchema: Codable {
 
 // ./AISnapStudy/Models/Language.swift
 
-// Language.swift (새로운 파일)
-enum Language: String, CaseIterable, Identifiable {
-    case auto = "AUTO"
-    case english = "ENGLISH"
-    case korean = "한국어"
-    case japanese = "日本語"
-    case chinese = "中文"
-    case spanish = "ESPAÑOL"
-    case french = "FRANÇAIS"
-    case german = "DEUTSCH"
-    case russian = "РУССКИЙ"
-    case italian = "ITALIANO"
-    
-    var id: String { self.rawValue }
-    
-    // OpenAI API에서 사용할 언어 코드
-    var languageCode: String {
-        switch self {
-        case .auto: return "auto"
-        case .english: return "en"
-        case .korean: return "ko"
-        case .japanese: return "ja"
-        case .chinese: return "zh"
-        case .spanish: return "es"
-        case .french: return "fr"
-        case .german: return "de"
-        case .russian: return "ru"
-        case .italian: return "it"
-        }
-    }
-}
+
 
 
 // ./AISnapStudy/Models/ProblemSet.swift
@@ -2474,238 +2444,210 @@ struct QuestionSettingsView: View {
     }
     
     var body: some View {
-       VStack(spacing: 0) {
-           Form {
-               // useTextExtraction Toggle과 Language 선택을 최상단에 배치
-               HStack {
-                   Toggle("SpeedUp", isOn: $viewModel.useTextExtraction)
-                   
-                   Spacer()
-                   
-                   Menu {
-                       ForEach(Language.allCases) { language in
-                           Button(action: {
-                               viewModel.selectedLanguage = language
-                           }) {
-                               HStack {
-                                   Text(language.rawValue)
-                                   if language == viewModel.selectedLanguage {
-                                       Image(systemName: "checkmark")
-                                   }
-                               }
-                           }
-                       }
-                   } label: {
-                       HStack {
-                           Text(viewModel.selectedLanguage.rawValue)
-                               .foregroundColor(.primary)
-                           Image(systemName: "chevron.down")
-                               .font(.caption)
-                               .foregroundColor(.gray)
-                       }
-                       .padding(.horizontal, 12)
-                       .padding(.vertical, 6)
-                       .background(Color.gray.opacity(0.1))
-                       .cornerRadius(8)
-                   }
-               }
-               .padding(.horizontal)
-               
-               // Image Selection Options
-               HStack(spacing: 12) {
-                   ImageOptionCard(
-                       icon: "camera.fill",
-                       isUsed: viewModel.hasSelectedCamera,
-                       isDisabled: !viewModel.canUseImageInput,
-                       action: {
-                           if viewModel.canUseImageInput {
-                               isTextInputSelected = false
-                               Task { await viewModel.takePhoto() }
-                           }
-                       }
-                   )
+        VStack(spacing: 0) {
+            Form {
+                // Speed Up and Language Selection Section
+                Section {
+                    SpeedUpSection(useTextExtraction: $viewModel.useTextExtraction)
+                }
+                .listRowSpacing(0)
 
-                   ImageOptionCard(
-                       icon: "photo.fill",
-                       isUsed: viewModel.hasSelectedGallery,
-                       isDisabled: !viewModel.canUseImageInput,
-                       action: {
-                           if viewModel.canUseImageInput {
-                               isTextInputSelected = false
-                               Task { await viewModel.selectFromGallery() }
-                           }
-                       }
-                   )
+                Section {
+                    LanguageSection(selectedLanguage: $viewModel.selectedLanguage)
+                }
+                .listRowSpacing(0)
 
-                   ImageOptionCard(
-                       icon: "text.bubble.fill",
-                       isUsed: viewModel.isTextInputActive,
-                       isDisabled: !viewModel.canUseTextInput,
-                       action: {
-                           isTextInputSelected.toggle()
-                           viewModel.toggleTextInput()
-                       }
-                   )
-               }
-               .padding(.horizontal)
 
-               // 텍스트 입력 필드
-               if viewModel.isTextInputActive {
-                   TextField("Enter your question here...", text: $viewModel.questionText)
-                       .textFieldStyle(RoundedBorderTextFieldStyle())
-                       .padding(.horizontal)
-               }
+                // Image Selection Options
+                HStack(spacing: 12) {
+                    ImageOptionCard(
+                        icon: "camera.fill",
+                        isUsed: viewModel.hasSelectedCamera,
+                        isDisabled: !viewModel.canUseImageInput,
+                        action: {
+                            if viewModel.canUseImageInput {
+                                isTextInputSelected = false
+                                Task { await viewModel.takePhoto() }
+                            }
+                        }
+                    )
 
-               // 선택한 이미지 표시
-               if !viewModel.selectedImages.isEmpty {
-                   ScrollView(.horizontal, showsIndicators: false) {
-                       HStack(spacing: 12) {
-                           ForEach(viewModel.selectedImages.indices, id: \.self) { index in
-                               SelectedImageCell(
-                                   image: viewModel.selectedImages[index],
-                                   onDelete: {
-                                       viewModel.removeImage(at: index)
-                                   }
-                               )
-                           }
-                       }
-                       .padding(.vertical, 8)
-                   }
-               }
-               
-               // Learning Subject Section
-               Section {
-                   DisclosureGroup(
-                       isExpanded: isExpandedBinding(for: .learningSubject)
-                   ) {
-                       LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
-                   } label: {
-                       HStack {
-                           Text("Learning Subject")
-                               .font(.headline)
-                           Spacer()
-                           Text(viewModel.selectedSubject.displayName)
-                               .foregroundColor(.gray)
-                       }
-                   }
-               }.listRowSpacing(0)
-               
-               // Question Types Section
-               Section {
-                   DisclosureGroup(
-                       isExpanded: isExpandedBinding(for: .questionTypes)
-                   ) {
-                       QuestionTypesSelectionSection(viewModel: viewModel)
-                   } label: {
-                       HStack {
-                           Text("Question Types")
-                               .font(.headline)
-                           Spacer()
-                           Text("\(viewModel.totalQuestionCount) questions")
-                               .foregroundColor(.gray)
-                       }
-                   }
-               }.listRowSpacing(0)
-               
-               if isTextInputSelected {
-                   // Education Level Section
-                   Section {
-                       DisclosureGroup(
-                           isExpanded: isExpandedBinding(for: .educationLevel)
-                       ) {
-                           EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
-                       } label: {
-                           HStack {
-                               Text("Education Level")
-                                   .font(.headline)
-                               Spacer()
-                               Text(viewModel.educationLevel.displayName)
-                                   .foregroundColor(.gray)
-                           }
-                       }
-                   }.listRowSpacing(0)
-                   
-                   // Difficulty Level Section
-                   Section {
-                       DisclosureGroup(
-                           isExpanded: isExpandedBinding(for: .difficultyLevel)
-                       ) {
-                           DifficultyLevelSection(difficulty: $viewModel.difficulty)
-                       } label: {
-                           HStack {
-                               Text("Difficulty Level")
-                                   .font(.headline)
-                               Spacer()
-                               Text(viewModel.difficulty.displayName)
-                                   .foregroundColor(.gray)
-                           }
-                       }
-                   }.listRowSpacing(0)
-               }
-           }
-           .listSectionSpacing(4)
-           
-           // Generate Questions Button
-           VStack {
-               Button(action: {
-                   showNamePopup = true
-                   isGeneratingQuestions = true
-                   Task {
-                       await viewModel.sendAllImages()
-                   }
-               }) {
-                   Text("Generate Questions")
-                       .font(.headline)
-                       .foregroundColor(.white)
-                       .frame(maxWidth: .infinity)
-                       .padding()
-                       .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
-                       .cornerRadius(10)
-               }
-               .disabled(!isGenerateButtonEnabled)
-               .padding()
-           }
-           .background(Color(UIColor.systemGroupedBackground))
-       }
-       .overlay(popupOverlay)
-       .navigationBarItems(leading: cancelButton)
-       .navigationBarTitleDisplayMode(.inline)
-       .sheet(isPresented: $viewModel.showImagePicker) {
-           PhotoPicker(selectedImages: $viewModel.selectedImages)
-       }
-       .sheet(isPresented: $viewModel.showCamera) {
-           ImagePicker(
-               image: $viewModel.selectedImage,
-               sourceType: .camera,
-               onImageSelected: { image in
-                   Task {
-                       await viewModel.handleCameraImage(image)
-                   }
-               }
-           )
-       }
-       .alert(isPresented: $viewModel.showAlert) {
-           Alert(
-               title: Text(viewModel.alertTitle),
-               message: Text(viewModel.alertMessage),
-               dismissButton: .default(Text("OK")) {
-                   if viewModel.alertTitle == "Success" {
-                       dismiss()
-                   }
-               }
-           )
-       }
-       .onChange(of: viewModel.shouldShowStudyView) { show in
-           if show {
-               dismiss()
-               selectedTab = 1
-           }
-       }
-       .overlay(alignment: .bottom) {
-           if viewModel.isLoading {
-               LoadingOverlay()
-           }
-       }
+                    ImageOptionCard(
+                        icon: "photo.fill",
+                        isUsed: viewModel.hasSelectedGallery,
+                        isDisabled: !viewModel.canUseImageInput,
+                        action: {
+                            if viewModel.canUseImageInput {
+                                isTextInputSelected = false
+                                Task { await viewModel.selectFromGallery() }
+                            }
+                        }
+                    )
+
+                    ImageOptionCard(
+                        icon: "text.bubble.fill",
+                        isUsed: viewModel.isTextInputActive,
+                        isDisabled: !viewModel.canUseTextInput,
+                        action: {
+                            isTextInputSelected.toggle()
+                            viewModel.toggleTextInput()
+                        }
+                    )
+                }
+                .padding(.horizontal)
+
+                // Text Input Field
+                if viewModel.isTextInputActive {
+                    TextField("Enter your question here...", text: $viewModel.questionText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding(.horizontal)
+                }
+
+                // Selected Images Display
+                if !viewModel.selectedImages.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(viewModel.selectedImages.indices, id: \.self) { index in
+                                SelectedImageCell(
+                                    image: viewModel.selectedImages[index],
+                                    onDelete: {
+                                        viewModel.removeImage(at: index)
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+                
+                // Subject Section
+                Section {
+                    DisclosureGroup(
+                        isExpanded: isExpandedBinding(for: .learningSubject)
+                    ) {
+                        LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
+                    } label: {
+                        HStack {
+                            Text("Subject")
+                                .font(.headline)
+                            Spacer()
+                            Text(viewModel.selectedSubject.displayName)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }.listRowSpacing(0)
+                
+                // Question Types Section
+                Section {
+                    DisclosureGroup(
+                        isExpanded: isExpandedBinding(for: .questionTypes)
+                    ) {
+                        QuestionTypesSelectionSection(viewModel: viewModel)
+                    } label: {
+                        HStack {
+                            Text("Type")
+                                .font(.headline)
+                            Spacer()
+                            Text("\(viewModel.totalQuestionCount) questions")
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }.listRowSpacing(0)
+                
+                if isTextInputSelected {
+                    // Education Level Section
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .educationLevel)
+                        ) {
+                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                        } label: {
+                            HStack {
+                                Text("Education Level")
+                                    .font(.headline)
+                                Spacer()
+                                Text(viewModel.educationLevel.displayName)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }.listRowSpacing(0)
+                    
+                    // Difficulty Level Section
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .difficultyLevel)
+                        ) {
+                            DifficultyLevelSection(difficulty: $viewModel.difficulty)
+                        } label: {
+                            HStack {
+                                Text("Difficulty Level")
+                                    .font(.headline)
+                                Spacer()
+                                Text(viewModel.difficulty.displayName)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }.listRowSpacing(0)
+                }
+            }
+            .listSectionSpacing(4)
+            
+            // Generate Questions Button
+            VStack {
+                Button(action: {
+                    showNamePopup = true
+                    isGeneratingQuestions = true
+                    Task {
+                        await viewModel.sendAllImages()
+                    }
+                }) {
+                    Text("Generate Questions")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
+                        .cornerRadius(10)
+                }
+                .disabled(!isGenerateButtonEnabled)
+                .padding()
+            }
+            .background(Color(UIColor.systemGroupedBackground))
+        }
+        .overlay(popupOverlay)
+        .navigationBarItems(leading: cancelButton)
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $viewModel.showImagePicker) {
+            PhotoPicker(selectedImages: $viewModel.selectedImages)
+        }
+        .sheet(isPresented: $viewModel.showCamera) {
+            ImagePicker(
+                image: $viewModel.selectedImage,
+                sourceType: .camera,
+                onImageSelected: { image in
+                    Task {
+                        await viewModel.handleCameraImage(image)
+                    }
+                }
+            )
+        }
+        .alert(isPresented: $viewModel.showAlert) {
+            Alert(
+                title: Text(viewModel.alertTitle),
+                message: Text(viewModel.alertMessage),
+                dismissButton: .default(Text("OK")) {
+                    if viewModel.alertTitle == "Success" {
+                        dismiss()
+                    }
+                }
+            )
+        }
+        .onChange(of: viewModel.shouldShowStudyView) { show in
+            if show {
+                dismiss()
+                selectedTab = 1
+            }
+        }
     }
     
     private var cancelButton: some View {
@@ -2893,19 +2835,6 @@ struct GenerateQuestionsFooter: View {
         .background(Color(UIColor.systemGroupedBackground))
     }
 }
-
-struct LoadingOverlay: View {
-    var body: some View {
-        LoadingView()
-            .frame(maxHeight: 120)
-            .background(Color.black.opacity(0.7))
-            .cornerRadius(10)
-            .padding()
-    }
-}
-
-
-
 
 struct SubjectSelectionButton: View {
    let subject: Subject
@@ -3097,7 +3026,7 @@ struct QuestionTypesSelectionSection: View {
             VStack(spacing: 8) {
                 // 총 문제 수 표시
                 HStack {
-                    Text("Question Types")
+                    Text("Type")
                         .font(.headline)
                     Spacer()
                     Text("Total: \(viewModel.totalQuestionCount)/10")
@@ -3167,7 +3096,7 @@ struct SubjectSelectionSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
     
     var body: some View {
-        Section("Learning Subject") {
+        Section("Subject") {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(Subject.allCases, id: \.self) { subject in
@@ -3342,27 +3271,6 @@ extension UIImage {
         
         guard let newCGImage = context.makeImage() else { return self }
         return UIImage(cgImage: newCGImage)
-    }
-}
-
-struct LoadingView: View {
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .edgesIgnoringSafeArea(.all)
-            
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                Text("Processing...")
-                    .font(.headline)
-                    .foregroundColor(.white)
-            }
-            .padding()
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(10)
-        }
     }
 }
 
@@ -3603,12 +3511,12 @@ struct EducationLevelSection: View {
 
 import SwiftUI
 
-// Question Types Section
+// Question Type Section
 struct QuestionTypesSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
     
     var body: some View {
-        Section("Question Types") {
+        Section("Type") {
             VStack(spacing: 10) {
                 QuestionTypeCounter(
                     title: "Multiple",
@@ -3912,6 +3820,40 @@ struct InfoRow: View {
 
 
 
+// ./AISnapStudy/Views/Components/SpeedUpSection.swift
+
+
+import SwiftUI
+
+struct SpeedUpSection: View {
+    @Binding var useTextExtraction: Bool
+    @State private var isExpanded: Bool = false
+    
+    var body: some View {
+        DisclosureGroup(
+            isExpanded: $isExpanded,
+            content: {
+                Text("Automatically extracts text from images to generate questions faster. Recommended when images contain mostly text.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 8)
+            },
+            label: {
+                HStack {
+                    Image(systemName: "bolt.fill")
+                        .foregroundColor(.yellow)
+                    Text("Speed Up Processing")
+                        .font(.headline)
+                    Spacer()
+                    Toggle("", isOn: $useTextExtraction)
+                        .labelsHidden()
+                }
+            }
+        )
+    }
+}
+
+
 // ./AISnapStudy/Views/Components/StatCard.swift
 
 import SwiftUI
@@ -3940,6 +3882,270 @@ struct StatCard: View {
         .padding()
         .background(Color.gray.opacity(0.1))
         .cornerRadius(10)
+    }
+}
+
+
+// ./AISnapStudy/Views/Components/LanguageButton.swift
+
+import SwiftUI
+
+// Add new supporting view for Language Button
+struct LanguageButton: View {
+    let language: Language
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Text(emoji(for: language))
+                    .font(.title2)
+                Text(displayName(for: language))
+                    .font(.caption)
+                    .foregroundColor(isSelected ? .white : .primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color.blue : Color.gray.opacity(0.1))
+            )
+        }
+    }
+    
+    private func emoji(for language: Language) -> String {
+        switch language {
+        case .auto: return "🌐"
+        case .english: return "🇺🇸"
+        case .korean: return "🇰🇷"
+        case .japanese: return "🇯🇵"
+        case .chinese: return "🇨🇳"
+        case .spanish: return "🇪🇸"
+        case .french: return "🇫🇷"
+        case .german: return "🇩🇪"
+        case .russian: return "🇷🇺"
+        case .italian: return "🇮🇹"
+        }
+    }
+    
+    private func displayName(for language: Language) -> String {
+        switch language {
+        case .auto: return "Auto"
+        default: return language.rawValue
+        }
+    }
+}
+
+
+
+struct LanguageSection: View {
+    @Binding var selectedLanguage: Language
+    @State private var isExpanded: Bool = false
+    @State private var showLanguageMenu = false
+    
+    var body: some View {
+        DisclosureGroup(
+            isExpanded: $isExpanded,
+            content: {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Choose the language in which you want the questions to be generated. The generated questions will appear in your selected language regardless of the input language.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 8)
+                        
+                    Text("Current: \(selectedLanguage.displayName) \(selectedLanguage.emoji)")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                }
+            },
+            label: {
+                HStack {
+                    HStack {
+                        Image(systemName: "globe")
+                            .foregroundColor(.blue)
+                        Text("Question Language")
+                            .font(.headline)
+                    }
+                    
+                    Spacer()
+                    
+                    // 별도의 버튼으로 분리
+                    Button(action: {
+                        showLanguageMenu = true
+                    }) {
+                        HStack(spacing: 4) {
+                            Text(selectedLanguage.emoji)
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+            }
+        )
+        .sheet(isPresented: $showLanguageMenu) {
+            LanguageSelectionView(selectedLanguage: $selectedLanguage)
+        }
+    }
+}
+
+// LanguageSelectionView는 더 깔끔한 UI로 업데이트
+struct LanguageSelectionView: View {
+    @Binding var selectedLanguage: Language
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(Language.allCases) { language in
+                    LanguageRow(
+                        language: language,
+                        isSelected: language == selectedLanguage,
+                        onSelect: {
+                            selectedLanguage = language
+                            UserDefaults.standard.set(language.rawValue, forKey: "selectedLanguage")
+                            dismiss()
+                        }
+                    )
+                }
+            }
+            .navigationTitle("Select Language")
+            .navigationBarItems(trailing: Button("Done") {
+                dismiss()
+            })
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+// 별도의 LanguageRow 컴포넌트
+struct LanguageRow: View {
+    let language: Language
+    let isSelected: Bool
+    let onSelect: () -> Void
+    
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                Text(language.emoji)
+                    .font(.title3)
+                
+                VStack(alignment: .leading) {
+                    Text(language.displayName)
+                        .foregroundColor(.primary)
+                    Text(language.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundColor(.blue)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+
+// Language.swift (새로운 파일)
+enum Language: String, CaseIterable, Identifiable {
+    case auto = "AUTO"
+    case english = "ENGLISH"
+    case korean = "한국어"
+    case japanese = "日本語"
+    case chinese = "中文"
+    case spanish = "ESPAÑOL"
+    case french = "FRANÇAIS"
+    case german = "DEUTSCH"
+    case russian = "РУССКИЙ"
+    case italian = "ITALIANO"
+    
+    var id: String { self.rawValue }
+    
+    // OpenAI API에서 사용할 언어 코드
+    var languageCode: String {
+        switch self {
+        case .auto: return "auto"
+        case .english: return "en"
+        case .korean: return "ko"
+        case .japanese: return "ja"
+        case .chinese: return "zh"
+        case .spanish: return "es"
+        case .french: return "fr"
+        case .german: return "de"
+        case .russian: return "ru"
+        case .italian: return "it"
+        }
+    }
+}
+
+// Update Language enum to include display names and emojis
+extension Language {
+    var displayName: String {
+        switch self {
+        case .auto: return "Automatic"
+        case .english: return "English"
+        case .korean: return "한국어"
+        case .japanese: return "日本語"
+        case .chinese: return "中文"
+        case .spanish: return "Español"
+        case .french: return "Français"
+        case .german: return "Deutsch"
+        case .russian: return "Русский"
+        case .italian: return "Italiano"
+        }
+    }
+    
+    var emoji: String {
+        switch self {
+        case .auto: return "🌐"
+        case .english: return "🇺🇸"
+        case .korean: return "🇰🇷"
+        case .japanese: return "🇯🇵"
+        case .chinese: return "🇨🇳"
+        case .spanish: return "🇪🇸"
+        case .french: return "🇫🇷"
+        case .german: return "🇩🇪"
+        case .russian: return "🇷🇺"
+        case .italian: return "🇮🇹"
+        }
+    }
+}
+
+extension Language {
+    var description: String {
+        switch self {
+        case .auto:
+            return "Detect language automatically"
+        case .english:
+            return "English"
+        case .korean:
+            return "한국어 (Korean)"
+        case .japanese:
+            return "日本語 (Japanese)"
+        case .chinese:
+            return "中文 (Chinese)"
+        case .spanish:
+            return "Español (Spanish)"
+        case .french:
+            return "Français (French)"
+        case .german:
+            return "Deutsch (German)"
+        case .russian:
+            return "Русский (Russian)"
+        case .italian:
+            return "Italiano (Italian)"
+        }
     }
 }
 
@@ -5375,18 +5581,10 @@ struct StudyView: View {
         VStack {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
-                    ProgressView(value: Double(studyViewModel.generatedQuestionCount),
-                               total: Double(studyViewModel.totalExpectedQuestions)) {
-                        Text("Generating Questions...")
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                    }
-                    .progressViewStyle(.linear)
-                    .padding()
-                    
-                    Text("\(studyViewModel.generatedQuestionCount) / \(studyViewModel.totalExpectedQuestions)")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
+                    QuestionGeneratingView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.white)
+                        .transition(.opacity)
                     
                     if !studyViewModel.generatedQuestions.isEmpty {
                         ScrollView {
@@ -5677,6 +5875,152 @@ private struct ActionButton: View {
        }
        .disabled(!viewModel.canSubmit)
    }
+}
+
+
+
+struct QuestionGeneratingView: View {
+    @State private var rotation: Double = 0
+    @State private var dotScale: CGFloat = 1.0
+    @State private var currentTipIndex = 0
+    let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    
+    var body: some View {
+        VStack(spacing: 30) {
+            // Main Animation Circle
+            ZStack {
+                // Outer rotating circle
+                Circle()
+                    .stroke(lineWidth: 4)
+                    .frame(width: 160, height: 160)
+                    .foregroundColor(.blue.opacity(0.3))
+                    .rotationEffect(.degrees(rotation))
+                
+                // Inner gradient circle
+                Circle()
+                    .stroke(
+                        LinearGradient(
+                            gradient: Gradient(colors: [.blue, .purple]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 8
+                    )
+                    .frame(width: 140, height: 140)
+                    .rotationEffect(.degrees(-rotation))
+                
+                // Center content
+                VStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 30))
+                        .foregroundColor(.blue)
+                    Text("Generating")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    Text("Questions")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onAppear {
+                withAnimation(
+                    .linear(duration: 4)
+                    .repeatForever(autoreverses: false)
+                ) {
+                    rotation = 360
+                }
+            }
+            
+            // Animated Dots
+            HStack(spacing: 6) {
+                ForEach(0..<3) { index in
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 10, height: 10)
+                        .scaleEffect(dotScale)
+                        .animation(
+                            .easeInOut(duration: 0.6)
+                            .repeatForever()
+                            .delay(Double(index) * 0.2),
+                            value: dotScale
+                        )
+                }
+            }
+            .onAppear {
+                dotScale = 0.5
+            }
+            
+            // Rotating Tips
+            VStack(spacing: 12) {
+                Text(tips[currentTipIndex])
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                    .frame(height: 50)
+                    .transition(.opacity.combined(with: .slide))
+                    .id(currentTipIndex)
+                    .animation(.easeInOut, value: currentTipIndex)
+                
+                // Progress Dots
+                HStack(spacing: 6) {
+                    ForEach(0..<tips.count) { index in
+                        Circle()
+                            .fill(index == currentTipIndex ? Color.blue : Color.gray)
+                            .frame(width: 6, height: 6)
+                    }
+                }
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 15)
+                    .fill(Color.blue.opacity(0.1))
+            )
+        }
+        .padding(30)
+        .onReceive(timer) { _ in
+            withAnimation {
+                currentTipIndex = (currentTipIndex + 1) % tips.count
+            }
+        }
+    }
+    
+    private let tips = [
+        "Creating personalized questions just for you...",
+        "Analyzing content to ensure the best learning experience...",
+        "Getting ready to challenge your knowledge...",
+        "Preparing explanations to help you understand better...",
+        "Almost there! Your questions are being finalized..."
+    ]
+}
+
+struct GeneratedQuestionPreviewCard: View {
+    let question: Question
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: question.type == .multipleChoice ? "list.bullet.circle.fill" : "checkmark.circle.fill")
+                    .foregroundColor(.blue)
+                Text(question.type == .multipleChoice ? "Multiple Choice" : "True/False")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                Spacer()
+                Text(question.difficulty.displayName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Text(question.question)
+                .font(.subheadline)
+                .lineLimit(2)
+                .foregroundColor(.primary)
+        }
+        .padding()
+        .background(Color.white)
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+    }
 }
 
 
@@ -6446,62 +6790,80 @@ class OpenAIService {
     
     // MARK: - Subject-Specific Prompts
     private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty,     language: Language) -> SubjectPrompt {
+        let languageInstruction_text = language == .auto ?
+            "Generate questions in the exact same language as the input text" :
+            """
+            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
+            DO NOT use the input text's language.
+            Even if the input is in a different language, your output must be in \(language.displayName) only.
+            """
+        
+        let languageInstruction_image = language == .auto ?
+            "Generate questions in the exact same language as any visible text in the image" :
+            """
+            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
+            DO NOT use the input text's language.
+            Even if the input text is in a different language, your output must be in \(language.displayName) only.
+            """
+        
         if isImageInput {
             return SubjectPrompt(
                 systemPrompt: """
                    You are an \(subject.displayName) expert creating image-based questions.
-                   Important: Generate questions in \(language.rawValue) language.
-                   If language is set to AUTO, maintain the same language as the input content.
-                   Important : Ensure questions are clear and unambiguous and specific and detailed. 
+                   Must to create self-contained questions that provide all necessary context within each question.
+                   
+                   STRICT LANGUAGE REQUIREMENT:
+                   - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
+                   - Maintain consistent language throughout all content
+                   - Translate concepts from input while maintaining accuracy
                    """,
+                
                 userPromptTemplate: """
+                   Important: \(languageInstruction_image)
                    Create self-contained questions that provide all necessary context within each question.
-                   Keep the same language as the image text.
-                   Important : Include specific details from the content
+                   Include detailed explanations and hints.
+                   Preserve the original meaning while using \(language == .auto ? "input language" : language.displayName)
+                   
                    Example format:
                    BAD: "What does the text explain?"
                    BAD: "what is the title of this image?"
                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                   Good: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                   How many apples does Sarah have now?
+                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0
                    """
             )
         } else {
             return SubjectPrompt(
                 systemPrompt: """
                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                   Important : Generate questions in the exact same language as the input text.
-                   Important : Create self-contained questions that provide all necessary context within each question.
+                   Must to create self-contained questions that provide all necessary context within each question.
+                   Include detailed explanations and hints.
                    
-                   Questions should:
-                   - be made understandable at the level of \(educationLevel.displayName) school students. 
-                   - Preserve the input text's language
-                   - Use clear, precise language 
-                   - Include detailed explanations and hints
-                   - Never reference any images when input is text
+                   STRICT LANGUAGE REQUIREMENT:
+                   - Output language: \(language == .auto ? "Same as input" : language.displayName)
+                   - Maintain consistent language throughout all content
+                   - Translate concepts from input while maintaining accuracy
                    """,
                 userPromptTemplate: """
-                   question creation guidelines:
-                   Important - Generates questions in exactly the same language as the input text.
-                   Important - Create self-contained questions that provide all necessary context within each question.
-
-                   1. CONTEXT & CONTENT
+                   Important: \(languageInstruction_text)
+                   Create self-contained questions that provide all necessary context within each question.
+                   Include detailed explanations and hints
+                   
+                    Question creation guidelines:
                    - Generate questions directly from the user's input content
-                   - Create questions at the \(educationLevel.displayName) school student
-
-                   2. LANGUAGE & STRUCTURE
-                   - Include specific dates, names, and events when relevant
+                   - Create questions for \(educationLevel.displayName) school student
                    - Avoid broad, oversimplified questions
 
-                   3. EXAMPLE FORMATS
-                   BAD:
-                   - Overly general: "What happened during World War II?"
-                   - Misleading premise: "When did America create democracy?"
-                   - Missing context: "Why did they sign the document?"
-
-                   GOOD:
-                   - Specific: "How did the ratification of the 14th Amendment (1868) change citizenship rights in the United States?"
-                   - Analytical: "What economic and social factors led to the Great Depression between 1929-1933?"
-                   - Contextual: "How did the invention of the cotton gin by Eli Whitney in 1793 impact slavery in the Southern states?"
+                   Example format:
+                   BAD: "What does the text explain?"
+                   BAD: "what is the title of this image?"
+                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                   How many apples does Sarah have now?
+                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0G
                    """
             )
         }
