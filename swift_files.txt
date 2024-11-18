@@ -690,16 +690,19 @@ import CoreData
 
 @MainActor
 class StatViewModel: ObservableObject {
-    
     @Published var streak: Int = 0
-    @Published var correctAnswers: Int = 0
+    @Published var correctAnswers: Int = 0 {
+        didSet {
+            // 점수가 변경될 때마다 출력되는 디버그 로그
+            print("📊 StatViewModel score updated: \(correctAnswers * 10) points")
+        }
+    }
     @Published var completedQuestions: Int = 0
     @Published var accuracyRate: Double = 0.0
     @Published var isLoading = false
     
     private weak var studyViewModel: StudyViewModel?
     private weak var homeViewModel: HomeViewModel?
-    
 
     
     @Published var totalPoints: Int = 0      // 현재 세션의 점수
@@ -727,13 +730,24 @@ class StatViewModel: ObservableObject {
         loadStats()
     }
     
+    var currentSessionScore: Int {
+        return correctAnswers * 10  // 계산 속성으로 변경
+    }
+    
+    // StudyViewModel 설정 메서드
+    func setStudyViewModel(_ viewModel: StudyViewModel?) {
+        self.studyViewModel = viewModel
+        print("📱 StudyViewModel connected to StatViewModel")
+    }
+
     
     func updateScore() {
         if let studyVM = studyViewModel {
-            // correctAnswers는 StudyViewModel에서 관리되는 현재 세션의 정답 수
-            correctAnswers = studyVM.correctAnswers
-            // 각 문제당 10점씩 계산
-            totalPoints = correctAnswers * 10
+            // correctAnswers 값을 업데이트
+            self.correctAnswers = studyVM.correctAnswers
+            self.totalQuestions = studyVM.totalQuestions
+            // 디버그를 위한 로그
+            print("📊 Score Updated - Correct: \(correctAnswers), Total: \(totalQuestions), Score: \(currentSessionScore)")
         }
     }
     
@@ -874,14 +888,16 @@ import Combine
 
 @MainActor
 class HomeViewModel: ObservableObject {
+    
     @Published var studyViewModel: StudyViewModel?
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
-    @Published var correctAnswers: Int = 0
+    @Published var selectedProblemSet: ProblemSet?
+//    @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
-    @Published private(set) var selectedProblemSet: ProblemSet?
+
     
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
@@ -896,8 +912,15 @@ class HomeViewModel: ObservableObject {
             await loadInitialData()
         }
     }
+    // 현재 세션의 점수 관련 속성 추가
+    var currentSessionScore: Int {
+        return studyViewModel?.correctAnswers ?? 0
+    }
     
-        
+    var currentSessionTotalQuestions: Int {
+        return selectedProblemSet?.questions.count ?? 0
+    }
+    
     func setStudyViewModel(_ viewModel: StudyViewModel) {
         print("📱 Setting StudyViewModel in HomeViewModel")
         self.studyViewModel = viewModel
@@ -1268,6 +1291,7 @@ class StudyViewModel: ObservableObject {
         setupCurrentSession()
     }
 
+
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
         isLoadingQuestions = true
         loadingProgress = 0
@@ -1352,18 +1376,26 @@ class StudyViewModel: ObservableObject {
         print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
         print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
         
-        // 공백 제거하고 비교
         let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
         let isCorrect = trimmedSelected == trimmedCorrect
         
-
+        if isCorrect {
+            correctAnswers += 1
+            // StatViewModel에 직접 점수 업데이트
+            DispatchQueue.main.async {
+                self.statViewModel?.correctAnswers = self.correctAnswers
+                // 디버그를 위한 로그
+                print("✅ Correct answer! Total correct: \(self.correctAnswers)")
+            }
+        }
+    
         print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
         print("Trimmed Correct: '\(trimmedCorrect)'")
         print("Final comparison result: \(isCorrect)")
         
-        
+
         if let session = currentSession {
             let question = CDQuestion(context: context)
             question.isCorrect = isCorrect
@@ -5108,10 +5140,10 @@ struct MainTabView: View {
                 .tag(2)
             
             StatView(
-                correctAnswers: homeViewModel.correctAnswers,
-                totalQuestions: homeViewModel.totalQuestions,
                 viewModel: statViewModel,
-                selectedTab: $selectedTab
+                selectedTab: $selectedTab,
+                correctAnswers: studyViewModel.correctAnswers,  // StudyViewModel에서 직접 가져옴
+                totalQuestions: studyViewModel.totalQuestions  // StudyViewModel에서 직접 가져옴
             )
             .tabItem {
                 Label("Stats", systemImage: "chart.bar.fill")
@@ -5139,26 +5171,27 @@ import SwiftUI
 import Charts
 import CoreData
 
+
 struct StatView: View {
     @ObservedObject var viewModel: StatViewModel
     @Binding var selectedTab: Int
-    
     let correctAnswers: Int
     let totalQuestions: Int
-    
-    
     @EnvironmentObject private var homeViewModel: HomeViewModel
     
-    
-    init(correctAnswers: Int,
-         totalQuestions: Int,
-         viewModel: StatViewModel, // Pass viewModel directly
-         selectedTab: Binding<Int>) {
+    // 초기화 함수의 매개변수 순서 수정
+    init(
+        viewModel: StatViewModel,
+        selectedTab: Binding<Int>,
+        correctAnswers: Int,
+        totalQuestions: Int
+    ) {
+        self.viewModel = viewModel
+        self._selectedTab = selectedTab
         self.correctAnswers = correctAnswers
         self.totalQuestions = totalQuestions
-        self.viewModel = viewModel // Direct assignment without StateObject
-        self._selectedTab = selectedTab
     }
+    
     
     var body: some View {
         ScrollView {
@@ -5190,58 +5223,57 @@ struct StatView: View {
                     GridItem(.flexible()),
                     GridItem(.flexible())
                 ], spacing: 20) {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible()),
-                        GridItem(.flexible())
-                    ], spacing: 20) {
-                        StatCard(
-                            title: "총 점수",
-                            value: "\(viewModel.correctAnswers * 10)점",  // 맞은 개수 * 10점
-                            icon: "star.fill",
-                            color: .yellow
-                        )
-                        
-                        StatCard(
-                            title: "정답률",
-                            value: String(format: "%.1f%%", viewModel.accuracyRate),
-                            icon: "percent",
-                            color: .blue
-                        )
-                        
-                        StatCard(title: "완료한 문제",
-                                 value: "\(viewModel.completedQuestions)개",
-                                 icon: "checkmark.circle.fill",
-                                 color: .green)
-                        StatCard(title: "정답 수",
-                                 value: "\(viewModel.correctAnswers)개",
-                                 icon: "target",
-                                 color: .red)
-                    }
-                    .padding()
+                    StatCard(
+                        title: "이번 세트 점수",
+                        value: "\(correctAnswers * 10)점",  // correctAnswers 직접 사용
+                        icon: "star.fill",
+                        color: .yellow
+                    )
                     
-                    // 다시 풀기 버튼
-                    Button(action: {
-                        // 먼저 상태 리셋
-                        viewModel.resetProgress()
-                        
-                        // Study View로 전환하기 직전 상태 확인을 위해 viewModel에서 로그 출력
-                        viewModel.logCurrentQuestionState()
-                        
-                        // 바로 Study 탭으로 이동
-                        withAnimation {
-                            selectedTab = 1
-                        }
-                    }) {
-                        Text("다시 풀기")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(Color.blue)
-                            .cornerRadius(10)
-                    }
-                    .padding()
+                    StatCard(
+                        title: "정답률",
+                        value: String(format: "%.1f%%",
+                            Double(correctAnswers) / Double(totalQuestions) * 100),
+                        icon: "percent",
+                        color: .blue
+                    )
+                    
+                    StatCard(
+                        title: "완료한 문제",
+                        value: "\(totalQuestions)개",
+                        icon: "checkmark.circle.fill",
+                        color: .green
+                    )
+                    
+                    StatCard(
+                        title: "정답 수",
+                        value: "\(correctAnswers)개",
+                        icon: "target",
+                        color: .red
+                    )
                 }
+                .padding()
+                
+                Spacer()  // 나머지 공간을 채움
+                
+                // 다시 풀기 버튼을 맨 아래에 배치
+                Button(action: {
+                    viewModel.resetProgress()
+                    viewModel.logCurrentQuestionState()
+                    withAnimation {
+                        selectedTab = 1
+                    }
+                }) {
+                    Text("다시 풀기")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 20)  // 하단 여백 추가
             }
         }
     }
@@ -5877,8 +5909,6 @@ private struct ActionButton: View {
    }
 }
 
-
-
 struct QuestionGeneratingView: View {
     @State private var rotation: Double = 0
     @State private var dotScale: CGFloat = 1.0
@@ -5887,12 +5917,12 @@ struct QuestionGeneratingView: View {
     
     var body: some View {
         VStack(spacing: 30) {
-            // Main Animation Circle
+            // Main Animation Circle - 크기 증가 및 색상 조정
             ZStack {
                 // Outer rotating circle
                 Circle()
-                    .stroke(lineWidth: 4)
-                    .frame(width: 160, height: 160)
+                    .stroke(lineWidth: 6)  // 선 두께 증가
+                    .frame(width: 200, height: 200)  // 크기 증가
                     .foregroundColor(.blue.opacity(0.3))
                     .rotationEffect(.degrees(rotation))
                 
@@ -5904,22 +5934,22 @@ struct QuestionGeneratingView: View {
                             startPoint: .top,
                             endPoint: .bottom
                         ),
-                        lineWidth: 8
+                        lineWidth: 10  // 선 두께 증가
                     )
-                    .frame(width: 140, height: 140)
+                    .frame(width: 180, height: 180)  // 크기 증가
                     .rotationEffect(.degrees(-rotation))
                 
                 // Center content
                 VStack(spacing: 8) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 30))
+                        .font(.system(size: 40))  // 아이콘 크기 증가
                         .foregroundColor(.blue)
                     Text("Generating")
-                        .font(.headline)
+                        .font(.title)  // 폰트 크기 증가
                         .foregroundColor(.primary)
                     Text("Questions")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(.title2)  // 폰트 크기 증가
+                        .foregroundColor(.primary)
                 }
             }
             .onAppear {
@@ -5931,12 +5961,12 @@ struct QuestionGeneratingView: View {
                 }
             }
             
-            // Animated Dots
-            HStack(spacing: 6) {
+            // Animated Dots - 크기 및 색상 조정
+            HStack(spacing: 8) {
                 ForEach(0..<3) { index in
                     Circle()
                         .fill(Color.blue)
-                        .frame(width: 10, height: 10)
+                        .frame(width: 12, height: 12)  // 크기 증가
                         .scaleEffect(dotScale)
                         .animation(
                             .easeInOut(duration: 0.6)
@@ -5950,14 +5980,14 @@ struct QuestionGeneratingView: View {
                 dotScale = 0.5
             }
             
-            // Rotating Tips
+            // Tips Section - 배경 및 텍스트 색상 조정
             VStack(spacing: 12) {
                 Text(tips[currentTipIndex])
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(.headline)  // 폰트 크기 증가
+                    .foregroundColor(.white)  // 텍스트 색상을 흰색으로 변경
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-                    .frame(height: 50)
+                    .frame(height: 60)
                     .transition(.opacity.combined(with: .slide))
                     .id(currentTipIndex)
                     .animation(.easeInOut, value: currentTipIndex)
@@ -5966,15 +5996,15 @@ struct QuestionGeneratingView: View {
                 HStack(spacing: 6) {
                     ForEach(0..<tips.count) { index in
                         Circle()
-                            .fill(index == currentTipIndex ? Color.blue : Color.gray)
-                            .frame(width: 6, height: 6)
+                            .fill(index == currentTipIndex ? Color.white : Color.gray)  // 활성 도트 색상을 흰색으로 변경
+                            .frame(width: 8, height: 8)
                     }
                 }
             }
             .padding()
             .background(
                 RoundedRectangle(cornerRadius: 15)
-                    .fill(Color.blue.opacity(0.1))
+                    .fill(Color.blue.opacity(0.8))  // 배경 색상을 진한 파란색으로 변경
             )
         }
         .padding(30)
@@ -6789,7 +6819,14 @@ class OpenAIService {
     }
     
     // MARK: - Subject-Specific Prompts
-    private func getSubjectPrompt(_ subject: Subject, isImageInput: Bool, educationLevel: EducationLevel, difficulty: Difficulty,     language: Language) -> SubjectPrompt {
+    private func getSubjectPrompt(
+        _ subject: Subject,
+        isImageInput: Bool,
+        isExtractedText: Bool,  // 새로운 매개변수 추가
+        educationLevel: EducationLevel,
+        difficulty: Difficulty,
+        language: Language
+    ) -> SubjectPrompt {
         let languageInstruction_text = language == .auto ?
             "Generate questions in the exact same language as the input text" :
             """
@@ -6805,66 +6842,95 @@ class OpenAIService {
             DO NOT use the input text's language.
             Even if the input text is in a different language, your output must be in \(language.displayName) only.
             """
-        
-        if isImageInput {
+
+        if isImageInput && !isExtractedText {
+            // 순수 이미지 분석 케이스
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an \(subject.displayName) expert creating image-based questions.
-                   Must to create self-contained questions that provide all necessary context within each question.
-                   
-                   STRICT LANGUAGE REQUIREMENT:
-                   - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
-                   - Maintain consistent language throughout all content
-                   - Translate concepts from input while maintaining accuracy
-                   """,
-                
+                    You are an \(subject.displayName) expert creating image-based questions.
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    
+                    STRICT LANGUAGE REQUIREMENT:
+                    - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
+                    - Maintain consistent language throughout all content
+                    - Translate concepts from input while maintaining accuracy
+                    """,
                 userPromptTemplate: """
-                   Important: \(languageInstruction_image)
-                   Create self-contained questions that provide all necessary context within each question.
-                   Include detailed explanations and hints.
-                   Preserve the original meaning while using \(language == .auto ? "input language" : language.displayName)
-                   
-                   Example format:
-                   BAD: "What does the text explain?"
-                   BAD: "what is the title of this image?"
-                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                   How many apples does Sarah have now?
-                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0
-                   """
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Important: \(languageInstruction_image)
+                    Include detailed explanations and hints.
+                    
+                    Example format:
+                    BAD: "What does the text explain?"
+                    BAD: "True or False: The Earth revolves around the Sun."
+                    BAD: "According to the text, what is his job"
+                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                    How many apples does Sarah have now?
+                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    """
+            )
+        } else if isImageInput && isExtractedText {
+            // 이미지에서 추출된 텍스트 분석 케이스
+            return SubjectPrompt(
+                systemPrompt: """
+                    You are an \(subject.displayName) expert analyzing extracted text from images.
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    
+                    STRICT LANGUAGE REQUIREMENT:
+                    - Output language: \(language == .auto ? "Same as extracted text" : language.displayName)
+                    - Maintain consistent language throughout all content
+                    - Preserve technical terms and proper nouns while translating
+                    """,
+                userPromptTemplate: """
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Important: \(languageInstruction_image)
+                    Include detailed explanations and hints.
+                    
+                    Example format:
+                    BAD: "What does the text explain?"
+                    BAD: "True or False: The Earth revolves around the Sun."
+                    BAD: "According to the text, what is his job"
+                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
+                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
+                    How many apples does Sarah have now?
+                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    """
             )
         } else {
+            // 일반 텍스트 입력 케이스 (기존 로직)
             return SubjectPrompt(
                 systemPrompt: """
-                   You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                   Must to create self-contained questions that provide all necessary context within each question.
-                   Include detailed explanations and hints.
-                   
-                   STRICT LANGUAGE REQUIREMENT:
-                   - Output language: \(language == .auto ? "Same as input" : language.displayName)
-                   - Maintain consistent language throughout all content
-                   - Translate concepts from input while maintaining accuracy
-                   """,
+                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Include detailed explanations and hints.
+                    
+                    STRICT LANGUAGE REQUIREMENT:
+                    - Output language: \(language == .auto ? "Same as input" : language.displayName)
+                    - Maintain consistent language throughout all content
+                    - Translate concepts from input while maintaining accuracy
+                    """,
                 userPromptTemplate: """
-                   Important: \(languageInstruction_text)
-                   Create self-contained questions that provide all necessary context within each question.
-                   Include detailed explanations and hints
-                   
+                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    Important: \(languageInstruction_text)
+                    Include detailed explanations and hints.
+                    
                     Question creation guidelines:
-                   - Generate questions directly from the user's input content
-                   - Create questions for \(educationLevel.displayName) school student
-                   - Avoid broad, oversimplified questions
+                    - Generate questions directly from the user's input content
+                    - Create questions for \(educationLevel.displayName) school student
+                    - Avoid broad, oversimplified questions
 
-                   Example format:
-                   BAD: "What does the text explain?"
-                   BAD: "what is the title of this image?"
-                   GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                   GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                   GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                   How many apples does Sarah have now?
-                   GOOD: Solve for x: 2x^2 - 3x - 5 = 0G
-                   """
+                    Example format:
+                    BAD: "What does the text explain?"
+                    BAD: "True or False: The Earth revolves around the Sun."
+                    BAD: "According to the text, what is his job"
+                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
+                    GOOD: "What lesson does the person mentioned in the text want to convey to us through 'trying to endure many hardships while worrying about how to repay the mortgaged house price'"
+                    GOOD: "If Sarah has 12 apples and gives 5 to Emma, then buys 8 more, how many apples does she have?"
+                    GOOD: "Solve for x: 2x² - 3x - 5 = 0"
+                    """
             )
         }
     }
@@ -6879,6 +6945,7 @@ class OpenAIService {
         let subjectPrompt = getSubjectPrompt(
             parameters.subject,
             isImageInput: input.isImage,
+            isExtractedText: !input.isImage && input.content.count > 0,  // 텍스트 추출 여부 확인
             educationLevel: parameters.educationLevel,
             difficulty: parameters.difficulty,
             language: parameters.language
@@ -7043,12 +7110,21 @@ class OpenAIService {
         let questionSchema = try JSONDecoder().decode(QuestionGenerationSchema.self, from: jsonData)
 
         let questions = questionSchema.questions.map { questionData in
-            Question(
+            // True/False 질문에서 접두사 제거
+            let processedQuestion = questionData.type == "true_false" ?
+                questionData.question.replacingOccurrences(
+                    of: "^(True or False:|True/False:|T/F:)\\s*",
+                    with: "",
+                    options: [.regularExpression, .caseInsensitive]
+                ).trimmingCharacters(in: .whitespacesAndNewlines) :
+                questionData.question
+
+            return Question(
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
                 difficulty: parameters.difficulty,
-                question: questionData.question,
+                question: processedQuestion,  // 처리된 질문 사용
                 options: questionData.options,
                 correctAnswer: questionData.correctAnswer,
                 explanation: questionData.explanation,

@@ -311,21 +311,32 @@ class OpenAIService {
                     - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
                     - Maintain consistent language throughout all content
                     - Translate concepts from input while maintaining accuracy
+                    
+                    For True/False questions:
+                    - Answer must be exactly "true" or "false" (lowercase)
+                    - Do not use variations like "Yes", "No", "That's correct", etc.
+                    - Do not translate true/false to other languages
                     """,
                 userPromptTemplate: """
                     Focus on creating self-contained questions that provide all necessary context within each question.
                     Important: \(languageInstruction_image)
                     Include detailed explanations and hints.
                     
-                    Example format:
-                    BAD: "What does the text explain?"
-                    BAD: "True or False: The Earth revolves around the Sun."
-                    BAD: "According to the text, what is his job"
-                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                    How many apples does Sarah have now?
-                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    Examples of GOOD trueFalse questions:
+                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
+                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    
+                    Examples of BAD trueFalse questions:
+                    - The capital of France is Berlin.
+                    - Who was worried in the story?
+                    
+                    Examples of GOOD multipleChoice questions:
+                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
+                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    
+                    Examples of BAD multipleChoice questions:
+                    - What does the text explain?
+                    - According to the text, what is his job?
                     """
             )
         } else if isImageInput && isExtractedText {
@@ -339,21 +350,34 @@ class OpenAIService {
                     - Output language: \(language == .auto ? "Same as extracted text" : language.displayName)
                     - Maintain consistent language throughout all content
                     - Preserve technical terms and proper nouns while translating
+                    
+                    For trueFalse questions:
+                    - Must be a statement that can be verified as true or false
+                    - Do not create open-ended or "wh-" questions (what, who, how, etc.)
+                    - Answer must be exactly "true" or "false" (lowercase)
+                    - Do not use variations like "Yes", "No", "That's correct", etc.
+                    - Do not translate true/false to other languages
                     """,
                 userPromptTemplate: """
                     Focus on creating self-contained questions that provide all necessary context within each question.
                     Important: \(languageInstruction_image)
                     Include detailed explanations and hints.
                     
-                    Example format:
-                    BAD: "What does the text explain?"
-                    BAD: "True or False: The Earth revolves around the Sun."
-                    BAD: "According to the text, what is his job"
-                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                    How many apples does Sarah have now?
-                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    Examples of GOOD trueFalse questions:
+                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
+                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    
+                    Examples of BAD trueFalse questions:
+                    - The capital of France is Berlin.
+                    - Who was worried in the story?
+                    
+                    Examples of GOOD multipleChoice questions:
+                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
+                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    
+                    Examples of BAD multipleChoice questions:
+                    - What does the text explain?
+                    - According to the text, what is his job?
                     """
             )
         } else {
@@ -368,6 +392,11 @@ class OpenAIService {
                     - Output language: \(language == .auto ? "Same as input" : language.displayName)
                     - Maintain consistent language throughout all content
                     - Translate concepts from input while maintaining accuracy
+                    
+                    For True/False questions:
+                    - Answer must be exactly "true" or "false" (lowercase)
+                    - Do not use variations like "Yes", "No", "That's correct", etc.
+                    - Do not translate true/false to other languages
                     """,
                 userPromptTemplate: """
                     Focus on creating self-contained questions that provide all necessary context within each question.
@@ -379,14 +408,21 @@ class OpenAIService {
                     - Create questions for \(educationLevel.displayName) school student
                     - Avoid broad, oversimplified questions
 
-                    Example format:
-                    BAD: "What does the text explain?"
-                    BAD: "True or False: The Earth revolves around the Sun."
-                    BAD: "According to the text, what is his job"
-                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                    GOOD: "What lesson does the person mentioned in the text want to convey to us through 'trying to endure many hardships while worrying about how to repay the mortgaged house price'"
-                    GOOD: "If Sarah has 12 apples and gives 5 to Emma, then buys 8 more, how many apples does she have?"
-                    GOOD: "Solve for x: 2x² - 3x - 5 = 0"
+                    Examples of GOOD trueFalse questions:
+                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
+                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    
+                    Examples of BAD trueFalse questions:
+                    - The capital of France is Berlin.
+                    - Who was worried in the story?
+                    
+                    Examples of GOOD multipleChoice questions:
+                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
+                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    
+                    Examples of BAD multipleChoice questions:
+                    - What does the text explain?
+                    - According to the text, what is his job?
                     """
             )
         }
@@ -576,14 +612,25 @@ class OpenAIService {
                 ).trimmingCharacters(in: .whitespacesAndNewlines) :
                 questionData.question
 
+            // True/False 답변 정규화
+            var correctAnswer = questionData.correctAnswer
+            if questionData.type == "true_false" {
+                correctAnswer = correctAnswer.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                if ["yes", "네", "true", "correct", "that's right", "맞습니다", "네, 그렇습니다", "사실입니다"].contains(correctAnswer) {
+                    correctAnswer = "true"
+                } else if ["no", "아니오", "false", "incorrect", "that's wrong", "아닙니다", "아니요", "사실이 아니다", "사실이 아닙니다"].contains(correctAnswer) {
+                    correctAnswer = "false"
+                }
+            }
+
             return Question(
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
                 difficulty: parameters.difficulty,
-                question: processedQuestion,  // 처리된 질문 사용
+                question: processedQuestion,
                 options: questionData.options,
-                correctAnswer: questionData.correctAnswer,
+                correctAnswer: correctAnswer,  // 정규화된 답변 사용
                 explanation: questionData.explanation,
                 hint: questionData.hint,
                 isSaved: false,

@@ -169,6 +169,7 @@ class StudyViewModel: ObservableObject {
         print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
         print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
         
+        // Trim whitespace and convert to lowercase for comparison
         let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
@@ -176,14 +177,14 @@ class StudyViewModel: ObservableObject {
         
         if isCorrect {
             correctAnswers += 1
-            // StatViewModel에 직접 점수 업데이트
+            // Update score in StatViewModel
             DispatchQueue.main.async {
                 self.statViewModel?.correctAnswers = self.correctAnswers
-                // 디버그를 위한 로그
+                // Debug log for score update
                 print("✅ Correct answer! Total correct: \(self.correctAnswers)")
             }
         }
-    
+
         print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
         print("Trimmed Correct: '\(trimmedCorrect)'")
         print("Final comparison result: \(isCorrect)")
@@ -199,7 +200,7 @@ class StudyViewModel: ObservableObject {
         
         showExplanation = true
     }
-   
+
    func nextQuestion() {
        guard currentIndex < questions.count - 1 else { return }
        currentIndex += 1
