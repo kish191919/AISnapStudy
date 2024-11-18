@@ -322,6 +322,8 @@ class OpenAIService {
                     Important: \(languageInstruction_image)
                     Include detailed explanations and hints.
                     
+                    Do not include the example questions below as part of the generated questions. These are provided only as examples of good and bad questions and must not appear in the output.
+                    
                     Examples of GOOD trueFalse questions:
                     - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
                     - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
@@ -362,6 +364,8 @@ class OpenAIService {
                     Focus on creating self-contained questions that provide all necessary context within each question.
                     Important: \(languageInstruction_image)
                     Include detailed explanations and hints.
+                    
+                    Do not include the example questions below as part of the generated questions. These are provided only as examples of good and bad questions and must not appear in the output.
                     
                     Examples of GOOD trueFalse questions:
                     - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
@@ -407,6 +411,8 @@ class OpenAIService {
                     - Generate questions directly from the user's input content
                     - Create questions for \(educationLevel.displayName) school student
                     - Avoid broad, oversimplified questions
+                    
+                    Do not include the example questions below as part of the generated questions. These are provided only as examples of good and bad questions and must not appear in the output.
 
                     Examples of GOOD trueFalse questions:
                     - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.

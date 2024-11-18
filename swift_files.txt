@@ -391,90 +391,116 @@ class QuestionSettingsViewModel: ObservableObject {
        }
     }
     
-    
     @MainActor
     func sendAllImages() async {
-       print("🚀 Starting sendAllImages process...")
-       guard !selectedImages.isEmpty || !questionText.isEmpty else {
-           print("❌ No content to generate questions from")
-           return
-       }
-       
-       isLoading = true
-       studyViewModel?.isGeneratingQuestions = true
-       
-       do {
-           var allExtractedText = ""
-           var imagesForDirectProcessing: [UIImage] = []
-           
-           // 이미지 처리
-           for image in selectedImages {
-               let imageId = getImageId(for: image)
-               print("📸 Processing image: \(imageId)")
-               
-               if useTextExtraction {
-                   print("🔍 Text extraction enabled - attempting to extract text...")
-                   do {
-                       let extractedText = try await VisionService.shared.extractText(from: image)
-                       if !extractedText.isEmpty {
-                           print("✅ Successfully extracted text: \(extractedText)")
-                           allExtractedText += extractedText + "\n"
-                       } else {
-                           print("⚠️ No text extracted, adding to direct processing queue")
-                           imagesForDirectProcessing.append(image)
-                       }
-                   } catch {
-                       print("❌ Error extracting text from image: \(error)")
-                       imagesForDirectProcessing.append(image)
-                   }
-               } else {
-                   print("ℹ️ Text extraction disabled - adding to direct processing queue")
-                   imagesForDirectProcessing.append(image)
-               }
-           }
+        print("🚀 Starting sendAllImages process...")
+        guard !selectedImages.isEmpty || !questionText.isEmpty else {
+            print("❌ No content to generate questions from")
+            return
+        }
+        
+        isLoading = true
+        studyViewModel?.isGeneratingQuestions = true
+        
+        do {
+            var allExtractedText = ""
+            var imagesForDirectProcessing: [UIImage] = []
+            
+            // 이미지 처리
+            if !selectedImages.isEmpty {
+                if useTextExtraction {
+                    // 텍스트 추출 활성화된 경우
+                    for image in selectedImages {
+                        let imageId = getImageId(for: image)
+                        print("📸 Processing image: \(imageId)")
+                        print("🔍 Text extraction enabled - attempting to extract text...")
+                        
+                        do {
+                            let extractedText = try await VisionService.shared.extractText(from: image)
+                            if !extractedText.isEmpty {
+                                print("✅ Successfully extracted text: \(extractedText)")
+                                allExtractedText += extractedText + "\n"
+                            } else {
+                                print("⚠️ No text extracted, adding to direct processing queue")
+                                imagesForDirectProcessing.append(image)
+                            }
+                        } catch {
+                            print("❌ Error extracting text from image: \(error)")
+                            imagesForDirectProcessing.append(image)
+                        }
+                    }
+                } else {
+                    // 텍스트 추출 비활성화된 경우 - 모든 이미지를 한 번에 처리
+                    print("ℹ️ Text extraction disabled - processing all images together")
+                    try await processImagesDirectly(selectedImages)
+                }
+            }
 
-           // 텍스트 입력 처리
-           if !questionText.isEmpty {
-               let textInput = OpenAIService.QuestionInput(
-                   content: questionText.data(using: .utf8) ?? Data(),
-                   isImage: false
-               )
-               print("📝 Processing text input")
-               await generateQuestions(from: textInput, parameters: createParameters())
-           }
-           
-           // 추출된 텍스트 처리
-           if !allExtractedText.isEmpty {
-               let input = OpenAIService.QuestionInput(
-                   content: allExtractedText.data(using: .utf8) ?? Data(),
-                   isImage: false
-               )
-               print("📤 Sending extracted text to OpenAI")
-               await generateQuestions(from: input, parameters: createParameters())
-           }
-           
-           // 직접 이미지 처리가 필요한 경우 처리
-           if !imagesForDirectProcessing.isEmpty {
-               print("📸 Processing \(imagesForDirectProcessing.count) images directly")
-               for image in imagesForDirectProcessing {
-                   print("🖼️ Direct processing image")
-                   try await processImageDirectly(image)
-               }
-           }
-           
-           isLoading = false
-           studyViewModel?.isGeneratingQuestions = false
-           showSuccess()
-           shouldShowStudyView = true
-           
-       } catch {
-           print("❌ Error in sendAllImages: \(error.localizedDescription)")
-           isLoading = false
-           studyViewModel?.isGeneratingQuestions = false
-           self.error = error
-           showError(error)
-       }
+            // 텍스트 입력 처리
+            if !questionText.isEmpty {
+                let textInput = OpenAIService.QuestionInput(
+                    content: questionText.data(using: .utf8) ?? Data(),
+                    isImage: false
+                )
+                print("📝 Processing text input")
+                await generateQuestions(from: textInput, parameters: createParameters())
+            }
+            
+            // 추출된 텍스트 처리
+            if !allExtractedText.isEmpty {
+                let input = OpenAIService.QuestionInput(
+                    content: allExtractedText.data(using: .utf8) ?? Data(),
+                    isImage: false
+                )
+                print("📤 Sending extracted text to OpenAI")
+                await generateQuestions(from: input, parameters: createParameters())
+            }
+            
+            // 직접 이미지 처리가 필요한 경우, 모든 이미지를 한 번에 처리
+            if !imagesForDirectProcessing.isEmpty {
+                print("📸 Processing \(imagesForDirectProcessing.count) images directly")
+                try await processImagesDirectly(imagesForDirectProcessing)
+            }
+            
+            isLoading = false
+            studyViewModel?.isGeneratingQuestions = false
+            showSuccess()
+            shouldShowStudyView = true
+            
+        } catch {
+            print("❌ Error in sendAllImages: \(error.localizedDescription)")
+            isLoading = false
+            studyViewModel?.isGeneratingQuestions = false
+            self.error = error
+            showError(error)
+        }
     }
+
+    // 새로운 헬퍼 함수 추가
+    private func processImagesDirectly(_ images: [UIImage]) async throws {
+        print("📸 Processing \(images.count) images...")
+        
+        var imagesData: [Data] = []
+        for image in images {
+            let compressedData = try await ImageService.shared.compressForAPI(image)
+            let base64String = compressedData.base64EncodedString()
+            if let stringData = base64String.data(using: .utf8) {
+                imagesData.append(stringData)
+            }
+        }
+        
+        let combinedImageData = try JSONEncoder().encode(imagesData)
+        
+        let input = OpenAIService.QuestionInput(
+            content: combinedImageData,
+            isImage: true,
+            isMultiImage: true
+        )
+        
+        print("📤 Sending \(images.count) images to OpenAI")
+        await generateQuestions(from: input, parameters: createParameters())
+    }
+    
     // generateQuestions(from:parameters:) 보조 함수
     private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
        print("🔄 Starting question generation from input")
@@ -508,7 +534,8 @@ class QuestionSettingsViewModel: ObservableObject {
         let compressedData = try await imageService.compressForAPI(image)
         let input = OpenAIService.QuestionInput(
             content: compressedData,
-            isImage: true
+            isImage: true,
+            isMultiImage: true  // 여러 이미지임을 표시
         )
         print("📤 Sending image to OpenAI")
         let questions = try await openAIService.generateQuestions(from: input, parameters: createParameters())
@@ -1376,6 +1403,7 @@ class StudyViewModel: ObservableObject {
         print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
         print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
         
+        // Trim whitespace and convert to lowercase for comparison
         let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         
@@ -1383,14 +1411,14 @@ class StudyViewModel: ObservableObject {
         
         if isCorrect {
             correctAnswers += 1
-            // StatViewModel에 직접 점수 업데이트
+            // Update score in StatViewModel
             DispatchQueue.main.async {
                 self.statViewModel?.correctAnswers = self.correctAnswers
-                // 디버그를 위한 로그
+                // Debug log for score update
                 print("✅ Correct answer! Total correct: \(self.correctAnswers)")
             }
         }
-    
+
         print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
         print("Trimmed Correct: '\(trimmedCorrect)'")
         print("Final comparison result: \(isCorrect)")
@@ -1406,7 +1434,7 @@ class StudyViewModel: ObservableObject {
         
         showExplanation = true
     }
-   
+
    func nextQuestion() {
        guard currentIndex < questions.count - 1 else { return }
        currentIndex += 1
@@ -6626,14 +6654,16 @@ class OpenAIService {
         }
     
     // MARK: - Models
-    public struct QuestionInput {    // private -> public 으로 변경
+    public struct QuestionInput {
         let content: Data
         let isImage: Bool
         let contentHash: String
+        let isMultiImage: Bool  // 새로 추가
         
-        public init(content: Data, isImage: Bool) {  // public init 추가
+        public init(content: Data, isImage: Bool, isMultiImage: Bool = false) {
             self.content = content
             self.isImage = isImage
+            self.isMultiImage = isMultiImage
             self.contentHash = content.hashValue.description
         }
     }
@@ -6659,39 +6689,65 @@ class OpenAIService {
             self.language = language
         }
     }
+    // buildMessages 함수 수정
     private func buildMessages(input: QuestionInput, prompts: (system: String, user: String)) -> [[String: Any]] {
         if input.isImage {
             do {
-                guard let image = UIImage(data: input.content) else {
-                    print("❌ Failed to create UIImage from data")
-                    throw NetworkError.invalidData
-                }
-
-                let compressedData = try ImageService.shared.compressForAPI(image)
-                let base64ImageString = compressedData.base64EncodedString()
+                var contentArray: [[String: Any]] = [
+                    [
+                        "type": "text",
+                        "text": prompts.user
+                    ]
+                ]
                 
-                print("📸 Image prepared: \(ByteCountFormatter.string(fromByteCount: Int64(compressedData.count), countStyle: .file))")
+                if input.isMultiImage {
+                    // 여러 이미지 데이터 처리
+                    guard let imagesData = try? JSONDecoder().decode([Data].self, from: input.content) else {
+                        print("❌ Failed to decode image data array")
+                        throw NetworkError.invalidData
+                    }
+                    
+                    for imageData in imagesData {
+                        guard let base64String = String(data: imageData, encoding: .utf8) else {
+                            continue
+                        }
+                        
+                        contentArray.append([
+                            "type": "image_url",
+                            "image_url": [
+                                "url": "data:image/jpeg;base64,\(base64String)",
+                                "detail": "auto"  // auto, low, high 중 선택
+                            ]
+                        ])
+                        print("📸 Added image to request")
+                    }
+                } else {
+                    // 단일 이미지 처리
+                    guard let base64String = String(data: input.content, encoding: .utf8) else {
+                        throw NetworkError.invalidData
+                    }
+
+                    contentArray.append([
+                        "type": "image_url",
+                        "image_url": [
+                            "url": "data:image/jpeg;base64,\(base64String)",
+                            "detail": "auto"  // auto, low, high 중 선택
+                        ]
+                    ])
+                    print("📸 Added single image to request")
+                }
                 
                 return [
                     ["role": "system", "content": prompts.system],
-                    ["role": "user", "content": [
-                        [
-                            "type": "text",
-                            "text": prompts.user
-                        ],
-                        [
-                            "type": "image_url",
-                            "image_url": [
-                                "url": "data:image/jpeg;base64,\(base64ImageString)"
-                            ]
-                        ]
-                    ]]
+                    ["role": "user", "content": contentArray]
                 ]
+                
             } catch {
-                print("❌ Error preparing image: \(error)")
+                print("❌ Error preparing images: \(error)")
                 return []
             }
         } else {
+            // 텍스트 처리 (기존 코드 유지)
             if let textContent = String(data: input.content, encoding: .utf8) {
                 return [
                     ["role": "system", "content": prompts.system],
@@ -6854,21 +6910,32 @@ class OpenAIService {
                     - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
                     - Maintain consistent language throughout all content
                     - Translate concepts from input while maintaining accuracy
+                    
+                    For True/False questions:
+                    - Answer must be exactly "true" or "false" (lowercase)
+                    - Do not use variations like "Yes", "No", "That's correct", etc.
+                    - Do not translate true/false to other languages
                     """,
                 userPromptTemplate: """
                     Focus on creating self-contained questions that provide all necessary context within each question.
                     Important: \(languageInstruction_image)
                     Include detailed explanations and hints.
                     
-                    Example format:
-                    BAD: "What does the text explain?"
-                    BAD: "True or False: The Earth revolves around the Sun."
-                    BAD: "According to the text, what is his job"
-                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                    How many apples does Sarah have now?
-                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    Examples of GOOD trueFalse questions:
+                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
+                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    
+                    Examples of BAD trueFalse questions:
+                    - The capital of France is Berlin.
+                    - Who was worried in the story?
+                    
+                    Examples of GOOD multipleChoice questions:
+                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
+                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    
+                    Examples of BAD multipleChoice questions:
+                    - What does the text explain?
+                    - According to the text, what is his job?
                     """
             )
         } else if isImageInput && isExtractedText {
@@ -6882,21 +6949,34 @@ class OpenAIService {
                     - Output language: \(language == .auto ? "Same as extracted text" : language.displayName)
                     - Maintain consistent language throughout all content
                     - Preserve technical terms and proper nouns while translating
+                    
+                    For trueFalse questions:
+                    - Must be a statement that can be verified as true or false
+                    - Do not create open-ended or "wh-" questions (what, who, how, etc.)
+                    - Answer must be exactly "true" or "false" (lowercase)
+                    - Do not use variations like "Yes", "No", "That's correct", etc.
+                    - Do not translate true/false to other languages
                     """,
                 userPromptTemplate: """
                     Focus on creating self-contained questions that provide all necessary context within each question.
                     Important: \(languageInstruction_image)
                     Include detailed explanations and hints.
                     
-                    Example format:
-                    BAD: "What does the text explain?"
-                    BAD: "True or False: The Earth revolves around the Sun."
-                    BAD: "According to the text, what is his job"
-                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                    GOOD: "What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’"
-                    GOOD: Sarah has 12 apples. She gives 5 apples to her friend Emma. Then, she buys 8 more apples from the store.
-                    How many apples does Sarah have now?
-                    GOOD: Solve for x: 2x^2 - 3x - 5 = 0
+                    Examples of GOOD trueFalse questions:
+                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
+                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    
+                    Examples of BAD trueFalse questions:
+                    - The capital of France is Berlin.
+                    - Who was worried in the story?
+                    
+                    Examples of GOOD multipleChoice questions:
+                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
+                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    
+                    Examples of BAD multipleChoice questions:
+                    - What does the text explain?
+                    - According to the text, what is his job?
                     """
             )
         } else {
@@ -6911,6 +6991,11 @@ class OpenAIService {
                     - Output language: \(language == .auto ? "Same as input" : language.displayName)
                     - Maintain consistent language throughout all content
                     - Translate concepts from input while maintaining accuracy
+                    
+                    For True/False questions:
+                    - Answer must be exactly "true" or "false" (lowercase)
+                    - Do not use variations like "Yes", "No", "That's correct", etc.
+                    - Do not translate true/false to other languages
                     """,
                 userPromptTemplate: """
                     Focus on creating self-contained questions that provide all necessary context within each question.
@@ -6922,14 +7007,21 @@ class OpenAIService {
                     - Create questions for \(educationLevel.displayName) school student
                     - Avoid broad, oversimplified questions
 
-                    Example format:
-                    BAD: "What does the text explain?"
-                    BAD: "True or False: The Earth revolves around the Sun."
-                    BAD: "According to the text, what is his job"
-                    GOOD: "In the passage where Jesus described the birds of the air, what characteristics of the birds did he emphasize?"
-                    GOOD: "What lesson does the person mentioned in the text want to convey to us through 'trying to endure many hardships while worrying about how to repay the mortgaged house price'"
-                    GOOD: "If Sarah has 12 apples and gives 5 to Emma, then buys 8 more, how many apples does she have?"
-                    GOOD: "Solve for x: 2x² - 3x - 5 = 0"
+                    Examples of GOOD trueFalse questions:
+                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
+                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    
+                    Examples of BAD trueFalse questions:
+                    - The capital of France is Berlin.
+                    - Who was worried in the story?
+                    
+                    Examples of GOOD multipleChoice questions:
+                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
+                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    
+                    Examples of BAD multipleChoice questions:
+                    - What does the text explain?
+                    - According to the text, what is his job?
                     """
             )
         }
@@ -7119,14 +7211,25 @@ class OpenAIService {
                 ).trimmingCharacters(in: .whitespacesAndNewlines) :
                 questionData.question
 
+            // True/False 답변 정규화
+            var correctAnswer = questionData.correctAnswer
+            if questionData.type == "true_false" {
+                correctAnswer = correctAnswer.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                if ["yes", "네", "true", "correct", "that's right", "맞습니다", "네, 그렇습니다", "사실입니다"].contains(correctAnswer) {
+                    correctAnswer = "true"
+                } else if ["no", "아니오", "false", "incorrect", "that's wrong", "아닙니다", "아니요", "사실이 아니다", "사실이 아닙니다"].contains(correctAnswer) {
+                    correctAnswer = "false"
+                }
+            }
+
             return Question(
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
                 difficulty: parameters.difficulty,
-                question: processedQuestion,  // 처리된 질문 사용
+                question: processedQuestion,
                 options: questionData.options,
-                correctAnswer: questionData.correctAnswer,
+                correctAnswer: correctAnswer,  // 정규화된 답변 사용
                 explanation: questionData.explanation,
                 hint: questionData.hint,
                 isSaved: false,
