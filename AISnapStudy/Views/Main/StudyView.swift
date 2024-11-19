@@ -25,10 +25,12 @@ struct StudyView: View {
         VStack {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
-                    QuestionGeneratingView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.white)
-                        .transition(.opacity)
+                    GeneratingQuestionsOverlay(
+                        questionCount: studyViewModel.totalExpectedQuestions  // questionCount 매개변수 추가
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
+                    .transition(.opacity)
                     
                     if !studyViewModel.generatedQuestions.isEmpty {
                         ScrollView {
@@ -175,10 +177,6 @@ struct QuestionPreviewCard: View {
                   .cornerRadius(4)
               
               Spacer()
-              
-              Text(question.difficulty.rawValue.capitalized)
-                  .font(.caption)
-                  .foregroundColor(.secondary)
           }
           
           // 질문
@@ -321,105 +319,112 @@ private struct ActionButton: View {
    }
 }
 
-struct QuestionGeneratingView: View {
+struct GeneratingQuestionsOverlay: View {
+    let questionCount: Int  // 필요하지만 사용하지 않을 매개변수
     @State private var rotation: Double = 0
     @State private var dotScale: CGFloat = 1.0
     @State private var currentTipIndex = 0
-    let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     
     var body: some View {
-        VStack(spacing: 30) {
-            // Main Animation Circle - 크기 증가 및 색상 조정
-            ZStack {
-                // Outer rotating circle
-                Circle()
-                    .stroke(lineWidth: 6)  // 선 두께 증가
-                    .frame(width: 200, height: 200)  // 크기 증가
-                    .foregroundColor(.blue.opacity(0.3))
-                    .rotationEffect(.degrees(rotation))
-                
-                // Inner gradient circle
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.blue, .purple]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 10  // 선 두께 증가
-                    )
-                    .frame(width: 180, height: 180)  // 크기 증가
-                    .rotationEffect(.degrees(-rotation))
-                
-                // Center content
-                VStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 40))  // 아이콘 크기 증가
-                        .foregroundColor(.blue)
-                    Text("Generating")
-                        .font(.title)  // 폰트 크기 증가
-                        .foregroundColor(.primary)
-                    Text("Questions")
-                        .font(.title2)  // 폰트 크기 증가
-                        .foregroundColor(.primary)
-                }
-            }
-            .onAppear {
-                withAnimation(
-                    .linear(duration: 4)
-                    .repeatForever(autoreverses: false)
-                ) {
-                    rotation = 360
-                }
-            }
+        ZStack {
+            // 배경색을 흰색으로 변경
+            Color.white
+                .edgesIgnoringSafeArea(.all)
             
-            // Animated Dots - 크기 및 색상 조정
-            HStack(spacing: 8) {
-                ForEach(0..<3) { index in
+            VStack(spacing: 30) {
+                // Main Animation Circle
+                ZStack {
+                    // Outer rotating circle
                     Circle()
-                        .fill(Color.blue)
-                        .frame(width: 12, height: 12)  // 크기 증가
-                        .scaleEffect(dotScale)
-                        .animation(
-                            .easeInOut(duration: 0.6)
-                            .repeatForever()
-                            .delay(Double(index) * 0.2),
-                            value: dotScale
+                        .stroke(lineWidth: 6)
+                        .frame(width: 200, height: 200)
+                        .foregroundColor(.blue.opacity(0.3))
+                        .rotationEffect(.degrees(rotation))
+                    
+                    // Inner gradient circle
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.blue, .purple]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 10
                         )
-                }
-            }
-            .onAppear {
-                dotScale = 0.5
-            }
-            
-            // Tips Section - 배경 및 텍스트 색상 조정
-            VStack(spacing: 12) {
-                Text(tips[currentTipIndex])
-                    .font(.headline)  // 폰트 크기 증가
-                    .foregroundColor(.white)  // 텍스트 색상을 흰색으로 변경
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                    .frame(height: 60)
-                    .transition(.opacity.combined(with: .slide))
-                    .id(currentTipIndex)
-                    .animation(.easeInOut, value: currentTipIndex)
-                
-                // Progress Dots
-                HStack(spacing: 6) {
-                    ForEach(0..<tips.count) { index in
-                        Circle()
-                            .fill(index == currentTipIndex ? Color.white : Color.gray)  // 활성 도트 색상을 흰색으로 변경
-                            .frame(width: 8, height: 8)
+                        .frame(width: 180, height: 180)
+                        .rotationEffect(.degrees(-rotation))
+                    
+                    // Center content - 텍스트 색상을 검은색으로 변경하고 Questions 수 표시 제거
+                    VStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 40))
+                            .foregroundColor(.blue)
+                        Text("Generating")
+                            .font(.title)
+                            .foregroundColor(.black)  // 검은색으로 변경
+                        Text("Questions")
+                            .font(.title2)
+                            .foregroundColor(.black)  // 검은색으로 변경
                     }
                 }
+                .onAppear {
+                    withAnimation(
+                        .linear(duration: 4)
+                        .repeatForever(autoreverses: false)
+                    ) {
+                        rotation = 360
+                    }
+                }
+                
+                // Animated Dots
+                HStack(spacing: 8) {
+                    ForEach(0..<3) { index in
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 12, height: 12)
+                            .scaleEffect(dotScale)
+                            .animation(
+                                .easeInOut(duration: 0.6)
+                                .repeatForever()
+                                .delay(Double(index) * 0.2),
+                                value: dotScale
+                            )
+                    }
+                }
+                .onAppear {
+                    dotScale = 0.5
+                }
+                
+                // Tips Section
+                VStack(spacing: 12) {
+                    Text(tips[currentTipIndex])
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .frame(height: 60)
+                        .transition(.opacity.combined(with: .slide))
+                        .id(currentTipIndex)
+                        .animation(.easeInOut, value: currentTipIndex)
+                    
+                    // Progress Dots
+                    HStack(spacing: 6) {
+                        ForEach(0..<tips.count) { index in
+                            Circle()
+                                .fill(index == currentTipIndex ? Color.white : Color.gray)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color.blue.opacity(0.8))
+                )
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 15)
-                    .fill(Color.blue.opacity(0.8))  // 배경 색상을 진한 파란색으로 변경
-            )
+            .padding(30)
         }
-        .padding(30)
         .onReceive(timer) { _ in
             withAnimation {
                 currentTipIndex = (currentTipIndex + 1) % tips.count
@@ -448,9 +453,6 @@ struct GeneratedQuestionPreviewCard: View {
                     .font(.caption)
                     .foregroundColor(.blue)
                 Spacer()
-                Text(question.difficulty.displayName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             
             Text(question.question)

@@ -74,7 +74,7 @@ struct LanguageSection: View {
                     HStack {
                         Image(systemName: "globe")
                             .foregroundColor(.blue)
-                        Text("Question Language")
+                        Text("Language")
                             .font(.headline)
                     }
                     

@@ -6,7 +6,7 @@ struct EducationLevelSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
     
     var body: some View {
-        Section("Education Level") {
+        Section("Education") {
             HStack(spacing: 12) {
                 ForEach(EducationLevel.allCases, id: \.self) { level in
                     EducationLevelButton(

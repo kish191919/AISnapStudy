@@ -13,7 +13,6 @@ extension CDProblemSet {
         return ProblemSet(
             id: self.id ?? UUID().uuidString,
             subject: Subject(rawValue: self.subject ?? "") ?? .math,
-            difficulty: Difficulty(rawValue: self.difficulty ?? "") ?? .medium,
             questions: questions,
             createdAt: self.createdAt ?? Date(),
             lastAttempted: self.lastAttempted,
@@ -33,7 +32,6 @@ extension CDQuestion {
             id: self.id ?? UUID().uuidString,
             type: QuestionType(rawValue: self.type ?? "") ?? .multipleChoice,
             subject: Subject(rawValue: self.problemSet?.subject ?? "") ?? .math,
-            difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
             question: self.question ?? "",
             options: self.options as? [String] ?? [],
             correctAnswer: self.correctAnswer ?? "",
@@ -54,7 +52,6 @@ extension CDStudySession {
             problemSet: self.problemSet?.toDomain() ?? ProblemSet(
                 id: UUID().uuidString,
                 subject: .math,
-                difficulty: .medium,
                 questions: [],
                 createdAt: Date(),
                 educationLevel: .elementary, // 추가

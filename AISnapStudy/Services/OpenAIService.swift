@@ -97,20 +97,17 @@ class OpenAIService {
     
     public struct QuestionParameters {    // private -> public 으로 변경
         let subject: Subject
-        let difficulty: Difficulty
         let educationLevel: EducationLevel
         let questionTypes: [QuestionType: Int]
         let language: Language
         
         public init(    // public init 추가
             subject: Subject,
-            difficulty: Difficulty,
             educationLevel: EducationLevel,
             questionTypes: [QuestionType: Int],
             language: Language
         ) {
             self.subject = subject
-            self.difficulty = difficulty
             self.educationLevel = educationLevel
             self.questionTypes = questionTypes
             self.language = language
@@ -227,7 +224,7 @@ class OpenAIService {
             throw NetworkError.noConnection
         }
         
-        let cacheKey = "\(input.contentHash)_\(parameters.subject.rawValue)_\(parameters.difficulty.rawValue)"
+        let cacheKey = "\(input.contentHash)_\(parameters.subject.rawValue)"
         if let cachedQuestions = cache.object(forKey: cacheKey as NSString) as? [Question] {
             print("✅ Retrieved questions from cache")
             return cachedQuestions
@@ -281,158 +278,131 @@ class OpenAIService {
         isImageInput: Bool,
         isExtractedText: Bool,  // 새로운 매개변수 추가
         educationLevel: EducationLevel,
-        difficulty: Difficulty,
         language: Language
     ) -> SubjectPrompt {
-        let languageInstruction_text = language == .auto ?
-            "Generate questions in the exact same language as the input text" :
+        let languageInstructionText = language == .auto ?
+            "Generate questions in the exact same language as the input text." :
             """
-            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
-            DO NOT use the input text's language.
-            Even if the input is in a different language, your output must be in \(language.displayName) only.
+            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.displayName) language.
+            DO NOT use the input text's language. Even if the input is in another language, the output must be in \(language.displayName) only.
             """
         
-        let languageInstruction_image = language == .auto ?
-            "Generate questions in the exact same language as any visible text in the image" :
+        let languageInstructionImage = language == .auto ?
+            "Generate questions in the same language as any visible text in the image." :
             """
-            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
-            DO NOT use the input text's language.
-            Even if the input text is in a different language, your output must be in \(language.displayName) only.
+            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.displayName) (\(language.rawValue)).
+            DO NOT use the language of visible text in the image. All output must be in \(language.displayName) only.
             """
 
+        // 순수 이미지 기반 입력
         if isImageInput && !isExtractedText {
-            // 순수 이미지 분석 케이스
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an \(subject.displayName) expert creating image-based questions.
-                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    You are an expert in \(subject.displayName), creating self-contained, image-based questions.
                     
-                    STRICT LANGUAGE REQUIREMENT:
-                    - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
-                    - Maintain consistent language throughout all content
-                    - Translate concepts from input while maintaining accuracy
+                    STRICT LANGUAGE REQUIREMENTS:
+                    - Output language: \(language == .auto ? "same as visible text in the image" : language.displayName)
+                    - Ensure consistent language usage throughout all content.
+                    - Translate concepts accurately without losing meaning.
                     
-                    For True/False questions:
-                    - Answer must be exactly "true" or "false" (lowercase)
-                    - Do not use variations like "Yes", "No", "That's correct", etc.
-                    - Do not translate true/false to other languages
-                    """,
-                userPromptTemplate: """
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Important: \(languageInstruction_image)
-                    Include detailed explanations and hints.
-                    
-                    Do not include the example questions below as part of the generated questions. These are provided only as examples of good and bad questions and must not appear in the output.
-                    
-                    Examples of GOOD trueFalse questions:
-                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
-                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
-                    
-                    Examples of BAD trueFalse questions:
-                    - The capital of France is Berlin.
-                    - Who was worried in the story?
-                    
-                    Examples of GOOD multipleChoice questions:
-                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
-                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
-                    
-                    Examples of BAD multipleChoice questions:
-                    - What does the text explain?
-                    - According to the text, what is his job?
-                    """
-            )
-        } else if isImageInput && isExtractedText {
-            // 이미지에서 추출된 텍스트 분석 케이스
-            return SubjectPrompt(
-                systemPrompt: """
-                    You are an \(subject.displayName) expert analyzing extracted text from images.
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    
-                    STRICT LANGUAGE REQUIREMENT:
-                    - Output language: \(language == .auto ? "Same as extracted text" : language.displayName)
-                    - Maintain consistent language throughout all content
-                    - Preserve technical terms and proper nouns while translating
-                    
-                    For trueFalse questions:
-                    - Must be a statement that can be verified as true or false
-                    - Do not create open-ended or "wh-" questions (what, who, how, etc.)
-                    - Answer must be exactly "true" or "false" (lowercase)
-                    - Do not use variations like "Yes", "No", "That's correct", etc.
-                    - Do not translate true/false to other languages
-                    """,
-                userPromptTemplate: """
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Important: \(languageInstruction_image)
-                    Include detailed explanations and hints.
-                    
-                    Do not include the example questions below as part of the generated questions. These are provided only as examples of good and bad questions and must not appear in the output.
-                    
-                    Examples of GOOD trueFalse questions:
-                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
-                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
-                    
-                    Examples of BAD trueFalse questions:
-                    - The capital of France is Berlin.
-                    - Who was worried in the story?
-                    
-                    Examples of GOOD multipleChoice questions:
-                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
-                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
-                    
-                    Examples of BAD multipleChoice questions:
-                    - What does the text explain?
-                    - According to the text, what is his job?
-                    """
-            )
-        } else {
-            // 일반 텍스트 입력 케이스 (기존 로직)
-            return SubjectPrompt(
-                systemPrompt: """
-                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Include detailed explanations and hints.
-                    
-                    STRICT LANGUAGE REQUIREMENT:
-                    - Output language: \(language == .auto ? "Same as input" : language.displayName)
-                    - Maintain consistent language throughout all content
-                    - Translate concepts from input while maintaining accuracy
-                    
-                    For True/False questions:
-                    - Answer must be exactly "true" or "false" (lowercase)
-                    - Do not use variations like "Yes", "No", "That's correct", etc.
-                    - Do not translate true/false to other languages
-                    """,
-                userPromptTemplate: """
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Important: \(languageInstruction_text)
-                    Include detailed explanations and hints.
-                    
-                    Question creation guidelines:
-                    - Generate questions directly from the user's input content
-                    - Create questions for \(educationLevel.displayName) school student
-                    - Avoid broad, oversimplified questions
-                    
-                    Do not include the example questions below as part of the generated questions. These are provided only as examples of good and bad questions and must not appear in the output.
+                    FORMATTING REQUIREMENTS:
+                    - Each question must be self-contained with all necessary context provided.
+                    - Avoid ambiguous or overly broad questions.
+                    - Ensure True/False answers are always lowercase ("true" or "false").
+                    - Do not translate True/False answers into other languages.
 
-                    Examples of GOOD trueFalse questions:
-                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
-                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    ERROR PREVENTION:
+                    - Avoid using "Yes", "No", or "That's correct" for True/False questions.
+                    - Check the consistency of technical terms and proper nouns.
+                    """,
+                userPromptTemplate: """
+                    Create high-quality, context-rich questions based on the given image.
+                    \(languageInstructionImage)
+                    Each question must include detailed explanations and hints.
+
+                    Examples of good questions:
+                    - "If the sum of the angles in a triangle is 180°, and one angle is 90°, what are the other two angles?"
+                    - "The Roman Empire declined for many reasons. Which of the following factors contributed the most to its fall?"
                     
-                    Examples of BAD trueFalse questions:
-                    - The capital of France is Berlin.
-                    - Who was worried in the story?
+                    Examples of bad questions:
+                    - "What does the text explain?"
+                    - "Is this image interesting?"
+                    """
+            )
+        }
+        // 이미지에서 추출된 텍스트 기반 입력
+        else if isImageInput && isExtractedText {
+            return SubjectPrompt(
+                systemPrompt: """
+                    You are an expert in \(subject.displayName), specializing in creating self-contained questions based on extracted text from images.
                     
-                    Examples of GOOD multipleChoice questions:
-                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
-                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    STRICT LANGUAGE REQUIREMENTS:
+                    - Output language: \(language == .auto ? "same as the extracted text" : language.displayName)
+                    - Maintain consistent language usage across all questions, answers, and explanations.
+                    - Preserve technical terms and proper nouns during translation.
+
+                    FORMATTING REQUIREMENTS:
+                    - Create questions with all necessary context included.
+                    - True/False answers must be "true" or "false" (lowercase).
+                    - Avoid "wh-" questions like "what", "who", or "how".
+
+                    ERROR PREVENTION:
+                    - Do not use variations like "Yes", "No", or "That's correct" for True/False questions.
+                    - Avoid ambiguity in technical or academic concepts.
+                    """,
+                userPromptTemplate: """
+                    Generate accurate and context-aware questions from the extracted text in the image.
+                    \(languageInstructionImage)
+                    Include hints and explanations for each question.
+
+                    Examples of good questions:
+                    - "The fall of the Roman Empire is often attributed to external invasions. Which of the following best explains this?"
+                    - "In the Pythagorean theorem, if a² + b² = c², what does 'c' represent in a right triangle?"
+
+                    Examples of bad questions:
+                    - "What does this text mean?"
+                    - "Explain the context."
+                    """
+            )
+        }
+        // 텍스트 기반 입력
+        else {
+            return SubjectPrompt(
+                systemPrompt: """
+                    You are an expert in \(subject.displayName), creating questions for \(educationLevel.displayName) students.
                     
-                    Examples of BAD multipleChoice questions:
-                    - What does the text explain?
-                    - According to the text, what is his job?
+                    STRICT LANGUAGE REQUIREMENTS:
+                    - Output language: \(language == .auto ? "same as input text" : language.displayName)
+                    - Maintain consistent language usage in all content.
+                    - Translate concepts accurately and preserve their original meaning.
+
+                    FORMATTING REQUIREMENTS:
+                    - Include all necessary context within the questions.
+                    - Avoid overly broad or simplistic questions.
+                    - True/False answers must be "true" or "false" (lowercase) and must not be translated.
+
+                    ERROR PREVENTION:
+                    - Do not use "Yes", "No", or "That's correct" for True/False answers.
+                    - Ensure clarity and precision in question phrasing.
+                    """,
+                userPromptTemplate: """
+                    Create thoughtful and context-rich questions based on the input text.
+                    \(languageInstructionText)
+                    Create National Assessment of Educational Progress questions for \(educationLevel.displayName) school students
+                    Include hints and detailed explanations.
+
+                    Examples of good questions:
+                    - "The Renaissance was a cultural movement in Europe. Which of the following innovations was NOT developed during this period?"
+                    - "If a car travels 60 miles in one hour, how far will it travel in three hours at the same speed?"
+
+                    Examples of bad questions:
+                    - "What is the capital of France?"
+                    - "Explain this text."
                     """
             )
         }
     }
+
     
     // MARK: - Schema and Prompt Preparation
     private func preparePromptAndSchema(
@@ -446,7 +416,6 @@ class OpenAIService {
             isImageInput: input.isImage,
             isExtractedText: !input.isImage && input.content.count > 0,  // 텍스트 추출 여부 확인
             educationLevel: parameters.educationLevel,
-            difficulty: parameters.difficulty,
             language: parameters.language
         )
         let schema = try await generateSchema(for: parameters.questionTypes)
@@ -460,7 +429,6 @@ class OpenAIService {
         let userPrompt = subjectPrompt.userPromptTemplate
             .replacingOccurrences(of: "{input_type}", with: input.isImage ? "image" : "text")
             .replacingOccurrences(of: "{education_level}", with: parameters.educationLevel.rawValue)
-            .replacingOccurrences(of: "{difficulty}", with: parameters.difficulty.rawValue)
         
         return (schema, (systemPrompt, userPrompt))
     }
@@ -611,12 +579,19 @@ class OpenAIService {
         let questions = questionSchema.questions.map { questionData in
             // True/False 질문에서 접두사 제거
             let processedQuestion = questionData.type == "true_false" ?
-                questionData.question.replacingOccurrences(
-                    of: "^(True or False:|True/False:|T/F:)\\s*",
-                    with: "",
-                    options: [.regularExpression, .caseInsensitive]
-                ).trimmingCharacters(in: .whitespacesAndNewlines) :
                 questionData.question
+                    .replacingOccurrences(
+                        of: "^(True or False:|True/False:|T/F:|\\(True/False\\)|\\[True/False\\]|True or False\\?|Is it true or false:|True False:)\\s*",
+                        with: "",
+                        options: [.regularExpression, .caseInsensitive]
+                    )
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .trimmingCharacters(in: .whitespacesAndNewlines) :
+                questionData.question
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
 
             // True/False 답변 정규화
             var correctAnswer = questionData.correctAnswer
@@ -633,10 +608,9 @@ class OpenAIService {
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
-                difficulty: parameters.difficulty,
-                question: processedQuestion,
+                question: processedQuestion,  // 처리된 질문 사용
                 options: questionData.options,
-                correctAnswer: correctAnswer,  // 정규화된 답변 사용
+                correctAnswer: correctAnswer,
                 explanation: questionData.explanation,
                 hint: questionData.hint,
                 isSaved: false,

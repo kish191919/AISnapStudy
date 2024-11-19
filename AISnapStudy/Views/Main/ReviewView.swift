@@ -93,7 +93,6 @@ struct SavedQuestionsView: View {
                     let problemSet = ProblemSet(
                         id: UUID().uuidString,
                         subject: question.subject,
-                        difficulty: question.difficulty,
                         questions: [question],
                         createdAt: Date(),
                         educationLevel: .elementary,

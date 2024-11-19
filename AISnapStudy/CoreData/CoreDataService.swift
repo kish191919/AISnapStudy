@@ -119,7 +119,6 @@ class CoreDataService {
                     id: id,
                     type: QuestionType(rawValue: type) ?? .multipleChoice,
                     subject: Subject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .math,
-                    difficulty: Difficulty(rawValue: cdQuestion.problemSet?.difficulty ?? "") ?? .medium,
                     question: questionText,
                     options: options,
                     correctAnswer: correctAnswer,
@@ -229,7 +228,6 @@ class CoreDataService {
                             id: id,
                             type: QuestionType(rawValue: type) ?? .multipleChoice,
                             subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
-                            difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
                             question: questionText,
                             options: options,
                             correctAnswer: correctAnswer,
@@ -245,7 +243,6 @@ class CoreDataService {
                 return ProblemSet(
                     id: cdProblemSet.id ?? UUID().uuidString,
                     subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
-                    difficulty: Difficulty(rawValue: cdProblemSet.difficulty ?? "") ?? .medium,
                     questions: questions,
                     createdAt: cdProblemSet.createdAt ?? Date(),
                     lastAttempted: cdProblemSet.lastAttempted,
@@ -265,7 +262,6 @@ class CoreDataService {
         let cdProblemSet = CDProblemSet(context: viewContext)
         cdProblemSet.id = problemSet.id
         cdProblemSet.subject = problemSet.subject.rawValue
-        cdProblemSet.difficulty = problemSet.difficulty.rawValue
         cdProblemSet.createdAt = problemSet.createdAt
         cdProblemSet.lastAttempted = problemSet.lastAttempted
         
@@ -370,7 +366,6 @@ extension CDQuestion {
             id: id,
             type: QuestionType(rawValue: type) ?? .multipleChoice,
             subject: Subject(rawValue: self.problemSet?.subject ?? "") ?? .math,
-            difficulty: Difficulty(rawValue: self.problemSet?.difficulty ?? "") ?? .medium,
             question: question,
             options: options,
             correctAnswer: correctAnswer,

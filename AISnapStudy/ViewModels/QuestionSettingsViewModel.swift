@@ -22,6 +22,8 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var extractedTexts: [String: String] = [:]
     @Published var isLoadingTexts: [String: Bool] = [:]
     @Published var extractionStatus: [String: Bool] = [:]
+    @Published private(set) var isCameraAuthorized = false
+    @Published private(set) var isGalleryAuthorized = false
     
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
@@ -34,7 +36,6 @@ class QuestionSettingsViewModel: ObservableObject {
     private enum UserDefaultsKeys {
         static let lastSubject = "lastSelectedSubject"
         static let lastEducationLevel = "lastEducationLevel"
-        static let lastDifficulty = "lastDifficulty"
         static let lastMultipleChoiceCount = "lastMultipleChoiceCount"
         static let lastTrueFalseCount = "lastTrueFalseCount"
     }
@@ -78,12 +79,6 @@ class QuestionSettingsViewModel: ObservableObject {
          }
      }
      
-     @Published var difficulty: Difficulty {
-         didSet {
-             UserDefaults.standard.set(difficulty.rawValue, forKey: UserDefaultsKeys.lastDifficulty)
-         }
-     }
-     
      @Published var multipleChoiceCount: Int {
          didSet {
              UserDefaults.standard.set(multipleChoiceCount, forKey: UserDefaultsKeys.lastMultipleChoiceCount)
@@ -97,6 +92,7 @@ class QuestionSettingsViewModel: ObservableObject {
      }
      
      let subject: Subject
+    
      
      // MARK: - Initialization
      init(subject: Subject, homeViewModel: HomeViewModel) {
@@ -107,14 +103,11 @@ class QuestionSettingsViewModel: ObservableObject {
          
          // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
          let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
-         let lastDifficultyRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastDifficulty)
          let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
 
          
          // 기본값을 하드코딩하지 않고 파라미터나 null 처리
          self.selectedSubject = Subject(rawValue: lastSubjectRaw ?? "") ?? subject
-         self.difficulty = Difficulty(rawValue: lastDifficultyRaw ?? "") ?? .medium  // 기본값을 .medium으로 변경
-         
          self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
          self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
          self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
@@ -143,6 +136,29 @@ class QuestionSettingsViewModel: ObservableObject {
              print("Failed to initialize OpenAI service:", error)
          }
      }
+    
+    // Add permission check methods
+    func checkCameraPermission() async -> Bool {
+        do {
+            return try await imageService.requestPermission(for: .camera)
+        } catch {
+            await MainActor.run {
+                showError(error)
+            }
+            return false
+        }
+    }
+    
+    func checkGalleryPermission() async -> Bool {
+        do {
+            return try await imageService.requestPermission(for: .gallery)
+        } catch {
+            await MainActor.run {
+                showError(error)
+            }
+            return false
+        }
+    }
      
      // MARK: - Image Management
      private func generateImageId() -> String {
@@ -255,14 +271,12 @@ class QuestionSettingsViewModel: ObservableObject {
      func resetAllSettings() {
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastSubject)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastEducationLevel)
-         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastDifficulty)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastTrueFalseCount)
          
          // Reset to defaults
          selectedSubject = subject
          educationLevel = .elementary
-         difficulty = .medium
          resetCounts()
      }
     
@@ -516,7 +530,6 @@ class QuestionSettingsViewModel: ObservableObject {
     private func createParameters() -> OpenAIService.QuestionParameters {
         return OpenAIService.QuestionParameters(
             subject: selectedSubject,
-            difficulty: difficulty,
             educationLevel: educationLevel,
             questionTypes: [
                 .multipleChoice: multipleChoiceCount,
@@ -525,13 +538,60 @@ class QuestionSettingsViewModel: ObservableObject {
             language: selectedLanguage  // language 파라미터 추가
         )
     }
-    // MARK: - Image Capture Methods
+    // Update image handling methods
+    @MainActor
+    func handleCameraImage(_ image: UIImage?) {
+        print("📸 Processing camera image...")
+        guard let image = image else {
+            print("❌ No image captured")
+            return
+        }
+
+        Task {
+            do {
+                let orientedImage = image.fixedOrientation()
+                await addImage(orientedImage)
+                hasCameraImage = true
+                hasSelectedCamera = true
+                hasSelectedGallery = false
+                print("✅ Camera image added successfully")
+            } catch {
+                print("❌ Failed to add camera image: \(error)")
+                showError(error)
+            }
+        }
+    }
+
+    @MainActor
+    func selectFromGallery() async {
+        do {
+            let hasPermission = try await imageService.requestPermission(for: .gallery)
+            if hasPermission {
+                hasSelectedCamera = false  // Reset camera selection
+                hasSelectedGallery = true
+                showImagePicker = true
+                hasGalleryImages = true
+            } else {
+                self.error = ImageServiceError.permissionDenied
+                showError(ImageServiceError.permissionDenied)
+            }
+        } catch {
+            if let imageError = error as? ImageServiceError {
+                showError(imageError)
+            } else {
+                showError(error)
+            }
+        }
+    }
+
     @MainActor
     func takePhoto() async {
         print("📸 Taking photo...")
         do {
             let hasPermission = try await imageService.requestPermission(for: .camera)
             if hasPermission {
+                hasSelectedGallery = false  // Reset gallery selection
+                hasSelectedCamera = true
                 showCamera = true
                 hasCameraImage = true
             } else {
@@ -548,49 +608,6 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     
     @MainActor
-    func handleCameraImage(_ image: UIImage?) {
-        print("📸 Processing camera image...")
-        guard let image = image else {
-            print("❌ No image captured")
-            return
-        }
-
-        Task {
-            do {
-                // 이미지 방향 보정 후 처리
-                let orientedImage = image.fixedOrientation()
-                await addImage(orientedImage)
-                hasCameraImage = true
-                hasSelectedCamera = true
-                print("✅ Camera image added successfully")
-            } catch {
-                print("❌ Failed to add camera image: \(error)")
-                showError(error)
-            }
-        }
-    }
-     
-     @MainActor
-     func selectFromGallery() async {
-         do {
-             let hasPermission = try await imageService.requestPermission(for: .gallery)
-             if hasPermission {
-                 showImagePicker = true
-                 hasGalleryImages = true
-             } else {
-                 self.error = ImageServiceError.permissionDenied
-                 showError(ImageServiceError.permissionDenied)
-             }
-         } catch {
-             if let imageError = error as? ImageServiceError {
-                 showError(imageError)
-             } else {
-                 showError(error)
-             }
-         }
-     }
-    
-    @MainActor
     func processGeneratedQuestions(_ questions: [Question], name: String) async {
         print("\n🔄 Processing Generated Questions:")
         print("Number of questions by type:")
@@ -603,7 +620,6 @@ class QuestionSettingsViewModel: ObservableObject {
         let problemSet = ProblemSet(
             id: UUID().uuidString,
             subject: subject,
-            difficulty: difficulty,
             questions: questions,
             createdAt: Date(),
             educationLevel: self.educationLevel,

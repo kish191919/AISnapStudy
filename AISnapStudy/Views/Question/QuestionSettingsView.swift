@@ -13,6 +13,7 @@ struct QuestionSettingsView: View {
     @State private var isTextInputSelected = false
     @State private var showNamePopup = false
     @State private var isGeneratingQuestions = false
+    @State private var activeSheet: ActiveSheet?
     
     let subject: Subject
     
@@ -21,8 +22,19 @@ struct QuestionSettingsView: View {
         case learningSubject
         case questionTypes
         case educationLevel
-        case difficultyLevel
     }
+    
+    private enum ActiveSheet: Identifiable {
+        case camera, gallery
+        
+        var id: Int {
+            switch self {
+            case .camera: return 1
+            case .gallery: return 2
+            }
+        }
+    }
+    
     
     init(subject: Subject, homeViewModel: HomeViewModel, selectedTab: Binding<Int>) {
         self.subject = subject
@@ -32,9 +44,10 @@ struct QuestionSettingsView: View {
         ))
         self._selectedTab = selectedTab
     }
-    
+
     var body: some View {
         VStack(spacing: 0) {
+            // Instructions Card
             Form {
                 // Speed Up and Language Selection Section
                 Section {
@@ -46,46 +59,77 @@ struct QuestionSettingsView: View {
                     LanguageSection(selectedLanguage: $viewModel.selectedLanguage)
                 }
                 .listRowSpacing(0)
-
-
-                // Image Selection Options
-                HStack(spacing: 12) {
-                    ImageOptionCard(
-                        icon: "camera.fill",
-                        isUsed: viewModel.hasSelectedCamera,
-                        isDisabled: !viewModel.canUseImageInput,
-                        action: {
-                            if viewModel.canUseImageInput {
-                                isTextInputSelected = false
-                                Task { await viewModel.takePhoto() }
-                            }
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("How to Generate Questions")
+                        .font(.headline)
+                        .padding(.bottom, 4)
+                    
+                    Text("Select one of these methods here and then choose Subject and Type to create questions:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    // Input Methods with descriptions
+                    HStack(spacing: 12) {
+                        Group {
+                            InputMethodCard(
+                                icon: "camera.fill",
+                                title: "Camera",
+                                isUsed: viewModel.hasSelectedCamera,
+                                isDisabled: !viewModel.canUseImageInput,
+                                action: {
+                                    if viewModel.canUseImageInput {
+                                        viewModel.isTextInputActive = false
+                                        Task {
+                                            if await viewModel.checkCameraPermission() {
+                                                activeSheet = .camera
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
                         }
-                    )
-
-                    ImageOptionCard(
-                        icon: "photo.fill",
-                        isUsed: viewModel.hasSelectedGallery,
-                        isDisabled: !viewModel.canUseImageInput,
-                        action: {
-                            if viewModel.canUseImageInput {
-                                isTextInputSelected = false
-                                Task { await viewModel.selectFromGallery() }
-                            }
+                        
+                        
+                        Group {
+                            InputMethodCard(
+                                icon: "photo.fill",
+                                title: "Gallery",
+                                isUsed: viewModel.hasSelectedGallery,
+                                isDisabled: !viewModel.canUseImageInput,
+                                action: {
+                                    if viewModel.canUseImageInput {
+                                        viewModel.isTextInputActive = false
+                                        Task {
+                                            if await viewModel.checkGalleryPermission() {
+                                                activeSheet = .gallery
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
                         }
-                    )
-
-                    ImageOptionCard(
-                        icon: "text.bubble.fill",
-                        isUsed: viewModel.isTextInputActive,
-                        isDisabled: !viewModel.canUseTextInput,
-                        action: {
-                            isTextInputSelected.toggle()
-                            viewModel.toggleTextInput()
+                        
+                        Group {
+                            InputMethodCard(
+                                icon: "text.bubble.fill",
+                                title: "Text",
+                                isUsed: viewModel.isTextInputActive,
+                                isDisabled: !viewModel.canUseTextInput,
+                                action: {
+                                    viewModel.toggleTextInput()
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
                         }
-                    )
+                    }
                 }
-                .padding(.horizontal)
-
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                
                 // Text Input Field
                 if viewModel.isTextInputActive {
                     TextField("Enter your question here...", text: $viewModel.questionText)
@@ -127,6 +171,25 @@ struct QuestionSettingsView: View {
                     }
                 }.listRowSpacing(0)
                 
+                if viewModel.isTextInputActive {
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .educationLevel)
+                        ) {
+                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                        } label: {
+                            HStack {
+                                Text("Education")
+                                    .font(.headline)
+                                Spacer()
+                                Text(viewModel.educationLevel.displayName)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }.listRowSpacing(0)
+                }
+
+                
                 // Question Types Section
                 Section {
                     DisclosureGroup(
@@ -153,27 +216,10 @@ struct QuestionSettingsView: View {
                             EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
                         } label: {
                             HStack {
-                                Text("Education Level")
+                                Text("Education")
                                     .font(.headline)
                                 Spacer()
                                 Text(viewModel.educationLevel.displayName)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }.listRowSpacing(0)
-                    
-                    // Difficulty Level Section
-                    Section {
-                        DisclosureGroup(
-                            isExpanded: isExpandedBinding(for: .difficultyLevel)
-                        ) {
-                            DifficultyLevelSection(difficulty: $viewModel.difficulty)
-                        } label: {
-                            HStack {
-                                Text("Difficulty Level")
-                                    .font(.headline)
-                                Spacer()
-                                Text(viewModel.difficulty.displayName)
                                     .foregroundColor(.gray)
                             }
                         }
@@ -207,19 +253,24 @@ struct QuestionSettingsView: View {
         .overlay(popupOverlay)
         .navigationBarItems(leading: cancelButton)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $viewModel.showImagePicker) {
-            PhotoPicker(selectedImages: $viewModel.selectedImages)
-        }
-        .sheet(isPresented: $viewModel.showCamera) {
-            ImagePicker(
-                image: $viewModel.selectedImage,
-                sourceType: .camera,
-                onImageSelected: { image in
-                    Task {
-                        await viewModel.handleCameraImage(image)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .camera:
+                ImagePicker(
+                    image: $viewModel.selectedImage,
+                    sourceType: .camera,
+                    onImageSelected: { image in
+                        Task {
+                            await viewModel.handleCameraImage(image)
+                        }
                     }
-                }
-            )
+                )
+                .interactiveDismissDisabled()
+                
+            case .gallery:
+                PhotoPicker(selectedImages: $viewModel.selectedImages)
+                    .interactiveDismissDisabled()
+            }
         }
         .alert(isPresented: $viewModel.showAlert) {
             Alert(
@@ -291,48 +342,11 @@ struct QuestionSettingsView: View {
 
 
 
-struct GeneratingQuestionsOverlay: View {
-    let questionCount: Int
-    @State private var animatingDots = false
-    
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .edgesIgnoringSafeArea(.all)
-            
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                
-                Text("Generating \(questionCount) questions\(dots)")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                
-                Text("Please wait...")
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.8))
-            }
-            .padding()
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(10)
-        }
-        .onAppear {
-            withAnimation(Animation.easeInOut(duration: 0.8).repeatForever()) {
-                animatingDots.toggle()
-            }
-        }
-    }
-    
-    private var dots: String {
-        animatingDots ? "..." : ""
-    }
-}
 
 struct ProblemSetNamePopup: View {
     @Binding var isPresented: Bool
     @Binding var problemSetName: String
-    @Binding var isGeneratingQuestions: Bool  // 추가
+    @Binding var isGeneratingQuestions: Bool
     let defaultName: String
     let onSubmit: () -> Void
     
@@ -361,7 +375,6 @@ struct ProblemSetNamePopup: View {
                         }
                 }
                 
-                // 질문 생성 상태에 따른 메시지 표시
                 Text(isGeneratingQuestions ?
                      "Questions are being generated... Please wait." :
                      "Questions are ready. Please save the name to continue.")
@@ -387,11 +400,12 @@ struct ProblemSetNamePopup: View {
                 .disabled(isGeneratingQuestions)
             }
             .padding(32)
-            .background(Color(UIColor.systemBackground))
+            .background(Color(.systemBackground))
             .cornerRadius(16)
             .shadow(radius: 10)
             .padding(.horizontal, 32)
         }
+        // 불필요한 onChange나 onReceive 모디파이어 제거
     }
 }
 
@@ -506,26 +520,6 @@ struct SelectableButton: View {
    }
 }
 
-struct DifficultyLevelSection: View {
-   @Binding var difficulty: Difficulty
-   
-   var body: some View {
-       HStack(spacing: 12) {
-           ForEach(Difficulty.allCases, id: \.self) { level in
-               SelectableButton(
-                   title: level.displayName,
-                   isSelected: difficulty == level,
-                   color: level.color
-               ) {
-                   withAnimation(.spring()) {
-                       difficulty = level
-                   }
-               }
-           }
-       }
-       .padding(.vertical, 8)
-   }
-}
 
 
 struct QuestionTypeCard: View {
@@ -864,5 +858,35 @@ extension UIImage {
     }
 }
 
-
-
+struct InputMethodCard: View {
+    let icon: String
+    let title: String
+    let isUsed: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                Text(title)
+                    .font(.headline)
+            }
+            .padding(.vertical, 16)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isUsed ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isUsed ? Color.blue : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1)
+    }
+}

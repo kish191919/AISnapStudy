@@ -11,7 +11,6 @@ public struct Question: Identifiable, Codable {
     public let id: String
     public let type: QuestionType
     public let subject: Subject
-    public let difficulty: Difficulty
     public let question: String
     public let options: [String]
     public let correctAnswer: String
@@ -24,7 +23,6 @@ public struct Question: Identifiable, Codable {
         id: String,
         type: QuestionType,
         subject: Subject,
-        difficulty: Difficulty,
         question: String,
         options: [String] = [],
         correctAnswer: String,
@@ -36,7 +34,6 @@ public struct Question: Identifiable, Codable {
         self.id = id
         self.type = type
         self.subject = subject
-        self.difficulty = difficulty
         self.question = question
         self.options = options
         self.correctAnswer = correctAnswer
@@ -64,7 +61,6 @@ public class QuestionData: NSObject, NSSecureCoding {
         coder.encode(question.id, forKey: "id")
         coder.encode(question.type.rawValue, forKey: "type")
         coder.encode(question.subject.rawValue, forKey: "subject")
-        coder.encode(question.difficulty.rawValue, forKey: "difficulty")
         coder.encode(question.question, forKey: "question")
         coder.encode(question.options, forKey: "options")
         coder.encode(question.correctAnswer, forKey: "correctAnswer")
@@ -78,7 +74,6 @@ public class QuestionData: NSObject, NSSecureCoding {
         guard let id = coder.decodeObject(of: NSString.self, forKey: "id") as String?,
               let typeRaw = coder.decodeObject(of: NSString.self, forKey: "type") as String?,
               let subjectRaw = coder.decodeObject(of: NSString.self, forKey: "subject") as String?,
-              let difficultyRaw = coder.decodeObject(of: NSString.self, forKey: "difficulty") as String?,
               let questionText = coder.decodeObject(of: NSString.self, forKey: "question") as String?,
               let options = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "options") as? [String],
               let correctAnswer = coder.decodeObject(of: NSString.self, forKey: "correctAnswer") as String?,
@@ -94,7 +89,6 @@ public class QuestionData: NSObject, NSSecureCoding {
             id: id,
             type: QuestionType(rawValue: typeRaw) ?? .multipleChoice,
             subject: Subject(rawValue: subjectRaw) ?? .math,
-            difficulty: Difficulty(rawValue: difficultyRaw) ?? .medium,
             question: questionText,
             options: options,
             correctAnswer: correctAnswer,
@@ -117,5 +111,17 @@ extension Question: Hashable {
     
     public static func == (lhs: Question, rhs: Question) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+
+extension Question {
+    var processedCorrectAnswer: String {
+        switch type {
+        case .trueFalse:
+            return correctAnswer.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        case .multipleChoice:
+            return correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 }

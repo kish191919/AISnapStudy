@@ -24,6 +24,8 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var extractedTexts: [String: String] = [:]
     @Published var isLoadingTexts: [String: Bool] = [:]
     @Published var extractionStatus: [String: Bool] = [:]
+    @Published private(set) var isCameraAuthorized = false
+    @Published private(set) var isGalleryAuthorized = false
     
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
@@ -36,7 +38,6 @@ class QuestionSettingsViewModel: ObservableObject {
     private enum UserDefaultsKeys {
         static let lastSubject = "lastSelectedSubject"
         static let lastEducationLevel = "lastEducationLevel"
-        static let lastDifficulty = "lastDifficulty"
         static let lastMultipleChoiceCount = "lastMultipleChoiceCount"
         static let lastTrueFalseCount = "lastTrueFalseCount"
     }
@@ -80,12 +81,6 @@ class QuestionSettingsViewModel: ObservableObject {
          }
      }
      
-     @Published var difficulty: Difficulty {
-         didSet {
-             UserDefaults.standard.set(difficulty.rawValue, forKey: UserDefaultsKeys.lastDifficulty)
-         }
-     }
-     
      @Published var multipleChoiceCount: Int {
          didSet {
              UserDefaults.standard.set(multipleChoiceCount, forKey: UserDefaultsKeys.lastMultipleChoiceCount)
@@ -99,6 +94,7 @@ class QuestionSettingsViewModel: ObservableObject {
      }
      
      let subject: Subject
+    
      
      // MARK: - Initialization
      init(subject: Subject, homeViewModel: HomeViewModel) {
@@ -109,14 +105,11 @@ class QuestionSettingsViewModel: ObservableObject {
          
          // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
          let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
-         let lastDifficultyRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastDifficulty)
          let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
 
          
          // 기본값을 하드코딩하지 않고 파라미터나 null 처리
          self.selectedSubject = Subject(rawValue: lastSubjectRaw ?? "") ?? subject
-         self.difficulty = Difficulty(rawValue: lastDifficultyRaw ?? "") ?? .medium  // 기본값을 .medium으로 변경
-         
          self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
          self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
          self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
@@ -145,6 +138,29 @@ class QuestionSettingsViewModel: ObservableObject {
              print("Failed to initialize OpenAI service:", error)
          }
      }
+    
+    // Add permission check methods
+    func checkCameraPermission() async -> Bool {
+        do {
+            return try await imageService.requestPermission(for: .camera)
+        } catch {
+            await MainActor.run {
+                showError(error)
+            }
+            return false
+        }
+    }
+    
+    func checkGalleryPermission() async -> Bool {
+        do {
+            return try await imageService.requestPermission(for: .gallery)
+        } catch {
+            await MainActor.run {
+                showError(error)
+            }
+            return false
+        }
+    }
      
      // MARK: - Image Management
      private func generateImageId() -> String {
@@ -257,14 +273,12 @@ class QuestionSettingsViewModel: ObservableObject {
      func resetAllSettings() {
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastSubject)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastEducationLevel)
-         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastDifficulty)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
          UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastTrueFalseCount)
          
          // Reset to defaults
          selectedSubject = subject
          educationLevel = .elementary
-         difficulty = .medium
          resetCounts()
      }
     
@@ -391,116 +405,90 @@ class QuestionSettingsViewModel: ObservableObject {
        }
     }
     
+    
     @MainActor
     func sendAllImages() async {
-        print("🚀 Starting sendAllImages process...")
-        guard !selectedImages.isEmpty || !questionText.isEmpty else {
-            print("❌ No content to generate questions from")
-            return
-        }
-        
-        isLoading = true
-        studyViewModel?.isGeneratingQuestions = true
-        
-        do {
-            var allExtractedText = ""
-            var imagesForDirectProcessing: [UIImage] = []
-            
-            // 이미지 처리
-            if !selectedImages.isEmpty {
-                if useTextExtraction {
-                    // 텍스트 추출 활성화된 경우
-                    for image in selectedImages {
-                        let imageId = getImageId(for: image)
-                        print("📸 Processing image: \(imageId)")
-                        print("🔍 Text extraction enabled - attempting to extract text...")
-                        
-                        do {
-                            let extractedText = try await VisionService.shared.extractText(from: image)
-                            if !extractedText.isEmpty {
-                                print("✅ Successfully extracted text: \(extractedText)")
-                                allExtractedText += extractedText + "\n"
-                            } else {
-                                print("⚠️ No text extracted, adding to direct processing queue")
-                                imagesForDirectProcessing.append(image)
-                            }
-                        } catch {
-                            print("❌ Error extracting text from image: \(error)")
-                            imagesForDirectProcessing.append(image)
-                        }
-                    }
-                } else {
-                    // 텍스트 추출 비활성화된 경우 - 모든 이미지를 한 번에 처리
-                    print("ℹ️ Text extraction disabled - processing all images together")
-                    try await processImagesDirectly(selectedImages)
-                }
-            }
+       print("🚀 Starting sendAllImages process...")
+       guard !selectedImages.isEmpty || !questionText.isEmpty else {
+           print("❌ No content to generate questions from")
+           return
+       }
+       
+       isLoading = true
+       studyViewModel?.isGeneratingQuestions = true
+       
+       do {
+           var allExtractedText = ""
+           var imagesForDirectProcessing: [UIImage] = []
+           
+           // 이미지 처리
+           for image in selectedImages {
+               let imageId = getImageId(for: image)
+               print("📸 Processing image: \(imageId)")
+               
+               if useTextExtraction {
+                   print("🔍 Text extraction enabled - attempting to extract text...")
+                   do {
+                       let extractedText = try await VisionService.shared.extractText(from: image)
+                       if !extractedText.isEmpty {
+                           print("✅ Successfully extracted text: \(extractedText)")
+                           allExtractedText += extractedText + "\n"
+                       } else {
+                           print("⚠️ No text extracted, adding to direct processing queue")
+                           imagesForDirectProcessing.append(image)
+                       }
+                   } catch {
+                       print("❌ Error extracting text from image: \(error)")
+                       imagesForDirectProcessing.append(image)
+                   }
+               } else {
+                   print("ℹ️ Text extraction disabled - adding to direct processing queue")
+                   imagesForDirectProcessing.append(image)
+               }
+           }
 
-            // 텍스트 입력 처리
-            if !questionText.isEmpty {
-                let textInput = OpenAIService.QuestionInput(
-                    content: questionText.data(using: .utf8) ?? Data(),
-                    isImage: false
-                )
-                print("📝 Processing text input")
-                await generateQuestions(from: textInput, parameters: createParameters())
-            }
-            
-            // 추출된 텍스트 처리
-            if !allExtractedText.isEmpty {
-                let input = OpenAIService.QuestionInput(
-                    content: allExtractedText.data(using: .utf8) ?? Data(),
-                    isImage: false
-                )
-                print("📤 Sending extracted text to OpenAI")
-                await generateQuestions(from: input, parameters: createParameters())
-            }
-            
-            // 직접 이미지 처리가 필요한 경우, 모든 이미지를 한 번에 처리
-            if !imagesForDirectProcessing.isEmpty {
-                print("📸 Processing \(imagesForDirectProcessing.count) images directly")
-                try await processImagesDirectly(imagesForDirectProcessing)
-            }
-            
-            isLoading = false
-            studyViewModel?.isGeneratingQuestions = false
-            showSuccess()
-            shouldShowStudyView = true
-            
-        } catch {
-            print("❌ Error in sendAllImages: \(error.localizedDescription)")
-            isLoading = false
-            studyViewModel?.isGeneratingQuestions = false
-            self.error = error
-            showError(error)
-        }
+           // 텍스트 입력 처리
+           if !questionText.isEmpty {
+               let textInput = OpenAIService.QuestionInput(
+                   content: questionText.data(using: .utf8) ?? Data(),
+                   isImage: false
+               )
+               print("📝 Processing text input")
+               await generateQuestions(from: textInput, parameters: createParameters())
+           }
+           
+           // 추출된 텍스트 처리
+           if !allExtractedText.isEmpty {
+               let input = OpenAIService.QuestionInput(
+                   content: allExtractedText.data(using: .utf8) ?? Data(),
+                   isImage: false
+               )
+               print("📤 Sending extracted text to OpenAI")
+               await generateQuestions(from: input, parameters: createParameters())
+           }
+           
+           // 직접 이미지 처리가 필요한 경우 처리
+           if !imagesForDirectProcessing.isEmpty {
+               print("📸 Processing \(imagesForDirectProcessing.count) images directly")
+               for image in imagesForDirectProcessing {
+                   print("🖼️ Direct processing image")
+                   try await processImageDirectly(image)
+               }
+           }
+           
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
+           showSuccess()
+           shouldShowStudyView = true
+           
+       } catch {
+           print("❌ Error in sendAllImages: \(error.localizedDescription)")
+           isLoading = false
+           studyViewModel?.isGeneratingQuestions = false
+           self.error = error
+           showError(error)
+       }
     }
-
-    // 새로운 헬퍼 함수 추가
-    private func processImagesDirectly(_ images: [UIImage]) async throws {
-        print("📸 Processing \(images.count) images...")
-        
-        var imagesData: [Data] = []
-        for image in images {
-            let compressedData = try await ImageService.shared.compressForAPI(image)
-            let base64String = compressedData.base64EncodedString()
-            if let stringData = base64String.data(using: .utf8) {
-                imagesData.append(stringData)
-            }
-        }
-        
-        let combinedImageData = try JSONEncoder().encode(imagesData)
-        
-        let input = OpenAIService.QuestionInput(
-            content: combinedImageData,
-            isImage: true,
-            isMultiImage: true
-        )
-        
-        print("📤 Sending \(images.count) images to OpenAI")
-        await generateQuestions(from: input, parameters: createParameters())
-    }
-    
     // generateQuestions(from:parameters:) 보조 함수
     private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
        print("🔄 Starting question generation from input")
@@ -534,8 +522,7 @@ class QuestionSettingsViewModel: ObservableObject {
         let compressedData = try await imageService.compressForAPI(image)
         let input = OpenAIService.QuestionInput(
             content: compressedData,
-            isImage: true,
-            isMultiImage: true  // 여러 이미지임을 표시
+            isImage: true
         )
         print("📤 Sending image to OpenAI")
         let questions = try await openAIService.generateQuestions(from: input, parameters: createParameters())
@@ -545,7 +532,6 @@ class QuestionSettingsViewModel: ObservableObject {
     private func createParameters() -> OpenAIService.QuestionParameters {
         return OpenAIService.QuestionParameters(
             subject: selectedSubject,
-            difficulty: difficulty,
             educationLevel: educationLevel,
             questionTypes: [
                 .multipleChoice: multipleChoiceCount,
@@ -554,13 +540,60 @@ class QuestionSettingsViewModel: ObservableObject {
             language: selectedLanguage  // language 파라미터 추가
         )
     }
-    // MARK: - Image Capture Methods
+    // Update image handling methods
+    @MainActor
+    func handleCameraImage(_ image: UIImage?) {
+        print("📸 Processing camera image...")
+        guard let image = image else {
+            print("❌ No image captured")
+            return
+        }
+
+        Task {
+            do {
+                let orientedImage = image.fixedOrientation()
+                await addImage(orientedImage)
+                hasCameraImage = true
+                hasSelectedCamera = true
+                hasSelectedGallery = false
+                print("✅ Camera image added successfully")
+            } catch {
+                print("❌ Failed to add camera image: \(error)")
+                showError(error)
+            }
+        }
+    }
+
+    @MainActor
+    func selectFromGallery() async {
+        do {
+            let hasPermission = try await imageService.requestPermission(for: .gallery)
+            if hasPermission {
+                hasSelectedCamera = false  // Reset camera selection
+                hasSelectedGallery = true
+                showImagePicker = true
+                hasGalleryImages = true
+            } else {
+                self.error = ImageServiceError.permissionDenied
+                showError(ImageServiceError.permissionDenied)
+            }
+        } catch {
+            if let imageError = error as? ImageServiceError {
+                showError(imageError)
+            } else {
+                showError(error)
+            }
+        }
+    }
+
     @MainActor
     func takePhoto() async {
         print("📸 Taking photo...")
         do {
             let hasPermission = try await imageService.requestPermission(for: .camera)
             if hasPermission {
+                hasSelectedGallery = false  // Reset gallery selection
+                hasSelectedCamera = true
                 showCamera = true
                 hasCameraImage = true
             } else {
@@ -577,49 +610,6 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     
     @MainActor
-    func handleCameraImage(_ image: UIImage?) {
-        print("📸 Processing camera image...")
-        guard let image = image else {
-            print("❌ No image captured")
-            return
-        }
-
-        Task {
-            do {
-                // 이미지 방향 보정 후 처리
-                let orientedImage = image.fixedOrientation()
-                await addImage(orientedImage)
-                hasCameraImage = true
-                hasSelectedCamera = true
-                print("✅ Camera image added successfully")
-            } catch {
-                print("❌ Failed to add camera image: \(error)")
-                showError(error)
-            }
-        }
-    }
-     
-     @MainActor
-     func selectFromGallery() async {
-         do {
-             let hasPermission = try await imageService.requestPermission(for: .gallery)
-             if hasPermission {
-                 showImagePicker = true
-                 hasGalleryImages = true
-             } else {
-                 self.error = ImageServiceError.permissionDenied
-                 showError(ImageServiceError.permissionDenied)
-             }
-         } catch {
-             if let imageError = error as? ImageServiceError {
-                 showError(imageError)
-             } else {
-                 showError(error)
-             }
-         }
-     }
-    
-    @MainActor
     func processGeneratedQuestions(_ questions: [Question], name: String) async {
         print("\n🔄 Processing Generated Questions:")
         print("Number of questions by type:")
@@ -632,7 +622,6 @@ class QuestionSettingsViewModel: ObservableObject {
         let problemSet = ProblemSet(
             id: UUID().uuidString,
             subject: subject,
-            difficulty: difficulty,
             questions: questions,
             createdAt: Date(),
             educationLevel: self.educationLevel,
@@ -1909,7 +1898,6 @@ import Foundation
 public struct ProblemSet: Identifiable, Codable {
     public let id: String
     public let subject: Subject
-    public let difficulty: Difficulty
     public let questions: [Question]
     public let createdAt: Date
     public var lastAttempted: Date?
@@ -1929,7 +1917,6 @@ public struct ProblemSet: Identifiable, Codable {
     public init(
           id: String,
           subject: Subject,
-          difficulty: Difficulty,
           questions: [Question],
           createdAt: Date,
           lastAttempted: Date? = nil,
@@ -1941,7 +1928,6 @@ public struct ProblemSet: Identifiable, Codable {
       ) {
           self.id = id
           self.subject = subject
-          self.difficulty = difficulty
           self.questions = questions
           self.createdAt = createdAt
           self.lastAttempted = lastAttempted
@@ -2000,7 +1986,6 @@ public struct Question: Identifiable, Codable {
     public let id: String
     public let type: QuestionType
     public let subject: Subject
-    public let difficulty: Difficulty
     public let question: String
     public let options: [String]
     public let correctAnswer: String
@@ -2013,7 +1998,6 @@ public struct Question: Identifiable, Codable {
         id: String,
         type: QuestionType,
         subject: Subject,
-        difficulty: Difficulty,
         question: String,
         options: [String] = [],
         correctAnswer: String,
@@ -2025,7 +2009,6 @@ public struct Question: Identifiable, Codable {
         self.id = id
         self.type = type
         self.subject = subject
-        self.difficulty = difficulty
         self.question = question
         self.options = options
         self.correctAnswer = correctAnswer
@@ -2053,7 +2036,6 @@ public class QuestionData: NSObject, NSSecureCoding {
         coder.encode(question.id, forKey: "id")
         coder.encode(question.type.rawValue, forKey: "type")
         coder.encode(question.subject.rawValue, forKey: "subject")
-        coder.encode(question.difficulty.rawValue, forKey: "difficulty")
         coder.encode(question.question, forKey: "question")
         coder.encode(question.options, forKey: "options")
         coder.encode(question.correctAnswer, forKey: "correctAnswer")
@@ -2067,7 +2049,6 @@ public class QuestionData: NSObject, NSSecureCoding {
         guard let id = coder.decodeObject(of: NSString.self, forKey: "id") as String?,
               let typeRaw = coder.decodeObject(of: NSString.self, forKey: "type") as String?,
               let subjectRaw = coder.decodeObject(of: NSString.self, forKey: "subject") as String?,
-              let difficultyRaw = coder.decodeObject(of: NSString.self, forKey: "difficulty") as String?,
               let questionText = coder.decodeObject(of: NSString.self, forKey: "question") as String?,
               let options = coder.decodeObject(of: [NSArray.self, NSString.self], forKey: "options") as? [String],
               let correctAnswer = coder.decodeObject(of: NSString.self, forKey: "correctAnswer") as String?,
@@ -2083,7 +2064,6 @@ public class QuestionData: NSObject, NSSecureCoding {
             id: id,
             type: QuestionType(rawValue: typeRaw) ?? .multipleChoice,
             subject: Subject(rawValue: subjectRaw) ?? .math,
-            difficulty: Difficulty(rawValue: difficultyRaw) ?? .medium,
             question: questionText,
             options: options,
             correctAnswer: correctAnswer,
@@ -2106,6 +2086,18 @@ extension Question: Hashable {
     
     public static func == (lhs: Question, rhs: Question) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+
+extension Question {
+    var processedCorrectAnswer: String {
+        switch type {
+        case .trueFalse:
+            return correctAnswer.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        case .multipleChoice:
+            return correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 }
 
@@ -2204,58 +2196,6 @@ public enum EducationLevel: String, Codable, CaseIterable {
             return .green
         case .college:
             return .green
-        }
-    }
-}
-
-public enum Difficulty: String, Codable, CaseIterable {
-    case easy = "easy"
-    case medium = "medium"
-    case hard = "hard"
-    
-    public var iconName: String {
-            switch self {
-            case .easy:
-                return "1.circle.fill"
-            case .medium:
-                return "2.circle.fill"
-            case .hard:
-                return "3.circle.fill"
-            }
-        }
-    
-    public var color: Color {
-        switch self {
-        case .easy:
-            return .green
-        case .medium:
-            return .green
-        case .hard:
-            return .green
-        }
-    }
-    
-    public var displayName: String {
-        rawValue.capitalized
-    }
-    
-    public var icon: String {
-        switch self {
-        case .easy:
-            return "1.circle.fill"
-        case .medium:
-            return "2.circle.fill"
-        case .hard:
-            return "3.circle.fill"
-        }
-    }
-    
-    // 난이도를 숫자로 표현
-    public var level: Int {
-        switch self {
-        case .easy: return 1
-        case .medium: return 2
-        case .hard: return 3
         }
     }
 }
@@ -2483,6 +2423,7 @@ struct QuestionSettingsView: View {
     @State private var isTextInputSelected = false
     @State private var showNamePopup = false
     @State private var isGeneratingQuestions = false
+    @State private var activeSheet: ActiveSheet?
     
     let subject: Subject
     
@@ -2491,8 +2432,19 @@ struct QuestionSettingsView: View {
         case learningSubject
         case questionTypes
         case educationLevel
-        case difficultyLevel
     }
+    
+    private enum ActiveSheet: Identifiable {
+        case camera, gallery
+        
+        var id: Int {
+            switch self {
+            case .camera: return 1
+            case .gallery: return 2
+            }
+        }
+    }
+    
     
     init(subject: Subject, homeViewModel: HomeViewModel, selectedTab: Binding<Int>) {
         self.subject = subject
@@ -2502,9 +2454,10 @@ struct QuestionSettingsView: View {
         ))
         self._selectedTab = selectedTab
     }
-    
+
     var body: some View {
         VStack(spacing: 0) {
+            // Instructions Card
             Form {
                 // Speed Up and Language Selection Section
                 Section {
@@ -2516,46 +2469,77 @@ struct QuestionSettingsView: View {
                     LanguageSection(selectedLanguage: $viewModel.selectedLanguage)
                 }
                 .listRowSpacing(0)
-
-
-                // Image Selection Options
-                HStack(spacing: 12) {
-                    ImageOptionCard(
-                        icon: "camera.fill",
-                        isUsed: viewModel.hasSelectedCamera,
-                        isDisabled: !viewModel.canUseImageInput,
-                        action: {
-                            if viewModel.canUseImageInput {
-                                isTextInputSelected = false
-                                Task { await viewModel.takePhoto() }
-                            }
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("How to Generate Questions")
+                        .font(.headline)
+                        .padding(.bottom, 4)
+                    
+                    Text("Select one of these methods here and then choose Subject and Type to create questions:")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    // Input Methods with descriptions
+                    HStack(spacing: 12) {
+                        Group {
+                            InputMethodCard(
+                                icon: "camera.fill",
+                                title: "Camera",
+                                isUsed: viewModel.hasSelectedCamera,
+                                isDisabled: !viewModel.canUseImageInput,
+                                action: {
+                                    if viewModel.canUseImageInput {
+                                        viewModel.isTextInputActive = false
+                                        Task {
+                                            if await viewModel.checkCameraPermission() {
+                                                activeSheet = .camera
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
                         }
-                    )
-
-                    ImageOptionCard(
-                        icon: "photo.fill",
-                        isUsed: viewModel.hasSelectedGallery,
-                        isDisabled: !viewModel.canUseImageInput,
-                        action: {
-                            if viewModel.canUseImageInput {
-                                isTextInputSelected = false
-                                Task { await viewModel.selectFromGallery() }
-                            }
+                        
+                        
+                        Group {
+                            InputMethodCard(
+                                icon: "photo.fill",
+                                title: "Gallery",
+                                isUsed: viewModel.hasSelectedGallery,
+                                isDisabled: !viewModel.canUseImageInput,
+                                action: {
+                                    if viewModel.canUseImageInput {
+                                        viewModel.isTextInputActive = false
+                                        Task {
+                                            if await viewModel.checkGalleryPermission() {
+                                                activeSheet = .gallery
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
                         }
-                    )
-
-                    ImageOptionCard(
-                        icon: "text.bubble.fill",
-                        isUsed: viewModel.isTextInputActive,
-                        isDisabled: !viewModel.canUseTextInput,
-                        action: {
-                            isTextInputSelected.toggle()
-                            viewModel.toggleTextInput()
+                        
+                        Group {
+                            InputMethodCard(
+                                icon: "text.bubble.fill",
+                                title: "Text",
+                                isUsed: viewModel.isTextInputActive,
+                                isDisabled: !viewModel.canUseTextInput,
+                                action: {
+                                    viewModel.toggleTextInput()
+                                }
+                            )
+                            .frame(maxWidth: .infinity)
                         }
-                    )
+                    }
                 }
-                .padding(.horizontal)
-
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                
                 // Text Input Field
                 if viewModel.isTextInputActive {
                     TextField("Enter your question here...", text: $viewModel.questionText)
@@ -2597,6 +2581,25 @@ struct QuestionSettingsView: View {
                     }
                 }.listRowSpacing(0)
                 
+                if viewModel.isTextInputActive {
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .educationLevel)
+                        ) {
+                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                        } label: {
+                            HStack {
+                                Text("Education")
+                                    .font(.headline)
+                                Spacer()
+                                Text(viewModel.educationLevel.displayName)
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }.listRowSpacing(0)
+                }
+
+                
                 // Question Types Section
                 Section {
                     DisclosureGroup(
@@ -2623,27 +2626,10 @@ struct QuestionSettingsView: View {
                             EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
                         } label: {
                             HStack {
-                                Text("Education Level")
+                                Text("Education")
                                     .font(.headline)
                                 Spacer()
                                 Text(viewModel.educationLevel.displayName)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }.listRowSpacing(0)
-                    
-                    // Difficulty Level Section
-                    Section {
-                        DisclosureGroup(
-                            isExpanded: isExpandedBinding(for: .difficultyLevel)
-                        ) {
-                            DifficultyLevelSection(difficulty: $viewModel.difficulty)
-                        } label: {
-                            HStack {
-                                Text("Difficulty Level")
-                                    .font(.headline)
-                                Spacer()
-                                Text(viewModel.difficulty.displayName)
                                     .foregroundColor(.gray)
                             }
                         }
@@ -2677,19 +2663,24 @@ struct QuestionSettingsView: View {
         .overlay(popupOverlay)
         .navigationBarItems(leading: cancelButton)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $viewModel.showImagePicker) {
-            PhotoPicker(selectedImages: $viewModel.selectedImages)
-        }
-        .sheet(isPresented: $viewModel.showCamera) {
-            ImagePicker(
-                image: $viewModel.selectedImage,
-                sourceType: .camera,
-                onImageSelected: { image in
-                    Task {
-                        await viewModel.handleCameraImage(image)
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .camera:
+                ImagePicker(
+                    image: $viewModel.selectedImage,
+                    sourceType: .camera,
+                    onImageSelected: { image in
+                        Task {
+                            await viewModel.handleCameraImage(image)
+                        }
                     }
-                }
-            )
+                )
+                .interactiveDismissDisabled()
+                
+            case .gallery:
+                PhotoPicker(selectedImages: $viewModel.selectedImages)
+                    .interactiveDismissDisabled()
+            }
         }
         .alert(isPresented: $viewModel.showAlert) {
             Alert(
@@ -2761,48 +2752,11 @@ struct QuestionSettingsView: View {
 
 
 
-struct GeneratingQuestionsOverlay: View {
-    let questionCount: Int
-    @State private var animatingDots = false
-    
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .edgesIgnoringSafeArea(.all)
-            
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                
-                Text("Generating \(questionCount) questions\(dots)")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                
-                Text("Please wait...")
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.8))
-            }
-            .padding()
-            .background(Color.black.opacity(0.6))
-            .cornerRadius(10)
-        }
-        .onAppear {
-            withAnimation(Animation.easeInOut(duration: 0.8).repeatForever()) {
-                animatingDots.toggle()
-            }
-        }
-    }
-    
-    private var dots: String {
-        animatingDots ? "..." : ""
-    }
-}
 
 struct ProblemSetNamePopup: View {
     @Binding var isPresented: Bool
     @Binding var problemSetName: String
-    @Binding var isGeneratingQuestions: Bool  // 추가
+    @Binding var isGeneratingQuestions: Bool
     let defaultName: String
     let onSubmit: () -> Void
     
@@ -2831,7 +2785,6 @@ struct ProblemSetNamePopup: View {
                         }
                 }
                 
-                // 질문 생성 상태에 따른 메시지 표시
                 Text(isGeneratingQuestions ?
                      "Questions are being generated... Please wait." :
                      "Questions are ready. Please save the name to continue.")
@@ -2857,11 +2810,12 @@ struct ProblemSetNamePopup: View {
                 .disabled(isGeneratingQuestions)
             }
             .padding(32)
-            .background(Color(UIColor.systemBackground))
+            .background(Color(.systemBackground))
             .cornerRadius(16)
             .shadow(radius: 10)
             .padding(.horizontal, 32)
         }
+        // 불필요한 onChange나 onReceive 모디파이어 제거
     }
 }
 
@@ -2976,26 +2930,6 @@ struct SelectableButton: View {
    }
 }
 
-struct DifficultyLevelSection: View {
-   @Binding var difficulty: Difficulty
-   
-   var body: some View {
-       HStack(spacing: 12) {
-           ForEach(Difficulty.allCases, id: \.self) { level in
-               SelectableButton(
-                   title: level.displayName,
-                   isSelected: difficulty == level,
-                   color: level.color
-               ) {
-                   withAnimation(.spring()) {
-                       difficulty = level
-                   }
-               }
-           }
-       }
-       .padding(.vertical, 8)
-   }
-}
 
 
 struct QuestionTypeCard: View {
@@ -3334,8 +3268,38 @@ extension UIImage {
     }
 }
 
-
-
+struct InputMethodCard: View {
+    let icon: String
+    let title: String
+    let isUsed: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                Text(title)
+                    .font(.headline)
+            }
+            .padding(.vertical, 16)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isUsed ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isUsed ? Color.blue : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1)
+    }
+}
 
 
 // ./AISnapStudy/Views/Question/TrueFalseView.swift
@@ -3550,7 +3514,7 @@ struct EducationLevelSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
     
     var body: some View {
-        Section("Education Level") {
+        Section("Education") {
             HStack(spacing: 12) {
                 ForEach(EducationLevel.allCases, id: \.self) { level in
                     EducationLevelButton(
@@ -3679,29 +3643,6 @@ struct QuestionAboutSection: View {
 }
 
 
-// ./AISnapStudy/Views/Question/Sections/DifficultySection.swift
-
-import SwiftUI
-
-// Difficulty Section
-struct DifficultySection: View {
-    @ObservedObject var viewModel: QuestionSettingsViewModel
-    
-    var body: some View {
-        Section("Difficulty Level") {
-            Picker("Difficulty", selection: $viewModel.difficulty) {
-                ForEach(Difficulty.allCases, id: \.self) { difficulty in
-                    Text(difficulty.rawValue.capitalized)
-                        .tag(difficulty)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-}
-
-
-
 // ./AISnapStudy/Views/Question/Sections/LearningSubjectSection.swift
 
 import SwiftUI
@@ -3730,61 +3671,6 @@ struct LearningSubjectSection: View {
        }
        .padding(.vertical, 8)
    }
-}
-
-
-
-// ./AISnapStudy/Views/Components/DifficultySelector.swift
-
-
-import SwiftUI
-
-struct DifficultySelector: View {
-    @Binding var selectedDifficulty: Difficulty
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(Difficulty.allCases, id: \.self) { difficulty in
-                DifficultyButton(
-                    difficulty: difficulty,
-                    isSelected: selectedDifficulty == difficulty,
-                    action: { selectedDifficulty = difficulty }
-                )
-            }
-        }
-        .padding(.horizontal)
-    }
-}
-
-// 별도의 버튼 컴포넌트로 분리
-private struct DifficultyButton: View {
-    let difficulty: Difficulty
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack {
-                Image(systemName: difficulty.iconName)
-                    .font(.system(size: 24))
-                Text(difficulty.displayName)
-                    .font(.caption)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(backgroundColor)
-            .foregroundColor(foregroundColor)
-        }
-    }
-    
-    private var backgroundColor: some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(isSelected ? Color.accentColor : Color.secondaryBackground)
-    }
-    
-    private var foregroundColor: Color {
-        isSelected ? .white : .primary
-    }
 }
 
 
@@ -3844,7 +3730,6 @@ struct ProblemSetCard: View {
                 InfoRow(title: "Subject", value: problemSet.subject.displayName)
                 InfoRow(title: "Level", value: problemSet.educationLevel.rawValue)
                 InfoRow(title: "Questions", value: "\(problemSet.questions.count)")
-                InfoRow(title: "Difficulty", value: problemSet.difficulty.rawValue)
             }
             .font(.footnote)
             
@@ -3902,7 +3787,7 @@ struct SpeedUpSection: View {
                 HStack {
                     Image(systemName: "bolt.fill")
                         .foregroundColor(.yellow)
-                    Text("Speed Up Processing")
+                    Text("Speed Up")
                         .font(.headline)
                     Spacer()
                     Toggle("", isOn: $useTextExtraction)
@@ -4024,7 +3909,7 @@ struct LanguageSection: View {
                     HStack {
                         Image(systemName: "globe")
                             .foregroundColor(.blue)
-                        Text("Question Language")
+                        Text("Language")
                             .font(.headline)
                     }
                     
@@ -4291,10 +4176,6 @@ struct SavedProblemCard: View {
                     .cornerRadius(4)
                 
                 Spacer()
-                
-                Text(question.difficulty.rawValue.capitalized)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             
             Text(question.question)
@@ -4350,6 +4231,14 @@ struct FilterButton: View {
         }
     }
 }
+
+
+// ./AISnapStudy/Views/Components/InputMethodCard.swift
+
+
+import SwiftUI
+
+
 
 
 // ./AISnapStudy/Views/Components/ImageSelectionSection.swift
@@ -4892,7 +4781,6 @@ struct SavedQuestionCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Subject and Difficulty Tags
             HStack {
                 Text(question.subject.displayName)
                     .font(.caption)
@@ -4903,14 +4791,6 @@ struct SavedQuestionCard: View {
                     .cornerRadius(8)
                 
                 Spacer()
-                
-                Text(question.difficulty.displayName)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(question.difficulty.color.opacity(0.2))
-                    .foregroundColor(question.difficulty.color)
-                    .cornerRadius(8)
             }
             
             // Question Type
@@ -4950,7 +4830,6 @@ struct SavedQuestionCard: View {
         id: UUID().uuidString,
         type: .multipleChoice,
         subject: .math,
-        difficulty: .medium,
         question: "Sample Question",
         options: ["A", "B", "C", "D"],
         correctAnswer: "A",
@@ -5544,7 +5423,6 @@ struct SavedQuestionsView: View {
                     let problemSet = ProblemSet(
                         id: UUID().uuidString,
                         subject: question.subject,
-                        difficulty: question.difficulty,
                         questions: [question],
                         createdAt: Date(),
                         educationLevel: .elementary,
@@ -5641,10 +5519,12 @@ struct StudyView: View {
         VStack {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
-                    QuestionGeneratingView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.white)
-                        .transition(.opacity)
+                    GeneratingQuestionsOverlay(
+                        questionCount: studyViewModel.totalExpectedQuestions  // questionCount 매개변수 추가
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
+                    .transition(.opacity)
                     
                     if !studyViewModel.generatedQuestions.isEmpty {
                         ScrollView {
@@ -5791,10 +5671,6 @@ struct QuestionPreviewCard: View {
                   .cornerRadius(4)
               
               Spacer()
-              
-              Text(question.difficulty.rawValue.capitalized)
-                  .font(.caption)
-                  .foregroundColor(.secondary)
           }
           
           // 질문
@@ -5937,105 +5813,112 @@ private struct ActionButton: View {
    }
 }
 
-struct QuestionGeneratingView: View {
+struct GeneratingQuestionsOverlay: View {
+    let questionCount: Int  // 필요하지만 사용하지 않을 매개변수
     @State private var rotation: Double = 0
     @State private var dotScale: CGFloat = 1.0
     @State private var currentTipIndex = 0
-    let timer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
+    let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     
     var body: some View {
-        VStack(spacing: 30) {
-            // Main Animation Circle - 크기 증가 및 색상 조정
-            ZStack {
-                // Outer rotating circle
-                Circle()
-                    .stroke(lineWidth: 6)  // 선 두께 증가
-                    .frame(width: 200, height: 200)  // 크기 증가
-                    .foregroundColor(.blue.opacity(0.3))
-                    .rotationEffect(.degrees(rotation))
-                
-                // Inner gradient circle
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            gradient: Gradient(colors: [.blue, .purple]),
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 10  // 선 두께 증가
-                    )
-                    .frame(width: 180, height: 180)  // 크기 증가
-                    .rotationEffect(.degrees(-rotation))
-                
-                // Center content
-                VStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 40))  // 아이콘 크기 증가
-                        .foregroundColor(.blue)
-                    Text("Generating")
-                        .font(.title)  // 폰트 크기 증가
-                        .foregroundColor(.primary)
-                    Text("Questions")
-                        .font(.title2)  // 폰트 크기 증가
-                        .foregroundColor(.primary)
-                }
-            }
-            .onAppear {
-                withAnimation(
-                    .linear(duration: 4)
-                    .repeatForever(autoreverses: false)
-                ) {
-                    rotation = 360
-                }
-            }
+        ZStack {
+            // 배경색을 흰색으로 변경
+            Color.white
+                .edgesIgnoringSafeArea(.all)
             
-            // Animated Dots - 크기 및 색상 조정
-            HStack(spacing: 8) {
-                ForEach(0..<3) { index in
+            VStack(spacing: 30) {
+                // Main Animation Circle
+                ZStack {
+                    // Outer rotating circle
                     Circle()
-                        .fill(Color.blue)
-                        .frame(width: 12, height: 12)  // 크기 증가
-                        .scaleEffect(dotScale)
-                        .animation(
-                            .easeInOut(duration: 0.6)
-                            .repeatForever()
-                            .delay(Double(index) * 0.2),
-                            value: dotScale
+                        .stroke(lineWidth: 6)
+                        .frame(width: 200, height: 200)
+                        .foregroundColor(.blue.opacity(0.3))
+                        .rotationEffect(.degrees(rotation))
+                    
+                    // Inner gradient circle
+                    Circle()
+                        .stroke(
+                            LinearGradient(
+                                gradient: Gradient(colors: [.blue, .purple]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 10
                         )
-                }
-            }
-            .onAppear {
-                dotScale = 0.5
-            }
-            
-            // Tips Section - 배경 및 텍스트 색상 조정
-            VStack(spacing: 12) {
-                Text(tips[currentTipIndex])
-                    .font(.headline)  // 폰트 크기 증가
-                    .foregroundColor(.white)  // 텍스트 색상을 흰색으로 변경
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                    .frame(height: 60)
-                    .transition(.opacity.combined(with: .slide))
-                    .id(currentTipIndex)
-                    .animation(.easeInOut, value: currentTipIndex)
-                
-                // Progress Dots
-                HStack(spacing: 6) {
-                    ForEach(0..<tips.count) { index in
-                        Circle()
-                            .fill(index == currentTipIndex ? Color.white : Color.gray)  // 활성 도트 색상을 흰색으로 변경
-                            .frame(width: 8, height: 8)
+                        .frame(width: 180, height: 180)
+                        .rotationEffect(.degrees(-rotation))
+                    
+                    // Center content - 텍스트 색상을 검은색으로 변경하고 Questions 수 표시 제거
+                    VStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 40))
+                            .foregroundColor(.blue)
+                        Text("Generating")
+                            .font(.title)
+                            .foregroundColor(.black)  // 검은색으로 변경
+                        Text("Questions")
+                            .font(.title2)
+                            .foregroundColor(.black)  // 검은색으로 변경
                     }
                 }
+                .onAppear {
+                    withAnimation(
+                        .linear(duration: 4)
+                        .repeatForever(autoreverses: false)
+                    ) {
+                        rotation = 360
+                    }
+                }
+                
+                // Animated Dots
+                HStack(spacing: 8) {
+                    ForEach(0..<3) { index in
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 12, height: 12)
+                            .scaleEffect(dotScale)
+                            .animation(
+                                .easeInOut(duration: 0.6)
+                                .repeatForever()
+                                .delay(Double(index) * 0.2),
+                                value: dotScale
+                            )
+                    }
+                }
+                .onAppear {
+                    dotScale = 0.5
+                }
+                
+                // Tips Section
+                VStack(spacing: 12) {
+                    Text(tips[currentTipIndex])
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .frame(height: 60)
+                        .transition(.opacity.combined(with: .slide))
+                        .id(currentTipIndex)
+                        .animation(.easeInOut, value: currentTipIndex)
+                    
+                    // Progress Dots
+                    HStack(spacing: 6) {
+                        ForEach(0..<tips.count) { index in
+                            Circle()
+                                .fill(index == currentTipIndex ? Color.white : Color.gray)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 15)
+                        .fill(Color.blue.opacity(0.8))
+                )
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 15)
-                    .fill(Color.blue.opacity(0.8))  // 배경 색상을 진한 파란색으로 변경
-            )
+            .padding(30)
         }
-        .padding(30)
         .onReceive(timer) { _ in
             withAnimation {
                 currentTipIndex = (currentTipIndex + 1) % tips.count
@@ -6064,9 +5947,6 @@ struct GeneratedQuestionPreviewCard: View {
                     .font(.caption)
                     .foregroundColor(.blue)
                 Spacer()
-                Text(question.difficulty.displayName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             
             Text(question.question)
@@ -6654,100 +6534,69 @@ class OpenAIService {
         }
     
     // MARK: - Models
-    public struct QuestionInput {
+    public struct QuestionInput {    // private -> public 으로 변경
         let content: Data
         let isImage: Bool
         let contentHash: String
-        let isMultiImage: Bool  // 새로 추가
         
-        public init(content: Data, isImage: Bool, isMultiImage: Bool = false) {
+        public init(content: Data, isImage: Bool) {  // public init 추가
             self.content = content
             self.isImage = isImage
-            self.isMultiImage = isMultiImage
             self.contentHash = content.hashValue.description
         }
     }
     
     public struct QuestionParameters {    // private -> public 으로 변경
         let subject: Subject
-        let difficulty: Difficulty
         let educationLevel: EducationLevel
         let questionTypes: [QuestionType: Int]
         let language: Language
         
         public init(    // public init 추가
             subject: Subject,
-            difficulty: Difficulty,
             educationLevel: EducationLevel,
             questionTypes: [QuestionType: Int],
             language: Language
         ) {
             self.subject = subject
-            self.difficulty = difficulty
             self.educationLevel = educationLevel
             self.questionTypes = questionTypes
             self.language = language
         }
     }
-    // buildMessages 함수 수정
     private func buildMessages(input: QuestionInput, prompts: (system: String, user: String)) -> [[String: Any]] {
         if input.isImage {
             do {
-                var contentArray: [[String: Any]] = [
-                    [
-                        "type": "text",
-                        "text": prompts.user
-                    ]
-                ]
-                
-                if input.isMultiImage {
-                    // 여러 이미지 데이터 처리
-                    guard let imagesData = try? JSONDecoder().decode([Data].self, from: input.content) else {
-                        print("❌ Failed to decode image data array")
-                        throw NetworkError.invalidData
-                    }
-                    
-                    for imageData in imagesData {
-                        guard let base64String = String(data: imageData, encoding: .utf8) else {
-                            continue
-                        }
-                        
-                        contentArray.append([
-                            "type": "image_url",
-                            "image_url": [
-                                "url": "data:image/jpeg;base64,\(base64String)",
-                                "detail": "auto"  // auto, low, high 중 선택
-                            ]
-                        ])
-                        print("📸 Added image to request")
-                    }
-                } else {
-                    // 단일 이미지 처리
-                    guard let base64String = String(data: input.content, encoding: .utf8) else {
-                        throw NetworkError.invalidData
-                    }
-
-                    contentArray.append([
-                        "type": "image_url",
-                        "image_url": [
-                            "url": "data:image/jpeg;base64,\(base64String)",
-                            "detail": "auto"  // auto, low, high 중 선택
-                        ]
-                    ])
-                    print("📸 Added single image to request")
+                guard let image = UIImage(data: input.content) else {
+                    print("❌ Failed to create UIImage from data")
+                    throw NetworkError.invalidData
                 }
+
+                let compressedData = try ImageService.shared.compressForAPI(image)
+                let base64ImageString = compressedData.base64EncodedString()
+                
+                print("📸 Image prepared: \(ByteCountFormatter.string(fromByteCount: Int64(compressedData.count), countStyle: .file))")
                 
                 return [
                     ["role": "system", "content": prompts.system],
-                    ["role": "user", "content": contentArray]
+                    ["role": "user", "content": [
+                        [
+                            "type": "text",
+                            "text": prompts.user
+                        ],
+                        [
+                            "type": "image_url",
+                            "image_url": [
+                                "url": "data:image/jpeg;base64,\(base64ImageString)"
+                            ]
+                        ]
+                    ]]
                 ]
-                
             } catch {
-                print("❌ Error preparing images: \(error)")
+                print("❌ Error preparing image: \(error)")
                 return []
             }
         } else {
-            // 텍스트 처리 (기존 코드 유지)
             if let textContent = String(data: input.content, encoding: .utf8) {
                 return [
                     ["role": "system", "content": prompts.system],
@@ -6826,7 +6675,7 @@ class OpenAIService {
             throw NetworkError.noConnection
         }
         
-        let cacheKey = "\(input.contentHash)_\(parameters.subject.rawValue)_\(parameters.difficulty.rawValue)"
+        let cacheKey = "\(input.contentHash)_\(parameters.subject.rawValue)"
         if let cachedQuestions = cache.object(forKey: cacheKey as NSString) as? [Question] {
             print("✅ Retrieved questions from cache")
             return cachedQuestions
@@ -6880,152 +6729,131 @@ class OpenAIService {
         isImageInput: Bool,
         isExtractedText: Bool,  // 새로운 매개변수 추가
         educationLevel: EducationLevel,
-        difficulty: Difficulty,
         language: Language
     ) -> SubjectPrompt {
-        let languageInstruction_text = language == .auto ?
-            "Generate questions in the exact same language as the input text" :
+        let languageInstructionText = language == .auto ?
+            "Generate questions in the exact same language as the input text." :
             """
-            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
-            DO NOT use the input text's language.
-            Even if the input is in a different language, your output must be in \(language.displayName) only.
+            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.displayName) language.
+            DO NOT use the input text's language. Even if the input is in another language, the output must be in \(language.displayName) only.
             """
         
-        let languageInstruction_image = language == .auto ?
-            "Generate questions in the exact same language as any visible text in the image" :
+        let languageInstructionImage = language == .auto ?
+            "Generate questions in the same language as any visible text in the image." :
             """
-            IMPORTANT: You must generate all questions, answers, explanations, and hints in \(language.displayName) (\(language.rawValue)) language.
-            DO NOT use the input text's language.
-            Even if the input text is in a different language, your output must be in \(language.displayName) only.
+            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.displayName) (\(language.rawValue)).
+            DO NOT use the language of visible text in the image. All output must be in \(language.displayName) only.
             """
 
+        // 순수 이미지 기반 입력
         if isImageInput && !isExtractedText {
-            // 순수 이미지 분석 케이스
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an \(subject.displayName) expert creating image-based questions.
-                    Focus on creating self-contained questions that provide all necessary context within each question.
+                    You are an expert in \(subject.displayName), creating self-contained, image-based questions.
                     
-                    STRICT LANGUAGE REQUIREMENT:
-                    - Output language: \(language == .auto ? "Same as visible text in input" : language.displayName)
-                    - Maintain consistent language throughout all content
-                    - Translate concepts from input while maintaining accuracy
+                    STRICT LANGUAGE REQUIREMENTS:
+                    - Output language: \(language == .auto ? "same as visible text in the image" : language.displayName)
+                    - Ensure consistent language usage throughout all content.
+                    - Translate concepts accurately without losing meaning.
                     
-                    For True/False questions:
-                    - Answer must be exactly "true" or "false" (lowercase)
-                    - Do not use variations like "Yes", "No", "That's correct", etc.
-                    - Do not translate true/false to other languages
-                    """,
-                userPromptTemplate: """
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Important: \(languageInstruction_image)
-                    Include detailed explanations and hints.
-                    
-                    Examples of GOOD trueFalse questions:
-                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
-                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
-                    
-                    Examples of BAD trueFalse questions:
-                    - The capital of France is Berlin.
-                    - Who was worried in the story?
-                    
-                    Examples of GOOD multipleChoice questions:
-                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
-                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
-                    
-                    Examples of BAD multipleChoice questions:
-                    - What does the text explain?
-                    - According to the text, what is his job?
-                    """
-            )
-        } else if isImageInput && isExtractedText {
-            // 이미지에서 추출된 텍스트 분석 케이스
-            return SubjectPrompt(
-                systemPrompt: """
-                    You are an \(subject.displayName) expert analyzing extracted text from images.
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    
-                    STRICT LANGUAGE REQUIREMENT:
-                    - Output language: \(language == .auto ? "Same as extracted text" : language.displayName)
-                    - Maintain consistent language throughout all content
-                    - Preserve technical terms and proper nouns while translating
-                    
-                    For trueFalse questions:
-                    - Must be a statement that can be verified as true or false
-                    - Do not create open-ended or "wh-" questions (what, who, how, etc.)
-                    - Answer must be exactly "true" or "false" (lowercase)
-                    - Do not use variations like "Yes", "No", "That's correct", etc.
-                    - Do not translate true/false to other languages
-                    """,
-                userPromptTemplate: """
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Important: \(languageInstruction_image)
-                    Include detailed explanations and hints.
-                    
-                    Examples of GOOD trueFalse questions:
-                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
-                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
-                    
-                    Examples of BAD trueFalse questions:
-                    - The capital of France is Berlin.
-                    - Who was worried in the story?
-                    
-                    Examples of GOOD multipleChoice questions:
-                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
-                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
-                    
-                    Examples of BAD multipleChoice questions:
-                    - What does the text explain?
-                    - According to the text, what is his job?
-                    """
-            )
-        } else {
-            // 일반 텍스트 입력 케이스 (기존 로직)
-            return SubjectPrompt(
-                systemPrompt: """
-                    You are an \(subject.displayName) expert specializing in creating questions for \(educationLevel.displayName) school students.
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Include detailed explanations and hints.
-                    
-                    STRICT LANGUAGE REQUIREMENT:
-                    - Output language: \(language == .auto ? "Same as input" : language.displayName)
-                    - Maintain consistent language throughout all content
-                    - Translate concepts from input while maintaining accuracy
-                    
-                    For True/False questions:
-                    - Answer must be exactly "true" or "false" (lowercase)
-                    - Do not use variations like "Yes", "No", "That's correct", etc.
-                    - Do not translate true/false to other languages
-                    """,
-                userPromptTemplate: """
-                    Focus on creating self-contained questions that provide all necessary context within each question.
-                    Important: \(languageInstruction_text)
-                    Include detailed explanations and hints.
-                    
-                    Question creation guidelines:
-                    - Generate questions directly from the user's input content
-                    - Create questions for \(educationLevel.displayName) school student
-                    - Avoid broad, oversimplified questions
+                    FORMATTING REQUIREMENTS:
+                    - Each question must be self-contained with all necessary context provided.
+                    - Avoid ambiguous or overly broad questions.
+                    - Ensure True/False answers are always lowercase ("true" or "false").
+                    - Do not translate True/False answers into other languages.
 
-                    Examples of GOOD trueFalse questions:
-                    - In a perfectly competitive market, individual firms are price takers because they produce a significant portion of the total market supply.
-                    - If the sum of the angles in a triangle is 180°, and one angle is 90°, then the other two angles must be 45° each.
+                    ERROR PREVENTION:
+                    - Avoid using "Yes", "No", or "That's correct" for True/False questions.
+                    - Check the consistency of technical terms and proper nouns.
+                    """,
+                userPromptTemplate: """
+                    Create high-quality, context-rich questions based on the given image.
+                    \(languageInstructionImage)
+                    Each question must include detailed explanations and hints.
+
+                    Examples of good questions:
+                    - "If the sum of the angles in a triangle is 180°, and one angle is 90°, what are the other two angles?"
+                    - "The Roman Empire declined for many reasons. Which of the following factors contributed the most to its fall?"
                     
-                    Examples of BAD trueFalse questions:
-                    - The capital of France is Berlin.
-                    - Who was worried in the story?
+                    Examples of bad questions:
+                    - "What does the text explain?"
+                    - "Is this image interesting?"
+                    """
+            )
+        }
+        // 이미지에서 추출된 텍스트 기반 입력
+        else if isImageInput && isExtractedText {
+            return SubjectPrompt(
+                systemPrompt: """
+                    You are an expert in \(subject.displayName), specializing in creating self-contained questions based on extracted text from images.
                     
-                    Examples of GOOD multipleChoice questions:
-                    - The fall of the Western Roman Empire in 476 AD is often considered a turning point in European history. Which of the following factors contributed the most to the decline of the empire?
-                    - What lesson does the person mentioned in the text want to convey to us through ‘trying to endure many hardships while worrying about how to repay the mortgaged house price’
+                    STRICT LANGUAGE REQUIREMENTS:
+                    - Output language: \(language == .auto ? "same as the extracted text" : language.displayName)
+                    - Maintain consistent language usage across all questions, answers, and explanations.
+                    - Preserve technical terms and proper nouns during translation.
+
+                    FORMATTING REQUIREMENTS:
+                    - Create questions with all necessary context included.
+                    - True/False answers must be "true" or "false" (lowercase).
+                    - Avoid "wh-" questions like "what", "who", or "how".
+
+                    ERROR PREVENTION:
+                    - Do not use variations like "Yes", "No", or "That's correct" for True/False questions.
+                    - Avoid ambiguity in technical or academic concepts.
+                    """,
+                userPromptTemplate: """
+                    Generate accurate and context-aware questions from the extracted text in the image.
+                    \(languageInstructionImage)
+                    Include hints and explanations for each question.
+
+                    Examples of good questions:
+                    - "The fall of the Roman Empire is often attributed to external invasions. Which of the following best explains this?"
+                    - "In the Pythagorean theorem, if a² + b² = c², what does 'c' represent in a right triangle?"
+
+                    Examples of bad questions:
+                    - "What does this text mean?"
+                    - "Explain the context."
+                    """
+            )
+        }
+        // 텍스트 기반 입력
+        else {
+            return SubjectPrompt(
+                systemPrompt: """
+                    You are an expert in \(subject.displayName), creating questions for \(educationLevel.displayName) students.
                     
-                    Examples of BAD multipleChoice questions:
-                    - What does the text explain?
-                    - According to the text, what is his job?
+                    STRICT LANGUAGE REQUIREMENTS:
+                    - Output language: \(language == .auto ? "same as input text" : language.displayName)
+                    - Maintain consistent language usage in all content.
+                    - Translate concepts accurately and preserve their original meaning.
+
+                    FORMATTING REQUIREMENTS:
+                    - Include all necessary context within the questions.
+                    - Avoid overly broad or simplistic questions.
+                    - True/False answers must be "true" or "false" (lowercase) and must not be translated.
+
+                    ERROR PREVENTION:
+                    - Do not use "Yes", "No", or "That's correct" for True/False answers.
+                    - Ensure clarity and precision in question phrasing.
+                    """,
+                userPromptTemplate: """
+                    Create thoughtful and context-rich questions based on the input text.
+                    \(languageInstructionText)
+                    Create National Assessment of Educational Progress questions for \(educationLevel.displayName) school students
+                    Include hints and detailed explanations.
+
+                    Examples of good questions:
+                    - "The Renaissance was a cultural movement in Europe. Which of the following innovations was NOT developed during this period?"
+                    - "If a car travels 60 miles in one hour, how far will it travel in three hours at the same speed?"
+
+                    Examples of bad questions:
+                    - "What is the capital of France?"
+                    - "Explain this text."
                     """
             )
         }
     }
+
     
     // MARK: - Schema and Prompt Preparation
     private func preparePromptAndSchema(
@@ -7039,7 +6867,6 @@ class OpenAIService {
             isImageInput: input.isImage,
             isExtractedText: !input.isImage && input.content.count > 0,  // 텍스트 추출 여부 확인
             educationLevel: parameters.educationLevel,
-            difficulty: parameters.difficulty,
             language: parameters.language
         )
         let schema = try await generateSchema(for: parameters.questionTypes)
@@ -7053,7 +6880,6 @@ class OpenAIService {
         let userPrompt = subjectPrompt.userPromptTemplate
             .replacingOccurrences(of: "{input_type}", with: input.isImage ? "image" : "text")
             .replacingOccurrences(of: "{education_level}", with: parameters.educationLevel.rawValue)
-            .replacingOccurrences(of: "{difficulty}", with: parameters.difficulty.rawValue)
         
         return (schema, (systemPrompt, userPrompt))
     }
@@ -7204,12 +7030,19 @@ class OpenAIService {
         let questions = questionSchema.questions.map { questionData in
             // True/False 질문에서 접두사 제거
             let processedQuestion = questionData.type == "true_false" ?
-                questionData.question.replacingOccurrences(
-                    of: "^(True or False:|True/False:|T/F:)\\s*",
-                    with: "",
-                    options: [.regularExpression, .caseInsensitive]
-                ).trimmingCharacters(in: .whitespacesAndNewlines) :
                 questionData.question
+                    .replacingOccurrences(
+                        of: "^(True or False:|True/False:|T/F:|\\(True/False\\)|\\[True/False\\]|True or False\\?|Is it true or false:|True False:)\\s*",
+                        with: "",
+                        options: [.regularExpression, .caseInsensitive]
+                    )
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .trimmingCharacters(in: .whitespacesAndNewlines) :
+                questionData.question
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
 
             // True/False 답변 정규화
             var correctAnswer = questionData.correctAnswer
@@ -7226,10 +7059,9 @@ class OpenAIService {
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
-                difficulty: parameters.difficulty,
-                question: processedQuestion,
+                question: processedQuestion,  // 처리된 질문 사용
                 options: questionData.options,
-                correctAnswer: correctAnswer,  // 정규화된 답변 사용
+                correctAnswer: correctAnswer,
                 explanation: questionData.explanation,
                 hint: questionData.hint,
                 isSaved: false,

@@ -4,7 +4,6 @@ import Foundation
 public struct ProblemSet: Identifiable, Codable {
     public let id: String
     public let subject: Subject
-    public let difficulty: Difficulty
     public let questions: [Question]
     public let createdAt: Date
     public var lastAttempted: Date?
@@ -24,7 +23,6 @@ public struct ProblemSet: Identifiable, Codable {
     public init(
           id: String,
           subject: Subject,
-          difficulty: Difficulty,
           questions: [Question],
           createdAt: Date,
           lastAttempted: Date? = nil,
@@ -36,7 +34,6 @@ public struct ProblemSet: Identifiable, Codable {
       ) {
           self.id = id
           self.subject = subject
-          self.difficulty = difficulty
           self.questions = questions
           self.createdAt = createdAt
           self.lastAttempted = lastAttempted

@@ -51,7 +51,6 @@ struct ProblemSetCard: View {
                 InfoRow(title: "Subject", value: problemSet.subject.displayName)
                 InfoRow(title: "Level", value: problemSet.educationLevel.rawValue)
                 InfoRow(title: "Questions", value: "\(problemSet.questions.count)")
-                InfoRow(title: "Difficulty", value: problemSet.difficulty.rawValue)
             }
             .font(.footnote)
             

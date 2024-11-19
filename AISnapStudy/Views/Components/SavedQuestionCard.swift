@@ -5,7 +5,6 @@ struct SavedQuestionCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Subject and Difficulty Tags
             HStack {
                 Text(question.subject.displayName)
                     .font(.caption)
@@ -16,14 +15,6 @@ struct SavedQuestionCard: View {
                     .cornerRadius(8)
                 
                 Spacer()
-                
-                Text(question.difficulty.displayName)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(question.difficulty.color.opacity(0.2))
-                    .foregroundColor(question.difficulty.color)
-                    .cornerRadius(8)
             }
             
             // Question Type
@@ -63,7 +54,6 @@ struct SavedQuestionCard: View {
         id: UUID().uuidString,
         type: .multipleChoice,
         subject: .math,
-        difficulty: .medium,
         question: "Sample Question",
         options: ["A", "B", "C", "D"],
         correctAnswer: "A",

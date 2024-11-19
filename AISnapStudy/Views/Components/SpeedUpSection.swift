@@ -18,7 +18,7 @@ struct SpeedUpSection: View {
                 HStack {
                     Image(systemName: "bolt.fill")
                         .foregroundColor(.yellow)
-                    Text("Speed Up Processing")
+                    Text("Speed Up")
                         .font(.headline)
                     Spacer()
                     Toggle("", isOn: $useTextExtraction)

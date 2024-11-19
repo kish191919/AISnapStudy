@@ -15,10 +15,6 @@ struct SavedProblemCard: View {
                     .cornerRadius(4)
                 
                 Spacer()
-                
-                Text(question.difficulty.rawValue.capitalized)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             
             Text(question.question)

@@ -11,8 +11,8 @@
 		9858D8AA2CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */; };
 		9866D7382CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9866D7362CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift */; };
 		9866D7392CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9866D7372CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift */; };
-		98AA6F062CE876C9004E716C /* CDProblemSet+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AA6F042CE876C9004E716C /* CDProblemSet+CoreDataClass.swift */; };
-		98AA6F072CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AA6F052CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift */; };
+		98B6EFAD2CEBBD750098551C /* CDProblemSet+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B6EFAC2CEBBD750098551C /* CDProblemSet+CoreDataProperties.swift */; };
+		98B6EFAE2CEBBD750098551C /* CDProblemSet+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B6EFAB2CEBBD750098551C /* CDProblemSet+CoreDataClass.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -21,8 +21,8 @@
 		9866D7362CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataClass.swift"; sourceTree = "<group>"; };
 		9866D7372CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		989CC9FD2CE135CA00E25D14 /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		98AA6F042CE876C9004E716C /* CDProblemSet+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift"; sourceTree = "<group>"; };
-		98AA6F052CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift"; sourceTree = "<group>"; };
+		98B6EFAB2CEBBD750098551C /* CDProblemSet+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift"; sourceTree = "<group>"; };
+		98B6EFAC2CEBBD750098551C /* CDProblemSet+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -60,8 +60,8 @@
 		989CC9F42CE135CA00E25D14 = {
 			isa = PBXGroup;
 			children = (
-				98AA6F042CE876C9004E716C /* CDProblemSet+CoreDataClass.swift */,
-				98AA6F052CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift */,
+				98B6EFAB2CEBBD750098551C /* CDProblemSet+CoreDataClass.swift */,
+				98B6EFAC2CEBBD750098551C /* CDProblemSet+CoreDataProperties.swift */,
 				9866D7362CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift */,
 				9866D7372CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift */,
 				9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */,
@@ -155,8 +155,8 @@
 			files = (
 				9866D7382CE3F02F00EFAF75 /* CDQuestion+CoreDataClass.swift in Sources */,
 				9866D7392CE3F02F00EFAF75 /* CDQuestion+CoreDataProperties.swift in Sources */,
-				98AA6F062CE876C9004E716C /* CDProblemSet+CoreDataClass.swift in Sources */,
-				98AA6F072CE876C9004E716C /* CDProblemSet+CoreDataProperties.swift in Sources */,
+				98B6EFAD2CEBBD750098551C /* CDProblemSet+CoreDataProperties.swift in Sources */,
+				98B6EFAE2CEBBD750098551C /* CDProblemSet+CoreDataClass.swift in Sources */,
 				9858D8A72CE18737000A04C0 /* CDStudySession+CoreDataClass.swift in Sources */,
 				9858D8AA2CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift in Sources */,
 			);
