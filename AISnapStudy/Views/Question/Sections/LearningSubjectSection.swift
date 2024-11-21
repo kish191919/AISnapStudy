@@ -1,28 +1,26 @@
 import SwiftUI
 
 struct LearningSubjectSection: View {
-   @Binding var selectedSubject: Subject
-   
-   let columns = [
-       GridItem(.flexible()),
-       GridItem(.flexible()),
-       GridItem(.flexible())
-   ]
-   
-   var body: some View {
-       LazyVGrid(columns: columns, spacing: 12) {
-           ForEach(Subject.allCases, id: \.self) { subject in
-               SubjectSelectionButton(
-                   subject: subject,
-                   isSelected: selectedSubject == subject
-               ) {
-                   withAnimation(.spring()) {
-                       selectedSubject = subject
-                   }
-               }
-           }
-       }
-       .padding(.vertical, 8)
-   }
+    @StateObject private var subjectManager = SubjectManager.shared
+    @Binding var selectedSubject: SubjectType
+    
+    var body: some View {
+        LazyVGrid(columns: [
+            GridItem(.flexible()),
+            GridItem(.flexible()),
+            GridItem(.flexible())
+        ], spacing: 12) {
+            ForEach(subjectManager.allSubjects, id: \.id) { subject in
+                SubjectSelectionButton(
+                    subject: subject,
+                    isSelected: selectedSubject.id == subject.id
+                ) {
+                    withAnimation(.spring()) {
+                        selectedSubject = subject
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
 }
-

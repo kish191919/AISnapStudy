@@ -1,8 +1,11 @@
 import SwiftUI
 
+import SwiftUI
+
 struct ReviewView: View {
     @EnvironmentObject var homeViewModel: HomeViewModel
     @StateObject private var viewModel: ReviewViewModel
+    @StateObject private var subjectManager = SubjectManager.shared
     @State private var searchText = ""
     
     init() {
@@ -17,112 +20,52 @@ struct ReviewView: View {
                     .padding(.horizontal)
                 
                 List {
-                    // Saved Questions Section
-                    Section(header: Text("Saved Questions")) {
-                        NavigationLink(
-                            destination: SavedQuestionsView(
-                                questions: viewModel.savedQuestions,
-                                homeViewModel: homeViewModel
-                            )
-                        ) {
-                            HStack {
-                                Image(systemName: "bookmark.fill")
-                                    .foregroundColor(.blue)
-                                Text("Saved Questions")
-                                    .font(.headline)
-                                Spacer()
-                                Text("\(viewModel.savedQuestions.count)")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
+                    SavedQuestionsSection(
+                        savedQuestions: viewModel.savedQuestions,
+                        homeViewModel: homeViewModel
+                    )
                     
-                    // Subject folders
-                    ForEach(Subject.allCases, id: \.self) { subject in
-                        NavigationLink(
-                            destination: ProblemSetsListView(
-                                subject: subject,
-                                problemSets: filteredAndSortedProblemSets(for: subject)
-                            )
-                        ) {
-                            HStack {
-                                Image(systemName: "folder.fill")
-                                    .foregroundColor(.blue)
-                                Text(subject.displayName)
-                                    .font(.headline)
-                                    .padding(.leading, 8)
-                            }
-                        }
-                    }
+                    DefaultSubjectsSection(
+                        viewModel: viewModel,
+                        filteredAndSortedProblemSets: filteredAndSortedProblemSets
+                    )
+                    
+                    CustomSubjectsSection(
+                        subjectManager: subjectManager,
+                        viewModel: viewModel,
+                        filteredAndSortedProblemSets: filteredAndSortedProblemSets
+                    )
                 }
                 .listStyle(InsetGroupedListStyle())
                 .navigationTitle("Review")
-                .navigationBarTitleDisplayMode(.inline)  // 이 줄을 추가
+                .navigationBarTitleDisplayMode(.inline)
                 .refreshable {
                     viewModel.refreshData()
                 }
             }
         }
         .onAppear {
-                    viewModel.setHomeViewModel(homeViewModel)
-                }
+            viewModel.setHomeViewModel(homeViewModel)
+        }
     }
     
-    var problemSets: [ProblemSet] {
-        homeViewModel.problemSets
-    }
-    
-    // Subject별로 Problem Sets 필터링 및 정렬하는 메서드
-    private func filteredAndSortedProblemSets(for subject: Subject) -> [ProblemSet] {
+    private func filteredAndSortedProblemSets(for subject: SubjectType) -> [ProblemSet] {
         return viewModel.problemSets
-            .filter { $0.subject == subject }
+            .filter {
+                if let defaultSubject = subject as? DefaultSubject {
+                    return $0.subject == defaultSubject
+                } else if let userSubject = subject as? UserSubject {
+                    return $0.subject.displayName == userSubject.displayName
+                }
+                return false
+            }
             .sorted(by: { $0.createdAt > $1.createdAt })
     }
 }
 
-struct SavedQuestionsView: View {
-    let questions: [Question]
-    let homeViewModel: HomeViewModel
-    @State private var showStudyView = false
-    
-    var body: some View {
-        List(questions) { question in
-            SavedQuestionCard(question: question)
-                .onTapGesture {
-                    // Create a temporary ProblemSet for the saved question
-                    let problemSet = ProblemSet(
-                        id: UUID().uuidString,
-                        subject: question.subject,
-                        questions: [question],
-                        createdAt: Date(),
-                        educationLevel: .elementary,
-                        name: "Saved Question"
-                    )
-                    homeViewModel.setSelectedProblemSet(problemSet)
-                    showStudyView = true
-                }
-        }
-        .navigationTitle("Saved Questions")
-        .background(
-            NavigationLink(
-                isActive: $showStudyView,
-                destination: {
-                    if let studyViewModel = homeViewModel.studyViewModel {
-                        StudyView(
-                            questions: [questions[0]],
-                            studyViewModel: studyViewModel,
-                            selectedTab: .constant(1)
-                        )
-                    }
-                },
-                label: { EmptyView() }
-            )
-        )
-    }
-}
-
+// ProblemSetsListView 구조체 선언 추가
 struct ProblemSetsListView: View {
-    let subject: Subject
+    let subject: SubjectType
     let problemSets: [ProblemSet]
     @EnvironmentObject var homeViewModel: HomeViewModel
     @State private var isShowingStudyView = false
@@ -133,25 +76,185 @@ struct ProblemSetsListView: View {
                 homeViewModel.setSelectedProblemSet(problemSet)
                 isShowingStudyView = true
             }) {
-                ReviewProblemSetCard(problemSet: problemSet)
+                ReviewProblemSetCard(subject: problemSet.subject, problemSet: problemSet)
             }
             .background(
                 NavigationLink(
-                    isActive: $isShowingStudyView,
-                    destination: {
-                        guard let studyViewModel = homeViewModel.studyViewModel else {
-                            return AnyView(Text("Study ViewModel not available"))
-                        }
-                        return AnyView(
+                    destination: Group {
+                        if let studyViewModel = homeViewModel.studyViewModel {
                             StudyView(
                                 questions: problemSet.questions,
                                 studyViewModel: studyViewModel,
                                 selectedTab: .constant(1)
                             )
-                        )
-                    }
-                ) { EmptyView() }
-                .hidden()
+                        } else {
+                            Text("Study ViewModel not available")
+                        }
+                    },
+                    isActive: $isShowingStudyView
+                ) {
+                    EmptyView()
+                }
+            )
+        }
+        .navigationTitle("\(subject.displayName) Sets")
+        .listStyle(InsetGroupedListStyle())
+    }
+}
+
+struct SavedQuestionsSection: View {
+    let savedQuestions: [Question]
+    let homeViewModel: HomeViewModel
+    
+    var body: some View {
+        Section(header: Text("Saved Questions")) {
+            NavigationLink(
+                destination: SavedQuestionsView(
+                    questions: savedQuestions,
+                    homeViewModel: homeViewModel
+                )
+            ) {
+                HStack {
+                    Image(systemName: "bookmark.fill")
+                        .foregroundColor(.blue)
+                    Text("Saved Questions")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(savedQuestions.count)")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+}
+
+struct DefaultSubjectsSection: View {
+    @StateObject private var subjectManager = SubjectManager.shared
+    let viewModel: ReviewViewModel
+    let filteredAndSortedProblemSets: (SubjectType) -> [ProblemSet]
+    
+    var body: some View {
+        Section(header: Text("Subjects")) {
+            ForEach(subjectManager.allSubjects, id: \.id) { subject in
+                NavigationLink(
+                    destination: ProblemSetsListView(
+                        subject: subject,
+                        problemSets: filteredAndSortedProblemSets(subject)
+                    )
+                ) {
+                    SubjectRow(subject: subject)
+                }
+            }
+            
+            NavigationLink(destination: SubjectManagementView()) {
+                Label("Manage Subjects", systemImage: "gear")
+            }
+        }
+    }
+}
+
+struct CustomSubjectsSection: View {
+    let subjectManager: SubjectManager
+    let viewModel: ReviewViewModel
+    let filteredAndSortedProblemSets: (SubjectType) -> [ProblemSet]
+    
+    var body: some View {
+        Section(header: Text("Custom Subjects")) {
+            ForEach(subjectManager.customSubjects.filter { $0.isActive }) { subject in
+                NavigationLink(
+                    destination: ProblemSetsListView(
+                        subject: subject,
+                        problemSets: filteredAndSortedProblemSets(subject)
+                    )
+                ) {
+                    SubjectRow(subject: subject)
+                }
+            }
+        }
+    }
+}
+
+// 과목 행 컴포넌트
+struct SubjectRow: View {
+    // Style enum to handle different display modes
+    enum Style {
+        case navigation
+        case management
+    }
+    
+    let subject: SubjectType
+    let style: Style
+    let isDefault: Bool
+    
+    // Default initializer for navigation style
+    init(subject: SubjectType) {
+        self.subject = subject
+        self.style = .navigation
+        self.isDefault = false
+    }
+    
+    // Management style initializer
+    init(subject: SubjectType, isDefault: Bool) {
+        self.subject = subject
+        self.style = .management
+        self.isDefault = isDefault
+    }
+    
+    var body: some View {
+        HStack {
+            Image(systemName: subject.icon)
+                .foregroundColor(subject.color)
+                .font(style == .management ? .title2 : .body)
+            
+            Text(subject.displayName)
+                .foregroundColor(.primary)
+                .font(style == .management ? .body : .headline)
+                .padding(.leading, style == .management ? 0 : 8)
+            
+            if style == .management {
+                if isDefault {
+                    Spacer()
+                    Text("Default")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, style == .management ? 8 : 0)
+    }
+}
+
+struct DefaultSubjectProblemSetList: View {    // 구조체 이름 추가
+    let subject: DefaultSubject
+    let problemSets: [ProblemSet]
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @State private var isShowingStudyView = false
+    
+    var body: some View {
+        List(problemSets) { problemSet in
+            Button(action: {
+                homeViewModel.setSelectedProblemSet(problemSet)
+                isShowingStudyView = true
+            }) {
+                ReviewProblemSetCard(subject: problemSet.subject, problemSet: problemSet)
+            }
+            .background(
+                NavigationLink(
+                    destination: Group {
+                        if let studyViewModel = homeViewModel.studyViewModel {
+                            StudyView(
+                                questions: problemSet.questions,
+                                studyViewModel: studyViewModel,
+                                selectedTab: .constant(1)
+                            )
+                        } else {
+                            Text("Study ViewModel not available")
+                        }
+                    },
+                    isActive: $isShowingStudyView
+                ) {
+                    EmptyView()
+                }
             )
         }
         .navigationTitle("\(subject.displayName) Sets")

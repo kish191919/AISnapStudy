@@ -118,7 +118,7 @@ class CoreDataService {
                 return Question(
                     id: id,
                     type: QuestionType(rawValue: type) ?? .multipleChoice,
-                    subject: Subject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .math,
+                    subject: DefaultSubject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .math,
                     question: questionText,
                     options: options,
                     correctAnswer: correctAnswer,
@@ -227,7 +227,7 @@ class CoreDataService {
                         return Question(
                             id: id,
                             type: QuestionType(rawValue: type) ?? .multipleChoice,
-                            subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                            subject: DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math,
                             question: questionText,
                             options: options,
                             correctAnswer: correctAnswer,
@@ -242,7 +242,7 @@ class CoreDataService {
                 
                 return ProblemSet(
                     id: cdProblemSet.id ?? UUID().uuidString,
-                    subject: Subject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                    subject: DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math,
                     questions: questions,
                     createdAt: cdProblemSet.createdAt ?? Date(),
                     lastAttempted: cdProblemSet.lastAttempted,
@@ -359,13 +359,12 @@ extension CDQuestion {
             return nil
         }
         
-        // NSArray를 [String]으로 변환
         let options = (self.options as? [String]) ?? []
         
         return Question(
             id: id,
             type: QuestionType(rawValue: type) ?? .multipleChoice,
-            subject: Subject(rawValue: self.problemSet?.subject ?? "") ?? .math,
+            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .math,
             question: question,
             options: options,
             correctAnswer: correctAnswer,

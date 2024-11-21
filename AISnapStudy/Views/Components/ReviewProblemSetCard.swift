@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ReviewProblemSetCard: View {
+    let subject: DefaultSubject
     let problemSet: ProblemSet
     
     var body: some View {
@@ -20,9 +21,11 @@ struct ReviewProblemSetCard: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(UIColor.systemBackground))
-                        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1))
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(UIColor.systemBackground))
+                .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+        )
         .padding(.vertical, 4)
     }
 }

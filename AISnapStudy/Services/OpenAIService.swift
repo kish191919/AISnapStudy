@@ -96,13 +96,13 @@ class OpenAIService {
     }
     
     public struct QuestionParameters {    // private -> public 으로 변경
-        let subject: Subject
+        let subject: DefaultSubject  // Subject -> DefaultSubject로 변경
         let educationLevel: EducationLevel
         let questionTypes: [QuestionType: Int]
         let language: Language
         
         public init(    // public init 추가
-            subject: Subject,
+            subject: DefaultSubject,
             educationLevel: EducationLevel,
             questionTypes: [QuestionType: Int],
             language: Language
@@ -274,7 +274,7 @@ class OpenAIService {
     
     // MARK: - Subject-Specific Prompts
     private func getSubjectPrompt(
-        _ subject: Subject,
+        _ subject: DefaultSubject,
         isImageInput: Bool,
         isExtractedText: Bool,  // 새로운 매개변수 추가
         educationLevel: EducationLevel,

@@ -5,7 +5,9 @@ import PhotosUI
 
 @MainActor
 class QuestionSettingsViewModel: ObservableObject {
-    // Quick Text Mode 상태가 @Published로 선언되어 있는지 확인
+    
+    @Published var selectedSubject: any SubjectType
+    
     @Published var useTextExtraction: Bool = true {
         didSet {
             UserDefaults.standard.set(useTextExtraction, forKey: "useTextExtraction")
@@ -24,6 +26,7 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var extractionStatus: [String: Bool] = [:]
     @Published private(set) var isCameraAuthorized = false
     @Published private(set) var isGalleryAuthorized = false
+    @Published var availableSubjects: [SubjectType] = [] 
     
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
@@ -40,7 +43,22 @@ class QuestionSettingsViewModel: ObservableObject {
         static let lastTrueFalseCount = "lastTrueFalseCount"
     }
     
-    // MARK: - Published Properties
+    private func loadAvailableSubjects() {
+        // DefaultSubject를 직접 추가
+        var subjects: [any SubjectType] = DefaultSubject.allCases
+        
+        // 활성화된 사용자 정의 과목 추가
+        let activeUserSubjects = SubjectManager.shared.customSubjects
+            .filter { $0.isActive }
+        subjects.append(contentsOf: activeUserSubjects)
+        
+        availableSubjects = subjects
+        
+        // 현재 선택된 과목이 없거나 비활성화된 경우 기본 과목으로 설정
+        if !subjects.contains(where: { $0.id == selectedSubject.id }) {
+            selectedSubject = DefaultSubject.math  // 기본값으로 math 설정
+        }
+    }
 
     private var imageIds: [UIImage: String] = [:]
     
@@ -67,11 +85,6 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var alertTitle: String = ""
     @Published var alertMessage: String = ""
     
-    @Published var selectedSubject: Subject {
-         didSet {
-             UserDefaults.standard.set(selectedSubject.rawValue, forKey: UserDefaultsKeys.lastSubject)
-         }
-     }
      
      @Published var educationLevel: EducationLevel {
          didSet {
@@ -91,26 +104,26 @@ class QuestionSettingsViewModel: ObservableObject {
          }
      }
      
-     let subject: Subject
+    let subject: DefaultSubject
     
      
      // MARK: - Initialization
-     init(subject: Subject, homeViewModel: HomeViewModel) {
-         
-         self.subject = subject
-         self.homeViewModel = homeViewModel
-         self.studyViewModel = homeViewModel.studyViewModel
-         
-         // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
-         let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
-         let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
-
-         
-         // 기본값을 하드코딩하지 않고 파라미터나 null 처리
-         self.selectedSubject = Subject(rawValue: lastSubjectRaw ?? "") ?? subject
-         self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
-         self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
-         self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
+    init(subject: any SubjectType, homeViewModel: HomeViewModel) {  // selectedTab 매개변수 제거
+        self.selectedSubject = subject
+        self.subject = subject as? DefaultSubject ?? .math  // 기본값 설정
+        self.homeViewModel = homeViewModel
+        self.studyViewModel = homeViewModel.studyViewModel
+        
+        // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
+        let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
+        let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
+        
+        // educationLevel 초기화
+        self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
+        
+        // 카운트 초기화
+        self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
+        self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
          
          // Initialize network monitoring
          self.isNetworkAvailable = networkMonitor.isReachable
@@ -255,7 +268,6 @@ class QuestionSettingsViewModel: ObservableObject {
         let totalQuestions = multipleChoiceCount + trueFalseCount
         
         return "\(selectedSubject.displayName)_\(totalQuestions)Q_\(dateString)"
-        // 예: "Math_10Q_0515_1430"
     }
      
      // 기존 resetCounts 메서드 수정
@@ -528,16 +540,19 @@ class QuestionSettingsViewModel: ObservableObject {
     }
 
     private func createParameters() -> OpenAIService.QuestionParameters {
+        let subjectToUse = (selectedSubject as? DefaultSubject) ?? .math  // DefaultSubject로 변환
+        
         return OpenAIService.QuestionParameters(
-            subject: selectedSubject,
+            subject: subjectToUse,
             educationLevel: educationLevel,
             questionTypes: [
-                .multipleChoice: multipleChoiceCount,
-                .trueFalse: trueFalseCount
+                QuestionType.multipleChoice: multipleChoiceCount,
+                QuestionType.trueFalse: trueFalseCount
             ],
-            language: selectedLanguage  // language 파라미터 추가
+            language: selectedLanguage
         )
     }
+    
     // Update image handling methods
     @MainActor
     func handleCameraImage(_ image: UIImage?) {
@@ -616,14 +631,14 @@ class QuestionSettingsViewModel: ObservableObject {
             print("- \(type.rawValue): \(questions.count) questions")
         }
         
-        let subject = questions.first?.subject ?? self.subject
+        let defaultSubject = (selectedSubject as? DefaultSubject) ?? .math
         let problemSet = ProblemSet(
             id: UUID().uuidString,
-            subject: subject,
+            subject: defaultSubject,  // DefaultSubject 사용
             questions: questions,
             createdAt: Date(),
             educationLevel: self.educationLevel,
-            name: name  // 전달받은 이름 사용
+            name: name
         )
 
         

@@ -15,7 +15,8 @@ struct QuestionSettingsView: View {
     @State private var isGeneratingQuestions = false
     @State private var activeSheet: ActiveSheet?
     
-    let subject: Subject
+    // 여기를 Subject에서 DefaultSubject로 변경
+    let subject: DefaultSubject  // Subject를 DefaultSubject로 변경
     
     public enum SectionType: Hashable {
         case questionAbout
@@ -36,7 +37,7 @@ struct QuestionSettingsView: View {
     }
     
     
-    init(subject: Subject, homeViewModel: HomeViewModel, selectedTab: Binding<Int>) {
+    init(subject: DefaultSubject, homeViewModel: HomeViewModel, selectedTab: Binding<Int>) {
         self.subject = subject
         self._viewModel = StateObject(wrappedValue: QuestionSettingsViewModel(
             subject: subject,
@@ -441,35 +442,35 @@ struct GenerateQuestionsFooter: View {
 }
 
 struct SubjectSelectionButton: View {
-   let subject: Subject
-   let isSelected: Bool
-   let action: () -> Void
-   
-   var body: some View {
-       Button(action: action) {
-           VStack(spacing: 8) {
-               Image(systemName: subject.icon)
-                   .font(.system(size: 24))
-               Text(subject.displayName)
-                   .font(.caption)
-                   .lineLimit(1)
-                   .minimumScaleFactor(0.8)
-           }
-           .frame(maxWidth: .infinity)
-           .padding(.vertical, 12)
-           .padding(.horizontal, 8)
-           .background(
-               RoundedRectangle(cornerRadius: 10)
-                   .fill(isSelected ? subject.color.opacity(0.2) : Color.gray.opacity(0.1))
-           )
-           .foregroundColor(isSelected ? subject.color : .gray)
-           .overlay(
-               RoundedRectangle(cornerRadius: 10)
-                   .stroke(isSelected ? subject.color : Color.clear, lineWidth: 2)
-           )
-       }
-       .buttonStyle(PlainButtonStyle())
-   }
+    let subject: any SubjectType
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: subject.icon)
+                    .font(.system(size: 24))
+                Text(subject.displayName)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? subject.color.opacity(0.2) : Color.gray.opacity(0.1))
+            )
+            .foregroundColor(isSelected ? subject.color : .gray)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? subject.color : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
 }
 
 struct EducationLevelSelectionSection: View {
@@ -678,18 +679,31 @@ struct EducationLevelButton: View {
 // Subject Selection Section
 struct SubjectSelectionSection: View {
     @ObservedObject var viewModel: QuestionSettingsViewModel
+    @StateObject private var subjectManager = SubjectManager.shared
     
     var body: some View {
         Section("Subject") {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(Subject.allCases, id: \.self) { subject in
+                    // 기본 과목
+                    ForEach(DefaultSubject.allCases, id: \.self) { subject in
                         SubjectSelectionButton(
                             subject: subject,
-                            isSelected: viewModel.selectedSubject == subject
+                            isSelected: viewModel.selectedSubject.id == subject.id
                         ) {
                             viewModel.selectedSubject = subject
-                            print("Selected subject: \(subject.rawValue)")  // 로깅 추가
+                            print("Selected subject: \(subject.rawValue)")
+                        }
+                    }
+                    
+                    // 사용자 정의 과목
+                    ForEach(subjectManager.customSubjects.filter { $0.isActive }) { subject in
+                        SubjectSelectionButton(
+                            subject: subject,
+                            isSelected: viewModel.selectedSubject.id == subject.id
+                        ) {
+                            viewModel.selectedSubject = subject
+                            print("Selected custom subject: \(subject.name)")
                         }
                     }
                 }
