@@ -6,6 +6,7 @@ struct MainTabView: View {
     @Environment(\.managedObjectContext) private var context
     @StateObject private var homeViewModel: HomeViewModel
     @StateObject private var studyViewModel: StudyViewModel
+    @StateObject private var reviewViewModel: ReviewViewModel  // 추가
     @State private var selectedTab = 0
     @StateObject private var statViewModel: StatViewModel
     
@@ -31,6 +32,9 @@ struct MainTabView: View {
             homeViewModel: homeVM,
             studyViewModel: studyVM
         )
+        // ReviewViewModel 초기화 추가
+        let reviewVM = ReviewViewModel(homeViewModel: homeVM)
+        self._reviewViewModel = StateObject(wrappedValue: reviewVM)
         
         // StatViewModel도 studyViewModel 참조 추가
         self._statViewModel = StateObject(wrappedValue: StatViewModel(
@@ -77,7 +81,7 @@ struct MainTabView: View {
                     .tag(1)
             }
             
-            ReviewView()
+            ReviewView(viewModel: reviewViewModel)  // viewModel 전달
                 .tabItem {
                     Label("Review", systemImage: "clock.fill")
                 }
@@ -86,8 +90,8 @@ struct MainTabView: View {
             StatView(
                 viewModel: statViewModel,
                 selectedTab: $selectedTab,
-                correctAnswers: studyViewModel.correctAnswers,  // StudyViewModel에서 직접 가져옴
-                totalQuestions: studyViewModel.totalQuestions  // StudyViewModel에서 직접 가져옴
+                correctAnswers: studyViewModel.correctAnswers,
+                totalQuestions: studyViewModel.totalQuestions
             )
             .tabItem {
                 Label("Stats", systemImage: "chart.bar.fill")

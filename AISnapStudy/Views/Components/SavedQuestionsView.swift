@@ -12,6 +12,9 @@ struct SavedQuestionsView: View {
                     let problemSet = ProblemSet(
                         id: UUID().uuidString,
                         subject: question.subject,
+                        subjectType: "default",  // 저장된 문제는 항상 기본 과목으로 처리
+                        subjectId: question.subject.rawValue,
+                        subjectName: question.subject.displayName,
                         questions: [question],
                         createdAt: Date(),
                         educationLevel: .elementary,

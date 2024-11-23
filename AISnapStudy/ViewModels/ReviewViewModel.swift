@@ -1,8 +1,6 @@
 
 import Foundation
 
-import Foundation
-
 @MainActor
 class ReviewViewModel: ObservableObject {
     // MARK: - Published Properties

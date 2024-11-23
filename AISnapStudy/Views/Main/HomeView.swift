@@ -100,4 +100,26 @@ extension DefaultSubject {
     static var defaultSubject: DefaultSubject {
         return .math
     }
+    
+    public var displayName: String {
+        SubjectManager.shared.modifiedDefaultSubjects[self.id] ?? defaultDisplayName
+    }
+    
+    // 원래의 displayName을 defaultDisplayName으로 이동
+    private var defaultDisplayName: String {
+        switch self {
+        case .language:
+            return "Language"
+        case .math:
+            return "Mathematics"
+        case .geography:
+            return "Geography"
+        case .history:
+            return "History"
+        case .science:
+            return "Science"
+        case .generalKnowledge:
+            return "General Knowledge"
+        }
+    }
 }

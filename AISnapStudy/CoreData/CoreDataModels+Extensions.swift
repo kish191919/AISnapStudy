@@ -10,18 +10,18 @@ extension CDProblemSet {
             question.toDomain()
         } ?? []
 
+        let defaultSubject = DefaultSubject(rawValue: self.subject ?? "") ?? .math
+
         return ProblemSet(
             id: self.id ?? UUID().uuidString,
-            // Subject를 DefaultSubject로 변경
-            subject: DefaultSubject(rawValue: self.subject ?? "") ?? .math,
+            subject: defaultSubject,
+            subjectType: self.subjectType ?? "default",
+            subjectId: self.subjectId ?? defaultSubject.rawValue,
+            subjectName: self.subjectName ?? defaultSubject.displayName,
             questions: questions,
             createdAt: self.createdAt ?? Date(),
-            lastAttempted: self.lastAttempted,
             educationLevel: EducationLevel(rawValue: self.educationLevel ?? "") ?? .elementary,
-            name: self.name ?? "",
-            tags: self.tags as? [String] ?? [],
-            problemSetDescription: self.problemSetDescription,
-            isFavorite: self.isFavorite
+            name: self.name ?? ""
         )
     }
 }
@@ -48,12 +48,16 @@ extension CDQuestion {
 // MARK: - CDStudySession Extension
 extension CDStudySession {
     func toDomain() -> StudySession {
-        StudySession(
+        let defaultSubject = DefaultSubject.math
+        
+        return StudySession(
             id: self.id ?? UUID().uuidString,
             problemSet: self.problemSet?.toDomain() ?? ProblemSet(
                 id: UUID().uuidString,
-                // Subject를 DefaultSubject로 변경
-                subject: .math,  // DefaultSubject.math
+                subject: defaultSubject,
+                subjectType: "default",
+                subjectId: defaultSubject.rawValue,
+                subjectName: defaultSubject.displayName,
                 questions: [],
                 createdAt: Date(),
                 educationLevel: .elementary,

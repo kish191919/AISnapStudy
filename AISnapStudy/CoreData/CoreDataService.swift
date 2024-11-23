@@ -222,7 +222,6 @@ class CoreDataService {
                         }
                         
                         let options = cdQuestion.options as? [String] ?? []
-                
                         
                         return Question(
                             id: id,
@@ -238,18 +237,19 @@ class CoreDataService {
                         )
                     } ?? []
                 
-                // print("📚 Loaded \(questions.count) questions for ProblemSet: \(cdProblemSet.id ?? "")")
+                let defaultSubject = DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math
                 
                 return ProblemSet(
                     id: cdProblemSet.id ?? UUID().uuidString,
-                    subject: DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                    subject: defaultSubject,
+                    subjectType: cdProblemSet.subjectType ?? "default",
+                    subjectId: cdProblemSet.subjectId ?? defaultSubject.rawValue,
+                    subjectName: cdProblemSet.subjectName ?? defaultSubject.displayName,
                     questions: questions,
                     createdAt: cdProblemSet.createdAt ?? Date(),
-                    lastAttempted: cdProblemSet.lastAttempted,
-                    educationLevel: EducationLevel(rawValue: cdProblemSet.educationLevel ?? "") ?? .elementary, // 추가
-                    name: cdProblemSet.name ?? "Default Name" // 추가
+                    educationLevel: EducationLevel(rawValue: cdProblemSet.educationLevel ?? "") ?? .elementary,
+                    name: cdProblemSet.name ?? "Default Name"
                 )
-
             }
         } catch {
             print("❌ Failed to fetch ProblemSets: \(error)")

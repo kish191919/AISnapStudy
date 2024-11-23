@@ -274,12 +274,18 @@ class OpenAIService {
     
     // MARK: - Subject-Specific Prompts
     private func getSubjectPrompt(
-        _ subject: DefaultSubject,
+        _ subject: SubjectType,
         isImageInput: Bool,
         isExtractedText: Bool,  // 새로운 매개변수 추가
         educationLevel: EducationLevel,
         language: Language
     ) -> SubjectPrompt {
+        let subjectName = if let customSubject = subject as? SubjectManager.CustomSubject {
+            customSubject.displayName
+        } else {
+            subject.displayName
+        }
+        
         let languageInstructionText = language == .auto ?
             "Generate questions in the exact same language as the input text." :
             """
@@ -298,7 +304,7 @@ class OpenAIService {
         if isImageInput && !isExtractedText {
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an expert in \(subject.displayName), creating self-contained, image-based questions.
+                    You are an expert in creating self-contained, image-based questions.
                     
                     STRICT LANGUAGE REQUIREMENTS:
                     - Output language: \(language == .auto ? "same as visible text in the image" : language.displayName)
@@ -334,7 +340,7 @@ class OpenAIService {
         else if isImageInput && isExtractedText {
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an expert in \(subject.displayName), specializing in creating self-contained questions based on extracted text from images.
+                    You are an expert in creating self-contained questions based on extracted text from images.
                     
                     STRICT LANGUAGE REQUIREMENTS:
                     - Output language: \(language == .auto ? "same as the extracted text" : language.displayName)
@@ -369,7 +375,7 @@ class OpenAIService {
         else {
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an expert in \(subject.displayName), creating questions for \(educationLevel.displayName) students.
+                    You are an expert in creating questions for \(educationLevel.displayName) students.
                     
                     STRICT LANGUAGE REQUIREMENTS:
                     - Output language: \(language == .auto ? "same as input text" : language.displayName)

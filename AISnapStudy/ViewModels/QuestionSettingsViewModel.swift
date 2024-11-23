@@ -6,7 +6,15 @@ import PhotosUI
 @MainActor
 class QuestionSettingsViewModel: ObservableObject {
     
-    @Published var selectedSubject: any SubjectType
+    @Published var selectedSubject: any SubjectType {
+        didSet {
+            if let defaultSubject = selectedSubject as? DefaultSubject {
+                UserDefaults.standard.set(defaultSubject.rawValue, forKey: "lastSelectedSubject")
+            } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+                UserDefaults.standard.set("custom_" + customSubject.id, forKey: "lastSelectedSubject")
+            }
+        }
+    }
     
     @Published var useTextExtraction: Bool = true {
         didSet {
@@ -113,6 +121,18 @@ class QuestionSettingsViewModel: ObservableObject {
         self.subject = subject as? DefaultSubject ?? .math  // 기본값 설정
         self.homeViewModel = homeViewModel
         self.studyViewModel = homeViewModel.studyViewModel
+        
+        // 저장된 Subject 불러오기
+        if let savedSubjectID = UserDefaults.standard.string(forKey: "lastSelectedSubject") {
+            if savedSubjectID.starts(with: "custom_") {
+                let customID = String(savedSubjectID.dropFirst(7))
+                self.selectedSubject = SubjectManager.shared.customSubjects.first { $0.id == customID } ?? subject
+            } else {
+                self.selectedSubject = DefaultSubject(rawValue: savedSubjectID) ?? subject
+            }
+        } else {
+            self.selectedSubject = subject
+        }
         
         // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
         let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
@@ -621,38 +641,97 @@ class QuestionSettingsViewModel: ObservableObject {
             }
         }
     }
-    
+
     @MainActor
     func processGeneratedQuestions(_ questions: [Question], name: String) async {
-        print("\n🔄 Processing Generated Questions:")
-        print("Number of questions by type:")
-        let questionsByType = Dictionary(grouping: questions, by: { $0.type })
-        questionsByType.forEach { type, questions in
-            print("- \(type.rawValue): \(questions.count) questions")
+        print("\n🔄 Processing Generated Questions for subject: \(selectedSubject.displayName)")
+        
+        // 1. Subject 정보 준비
+        var subjectType = "default"
+        var subjectId = ""
+        var subjectName = ""
+        var defaultSubject = DefaultSubject.generalKnowledge
+        
+        if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+            subjectType = "custom"
+            subjectId = customSubject.id
+            subjectName = customSubject.displayName
+            defaultSubject = .generalKnowledge
+            
+            print("""
+            📝 Preparing Custom Subject:
+            • Name: \(customSubject.displayName)
+            • ID: \(customSubject.id)
+            • Type: \(subjectType)
+            """)
+        } else if let defaultSubject = selectedSubject as? DefaultSubject {
+            subjectType = "default"
+            subjectId = defaultSubject.rawValue
+            subjectName = defaultSubject.displayName
+            
+            print("""
+            📝 Preparing Default Subject:
+            • Name: \(defaultSubject.displayName)
+            • ID: \(defaultSubject.rawValue)
+            • Type: \(subjectType)
+            """)
         }
         
-        let defaultSubject = (selectedSubject as? DefaultSubject) ?? .math
+        // 2. 질문 업데이트
+        let updatedQuestions = questions.map { question in
+            var updatedQuestion = question
+            if selectedSubject is SubjectManager.CustomSubject {
+                // CustomSubject인 경우 generalKnowledge로 설정
+                updatedQuestion = Question(
+                    id: question.id,
+                    type: question.type,
+                    subject: .generalKnowledge,
+                    question: question.question,
+                    options: question.options,
+                    correctAnswer: question.correctAnswer,
+                    explanation: question.explanation,
+                    hint: question.hint,
+                    isSaved: question.isSaved,
+                    createdAt: question.createdAt
+                )
+            }
+            return updatedQuestion
+        }
+        
+        // 3. ProblemSet 생성
         let problemSet = ProblemSet(
             id: UUID().uuidString,
-            subject: defaultSubject,  // DefaultSubject 사용
-            questions: questions,
+            subject: defaultSubject,
+            subjectType: subjectType,
+            subjectId: subjectId,
+            subjectName: subjectName,
+            questions: updatedQuestions,
             createdAt: Date(),
             educationLevel: self.educationLevel,
             name: name
         )
-
         
-        print("\n📦 Setting ProblemSet in HomeViewModel")
-        // ProblemSet 저장
+        print("""
+        📦 Created ProblemSet:
+        • ID: \(problemSet.id)
+        • Subject Type: \(problemSet.subjectType)
+        • Subject ID: \(problemSet.subjectId)
+        • Subject Name: \(problemSet.subjectName)
+        • Questions Count: \(problemSet.questions.count)
+        • Education Level: \(problemSet.educationLevel.rawValue)
+        """)
+        
+        // 4. ProblemSet 저장 및 선택
         await homeViewModel.saveProblemSet(problemSet)
-        // 저장된 ProblemSet을 바로 선택하여 사용
         await homeViewModel.setSelectedProblemSet(problemSet)
         
-        // Study 탭으로 자동 전환
+        // 5. 알림 발송
         NotificationCenter.default.post(
             name: Notification.Name("ShowStudyView"),
             object: nil
         )
+        
+        print("✅ Problem Set processing completed")
     }
 
     @MainActor
