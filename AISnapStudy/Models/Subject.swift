@@ -191,9 +191,9 @@ public class SubjectManager: ObservableObject {
 //        print("📢 Notifying observers of changes...")
 //        notifySubjectsChange()
 //    }
-//    
-//    
-//    
+//
+//
+//
 //    // 과목 표시/숨김 토글 함수 수정
 //    func toggleDefaultSubject(_ subject: DefaultSubject) {
 //        print("🔄 Attempting to toggle subject: \(subject.displayName)")

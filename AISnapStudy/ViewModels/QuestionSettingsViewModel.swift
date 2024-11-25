@@ -34,7 +34,7 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var extractionStatus: [String: Bool] = [:]
     @Published private(set) var isCameraAuthorized = false
     @Published private(set) var isGalleryAuthorized = false
-    @Published var availableSubjects: [SubjectType] = [] 
+    @Published var availableSubjects: [SubjectType] = []
     
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared

@@ -26,7 +26,7 @@ struct StudyView: View {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
                     GeneratingQuestionsOverlay(
-                        questionCount: studyViewModel.totalExpectedQuestions  // questionCount 매개변수 추가
+                        questionCount: studyViewModel.totalExpectedQuestions
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
@@ -51,6 +51,10 @@ struct StudyView: View {
                         }
                     }
                 }
+            } else if !studyViewModel.hasQuestions {
+                Text("No questions available")
+                    .font(.title3)
+                    .foregroundColor(.gray)
             } else {
                 VStack {
                     Spacer()

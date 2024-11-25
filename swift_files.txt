@@ -36,7 +36,7 @@ class QuestionSettingsViewModel: ObservableObject {
     @Published var extractionStatus: [String: Bool] = [:]
     @Published private(set) var isCameraAuthorized = false
     @Published private(set) var isGalleryAuthorized = false
-    @Published var availableSubjects: [SubjectType] = [] 
+    @Published var availableSubjects: [SubjectType] = []
     
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
@@ -643,49 +643,97 @@ class QuestionSettingsViewModel: ObservableObject {
             }
         }
     }
-    
+
     @MainActor
     func processGeneratedQuestions(_ questions: [Question], name: String) async {
-       print("\n🔄 Processing Generated Questions:")
-       print("Number of questions by type:")
-       let questionsByType = Dictionary(grouping: questions, by: { $0.type })
-       questionsByType.forEach { type, typedQuestions in
-           print("- \(type.rawValue): \(typedQuestions.count) questions")
-       }
-       
-       // Subject 로그 추가
-       print("📚 Creating ProblemSet with subject: \(selectedSubject.displayName)")
-       
-       // CustomSubject인 경우를 위한 처리 추가
-       var subject: DefaultSubject
-       if let defaultSubject = selectedSubject as? DefaultSubject {
-           subject = defaultSubject
-       } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
-           // CustomSubject의 경우 별도 처리
-           print("📝 Processing custom subject: \(customSubject.displayName)")
-           // 커스텀 과목은 일반 지식으로 처리
-           subject = .generalKnowledge
-       } else {
-           subject = .math // 기본값
-       }
-       
-       let problemSet = ProblemSet(
-           id: UUID().uuidString,
-           subject: subject,
-           questions: questions,
-           createdAt: Date(),
-           educationLevel: self.educationLevel,
-           name: name
-       )
-       
-       print("\n📦 Setting ProblemSet in HomeViewModel")
-       await homeViewModel.saveProblemSet(problemSet)
-       await homeViewModel.setSelectedProblemSet(problemSet)
-       
-       NotificationCenter.default.post(
-           name: Notification.Name("ShowStudyView"),
-           object: nil
-       )
+        print("\n🔄 Processing Generated Questions for subject: \(selectedSubject.displayName)")
+        
+        // 1. Subject 정보 준비
+        var subjectType = "default"
+        var subjectId = ""
+        var subjectName = ""
+        var defaultSubject = DefaultSubject.generalKnowledge
+        
+        if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+            subjectType = "custom"
+            subjectId = customSubject.id
+            subjectName = customSubject.displayName
+            defaultSubject = .generalKnowledge
+            
+            print("""
+            📝 Preparing Custom Subject:
+            • Name: \(customSubject.displayName)
+            • ID: \(customSubject.id)
+            • Type: \(subjectType)
+            """)
+        } else if let defaultSubject = selectedSubject as? DefaultSubject {
+            subjectType = "default"
+            subjectId = defaultSubject.rawValue
+            subjectName = defaultSubject.displayName
+            
+            print("""
+            📝 Preparing Default Subject:
+            • Name: \(defaultSubject.displayName)
+            • ID: \(defaultSubject.rawValue)
+            • Type: \(subjectType)
+            """)
+        }
+        
+        // 2. 질문 업데이트
+        let updatedQuestions = questions.map { question in
+            var updatedQuestion = question
+            if selectedSubject is SubjectManager.CustomSubject {
+                // CustomSubject인 경우 generalKnowledge로 설정
+                updatedQuestion = Question(
+                    id: question.id,
+                    type: question.type,
+                    subject: .generalKnowledge,
+                    question: question.question,
+                    options: question.options,
+                    correctAnswer: question.correctAnswer,
+                    explanation: question.explanation,
+                    hint: question.hint,
+                    isSaved: question.isSaved,
+                    createdAt: question.createdAt
+                )
+            }
+            return updatedQuestion
+        }
+        
+        // 3. ProblemSet 생성
+        let problemSet = ProblemSet(
+            id: UUID().uuidString,
+            subject: defaultSubject,
+            subjectType: subjectType,
+            subjectId: subjectId,
+            subjectName: subjectName,
+            questions: updatedQuestions,
+            createdAt: Date(),
+            educationLevel: self.educationLevel,
+            name: name
+        )
+        
+        print("""
+        📦 Created ProblemSet:
+        • ID: \(problemSet.id)
+        • Subject Type: \(problemSet.subjectType)
+        • Subject ID: \(problemSet.subjectId)
+        • Subject Name: \(problemSet.subjectName)
+        • Questions Count: \(problemSet.questions.count)
+        • Education Level: \(problemSet.educationLevel.rawValue)
+        """)
+        
+        // 4. ProblemSet 저장 및 선택
+        await homeViewModel.saveProblemSet(problemSet)
+        await homeViewModel.setSelectedProblemSet(problemSet)
+        
+        // 5. 알림 발송
+        NotificationCenter.default.post(
+            name: Notification.Name("ShowStudyView"),
+            object: nil
+        )
+        
+        print("✅ Problem Set processing completed")
     }
 
     @MainActor
@@ -1162,8 +1210,6 @@ class HomeViewModel: ObservableObject {
 
 // ./AISnapStudy/ViewModels/ReviewViewModel.swift
 
-
-import Foundation
 
 import Foundation
 
@@ -1971,45 +2017,27 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
     // CustomSubject를 위한 생성자
     public init(
         id: String = UUID().uuidString,
-        subject: SubjectType,
+        subject: DefaultSubject,
+        subjectType: String,
+        subjectId: String,
+        subjectName: String,
         questions: [Question],
         createdAt: Date = Date(),
-        lastAttempted: Date? = nil,
         educationLevel: EducationLevel,
-        name: String,
-        tags: [String] = [],
-        problemSetDescription: String? = nil,
-        isFavorite: Bool = false
+        name: String
     ) {
         self.id = id
-        
-        // 수정된 부분: CustomSubject와 DefaultSubject 구분 로직
-        if let customSubject = subject as? SubjectManager.CustomSubject {
-            self.subjectType = "custom"
-            self.subjectId = customSubject.id
-            self.subjectName = customSubject.displayName
-            self.subject = .generalKnowledge  // CustomSubject의 경우 default subject는 generalKnowledge로 설정
-        } else if let defaultSubject = subject as? DefaultSubject {
-            self.subjectType = "default"
-            self.subjectId = defaultSubject.rawValue
-            self.subjectName = defaultSubject.displayName
-            self.subject = defaultSubject
-        } else {
-            // fallback
-            self.subjectType = "default"
-            self.subjectId = DefaultSubject.generalKnowledge.rawValue
-            self.subjectName = DefaultSubject.generalKnowledge.displayName
-            self.subject = .generalKnowledge
-        }
-        
+        self.subject = subject
+        self.subjectType = subjectType
+        self.subjectId = subjectId
+        self.subjectName = subjectName
         self.questions = questions
         self.createdAt = createdAt
-        self.lastAttempted = lastAttempted
         self.educationLevel = educationLevel
         self.name = name
-        self.tags = tags
-        self.problemSetDescription = problemSetDescription
-        self.isFavorite = isFavorite
+        self.tags = []
+        self.problemSetDescription = nil
+        self.isFavorite = false
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -2576,11 +2604,25 @@ public class SubjectManager: ObservableObject {
         
         
         // 모든 활성화된 과목 가져오기 (숨겨지지 않은 기본 과목 + 활성화된 사용자 정의 과목)
-        var allSubjects: [any SubjectType] {
-            let visibleDefaultSubjects = DefaultSubject.allCases.filter { !isHidden($0) }
-            let activeCustomSubjects = customSubjects.filter { $0.isActive }
-            return visibleDefaultSubjects + activeCustomSubjects
-        }
+    var allSubjects: [SubjectType] {
+        var subjects: [SubjectType] = []
+        
+        // 숨겨지지 않은 기본 과목들
+        let visibleDefaultSubjects = DefaultSubject.allCases.filter { !hiddenDefaultSubjects.contains($0.id) }
+        subjects.append(contentsOf: visibleDefaultSubjects)
+        
+        // 활성화된 커스텀 과목들
+        let activeCustomSubjects = customSubjects.filter { $0.isActive }
+        subjects.append(contentsOf: activeCustomSubjects)
+        
+        print("""
+        📚 SubjectManager - All Subjects:
+        • Default Subjects: \(visibleDefaultSubjects.map { $0.displayName })
+        • Custom Subjects: \(activeCustomSubjects.map { $0.displayName })
+        """)
+        
+        return subjects
+    }
     
     struct CustomSubject: SubjectType, Identifiable, Codable {
         let id: String
@@ -2625,7 +2667,7 @@ public class SubjectManager: ObservableObject {
         }
     }
     
-    // CRUD Operations
+    // 과목 추가 메서드 수정
     func addSubject(name: String, color: Color, icon: String) {
         let newSubject = CustomSubject(
             id: UUID().uuidString,
@@ -2636,18 +2678,30 @@ public class SubjectManager: ObservableObject {
         )
         customSubjects.append(newSubject)
         saveSubjects()
+        
+        print("""
+        ✅ Added new custom subject:
+        • Name: \(name)
+        • ID: \(newSubject.id)
+        • Total custom subjects: \(customSubjects.count)
+        """)
     }
     
+    // 저장 메서드 수정
     private func saveSubjects() {
         if let encoded = try? JSONEncoder().encode(customSubjects) {
             UserDefaults.standard.set(encoded, forKey: "customSubjects")
+            print("💾 Saved \(customSubjects.count) custom subjects to UserDefaults")
         }
     }
     
+    // 로드 메서드 수정
     private func loadSubjects() {
         if let data = UserDefaults.standard.data(forKey: "customSubjects"),
            let decoded = try? JSONDecoder().decode([CustomSubject].self, from: data) {
             customSubjects = decoded
+            print("📤 Loaded \(customSubjects.count) custom subjects from UserDefaults")
+            print("📚 Custom Subjects: \(customSubjects.map { $0.displayName })")
         }
     }
     
@@ -4370,6 +4424,9 @@ struct SavedQuestionsView: View {
                     let problemSet = ProblemSet(
                         id: UUID().uuidString,
                         subject: question.subject,
+                        subjectType: "default",  // 저장된 문제는 항상 기본 과목으로 처리
+                        subjectId: question.subject.rawValue,
+                        subjectName: question.subject.displayName,
                         questions: [question],
                         createdAt: Date(),
                         educationLevel: .elementary,
@@ -6492,14 +6549,25 @@ import SwiftUI
 
 
 struct ReviewView: View {
-    @EnvironmentObject var homeViewModel: HomeViewModel  // 추가: EnvironmentObject로 선언
+    @EnvironmentObject var homeViewModel: HomeViewModel
     @ObservedObject var viewModel: ReviewViewModel
     @StateObject private var subjectManager = SubjectManager.shared
+    @State private var showSubjectManagement = false
     @State private var searchText = ""
     @State private var selectedSubject: SubjectType?
    
     public init(viewModel: ReviewViewModel) {
         self.viewModel = viewModel
+    }
+    
+    private var visibleSubjects: [SubjectType] {
+        let subjects = subjectManager.allSubjects
+        print("""
+        📚 ReviewView - Visible Subjects:
+        • Total Subjects: \(subjects.count)
+        • Subject Names: \(subjects.map { $0.displayName })
+        """)
+        return subjects
     }
    
    private var allSubjects: [SubjectType] {
@@ -6518,108 +6586,99 @@ struct ReviewView: View {
        return subjects
    }
    
-   var body: some View {
-       NavigationView {
-           VStack(spacing: 16) {
-               SearchBar(text: $searchText)
-                   .padding(.horizontal)
-               
-               if !viewModel.savedQuestions.isEmpty {
-                   VStack(alignment: .leading, spacing: 8) {
-                       HStack {
-                           Image(systemName: "bookmark.fill")
-                               .foregroundColor(.blue)
-                           Text("Saved Questions")
-                               .font(.headline)
-                           Spacer()
-                           Text("\(viewModel.savedQuestions.count)")
-                               .foregroundColor(.secondary)
-                       }
-                       .padding(.horizontal)
-                       
-                       ScrollView(.horizontal, showsIndicators: false) {
-                           LazyHStack(spacing: 12) {
-                               ForEach(viewModel.savedQuestions) { question in
-                                   SavedQuestionCard(question: question)
-                                       .frame(width: 280)
-                               }
-                           }
-                           .padding(.horizontal)
-                       }
-                   }
-                   .padding(.vertical, 8)
-               }
-               
-               ScrollView {
-                   LazyVGrid(columns: [
-                       GridItem(.flexible()),
-                       GridItem(.flexible())
-                   ], spacing: 16) {
-                       ForEach(allSubjects, id: \.id) { subject in
-                           let filteredSets = filterProblemSets(subject: subject)
-                           if !filteredSets.isEmpty {
-                               NavigationLink(
-                                   destination: ProblemSetsListView(
-                                       subject: subject,
-                                       problemSets: filteredSets
-                                   )
-                               ) {
-                                   SubjectCardView(
-                                       subject: subject,
-                                       problemSetCount: filteredSets.count
-                                   )
-                               }
-                           }
-                       }
-                   }
-                   .padding()
-               }
-           }
-           .navigationTitle("Review")
-           .navigationBarItems(trailing:
-               NavigationLink(destination: SubjectManagementView()) {
-                   Image(systemName: "gear")
-               }
-           )
-       }
-   }
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 16) {
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible())
+                    ], spacing: 16) {
+                        ForEach(visibleSubjects, id: \.id) { subject in
+                            let filteredSets = filterProblemSets(subject: subject)
+                            NavigationLink(
+                                destination: ProblemSetsListView(
+                                    subject: subject,
+                                    problemSets: filteredSets
+                                )
+                            ) {
+                                SubjectCardView(
+                                    subject: subject,
+                                    problemSetCount: filteredSets.count
+                                )
+                            }
+                            .onAppear {
+                                print("""
+                            📱 Subject Card Appeared:
+                            • Subject: \(subject.displayName)
+                            • Type: \(subject is SubjectManager.CustomSubject ? "Custom" : "Default")
+                            • Problem Sets: \(filteredSets.count)
+                            """)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+                .navigationTitle("Review")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: {
+                            showSubjectManagement = true
+                        }) {
+                            Image(systemName: "slider.horizontal.3")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+                .sheet(isPresented: $showSubjectManagement) {
+                    NavigationView {
+                        SubjectManagementView()
+                            .navigationTitle("Manage Subjects")
+                            .navigationBarItems(
+                                trailing: Button("Done") {
+                                    showSubjectManagement = false
+                                }
+                            )
+                    }
+                }
+                
+            }}
+        .onAppear {
+            print("📱 ReviewView appeared")
+            print("📚 Available subjects: \(visibleSubjects.map { $0.displayName })")
+        }
+    }
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
-        let allProblemSets = homeViewModel.problemSets  // 이제 homeViewModel에 접근 가능
+        let allProblemSets = homeViewModel.problemSets
         
-        print("🔍 Filtering ProblemSets")
-        print("📊 Total ProblemSets: \(allProblemSets.count)")
-        print("🎯 Current Subject: \(subject.displayName) (ID: \(subject.id))")
+        print("""
+        🔍 Filtering ProblemSets for subject: \(subject.displayName)
+        • Total Sets Available: \(allProblemSets.count)
+        """)
         
-        return allProblemSets.filter { problemSet in
+        let filtered = allProblemSets.filter { problemSet in
             if let customSubject = subject as? SubjectManager.CustomSubject {
-                // Custom Subject 매칭 로직
                 let matches = problemSet.subjectType == "custom" &&
                              problemSet.subjectId == customSubject.id
                 
-                print("""
-                    📝 Custom Subject Check:
-                    • Subject Name: \(customSubject.name)
-                    • Subject ID: \(customSubject.id)
-                    • ProblemSet Type: \(problemSet.subjectType)
-                    • ProblemSet SubjectID: \(problemSet.subjectId)
-                    • Matches: \(matches)
-                    """)
-                
                 return matches
-            } else if let defaultSubject = subject as? DefaultSubject {
-                // Default Subject 매칭 로직
-                let matches = problemSet.subject == defaultSubject
                 
-                print("""
-                    📝 Default Subject Check:
-                    • Subject: \(defaultSubject.displayName)
-                    • Matches: \(matches)
-                    """)
+            } else if let defaultSubject = subject as? DefaultSubject {
+                let matches = problemSet.subjectType == "default" &&
+                             problemSet.subject == defaultSubject
                 
                 return matches
             }
             return false
         }
+        
+        print("""
+        ✅ Filtering Results:
+        • Subject: \(subject.displayName)
+        • Filtered Sets: \(filtered.count)
+        """)
+        
+        return filtered
     }
 
 }
@@ -6715,15 +6774,42 @@ struct SubjectListRow: View {
     }
     
     private func filterProblemSets(subject: SubjectType, problemSets: [ProblemSet]) -> [ProblemSet] {
+        print("""
+        🔍 SubjectListRow - Filtering ProblemSets for subject: \(subject.displayName)
+        📊 Total ProblemSets to filter: \(problemSets.count)
+        """)
+        
         return problemSets.filter { problemSet in
             if let customSubject = subject as? SubjectManager.CustomSubject {
-                return problemSet.subjectName == customSubject.displayName
+                let matches = problemSet.subjectType == "custom" &&
+                             problemSet.subjectId == customSubject.id
+                
+                print("""
+                📝 Custom Subject Check:
+                • Subject Name: \(customSubject.name)
+                • Subject ID: \(customSubject.id)
+                • ProblemSet Type: \(problemSet.subjectType)
+                • ProblemSet ID: \(problemSet.subjectId)
+                • Matches: \(matches)
+                """)
+                
+                return matches
             } else if let defaultSubject = subject as? DefaultSubject {
-                return problemSet.subject == defaultSubject
+                let matches = problemSet.subjectType == "default" &&
+                             problemSet.subject == defaultSubject
+                
+                print("""
+                📝 Default Subject Check:
+                • Subject: \(defaultSubject.displayName)
+                • ProblemSet Type: \(problemSet.subjectType)
+                • ProblemSet Subject: \(problemSet.subject.displayName)
+                • Matches: \(matches)
+                """)
+                
+                return matches
             }
             return false
         }
-        
     }
 }
 // ReviewView용 DefaultSubjectsSection 컴포넌트
@@ -6793,34 +6879,52 @@ struct ProblemSetsListView: View {
     @State private var isShowingStudyView = false
     
     var body: some View {
-        List(problemSets) { problemSet in
-            Button(action: {
-                homeViewModel.setSelectedProblemSet(problemSet)
-                isShowingStudyView = true
-            }) {
-                ReviewProblemSetCard(subject: problemSet.subject, problemSet: problemSet)
-            }
-            .background(
-                NavigationLink(
-                    destination: Group {
-                        if let studyViewModel = homeViewModel.studyViewModel {
-                            StudyView(
-                                questions: problemSet.questions,
-                                studyViewModel: studyViewModel,
-                                selectedTab: .constant(1)
-                            )
-                        } else {
-                            Text("Study ViewModel not available")
-                        }
-                    },
-                    isActive: $isShowingStudyView
-                ) {
-                    EmptyView()
+        List {
+            ForEach(problemSets) { problemSet in
+                Button(action: {
+                    print("""
+                    🔍 Selected ProblemSet:
+                    • Name: \(problemSet.name)
+                    • Questions: \(problemSet.questions.count)
+                    • Subject: \(problemSet.subjectName)
+                    """)
+                    homeViewModel.setSelectedProblemSet(problemSet)
+                    isShowingStudyView = true
+                }) {
+                    ReviewProblemSetCard(
+                        subject: problemSet.subject,
+                        problemSet: problemSet
+                    )
                 }
-            )
+                .background(
+                    NavigationLink(
+                        destination: Group {
+                            if let studyViewModel = homeViewModel.studyViewModel {
+                                StudyView(
+                                    questions: problemSet.questions,
+                                    studyViewModel: studyViewModel,
+                                    selectedTab: .constant(1)
+                                )
+                            } else {
+                                Text("Study ViewModel not available")
+                            }
+                        },
+                        isActive: $isShowingStudyView
+                    ) {
+                        EmptyView()
+                    }
+                )
+            }
         }
+        .listStyle(InsetGroupedListStyle())
         .navigationTitle("\(subject.displayName) Sets")
-        .listStyle(InsetGroupedListStyle())  // 수정된 부분
+        .onAppear {
+            print("""
+            📱 ProblemSetsListView appeared:
+            • Subject: \(subject.displayName)
+            • Available ProblemSets: \(problemSets.count)
+            """)
+        }
     }
 }
 
@@ -8205,7 +8309,7 @@ class OpenAIService {
         if isImageInput && !isExtractedText {
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an expert in \(subjectName), creating self-contained, image-based questions.
+                    You are an expert in creating self-contained, image-based questions.
                     
                     STRICT LANGUAGE REQUIREMENTS:
                     - Output language: \(language == .auto ? "same as visible text in the image" : language.displayName)
@@ -8241,7 +8345,7 @@ class OpenAIService {
         else if isImageInput && isExtractedText {
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an expert in \(subjectName), specializing in creating self-contained questions based on extracted text from images.
+                    You are an expert in creating self-contained questions based on extracted text from images.
                     
                     STRICT LANGUAGE REQUIREMENTS:
                     - Output language: \(language == .auto ? "same as the extracted text" : language.displayName)
@@ -8276,7 +8380,7 @@ class OpenAIService {
         else {
             return SubjectPrompt(
                 systemPrompt: """
-                    You are an expert in \(subjectName), creating questions for \(educationLevel.displayName) students.
+                    You are an expert in creating questions for \(educationLevel.displayName) students.
                     
                     STRICT LANGUAGE REQUIREMENTS:
                     - Output language: \(language == .auto ? "same as input text" : language.displayName)

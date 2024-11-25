@@ -63,23 +63,25 @@ struct MainTabView: View {
                 }
                 .tag(0)
             
-            if let problemSet = homeViewModel.selectedProblemSet {
-                StudyView(
-                    questions: problemSet.questions,
-                    studyViewModel: studyViewModel,
-                    selectedTab: $selectedTab
-                )
-                .tabItem {
-                    Label("Study", systemImage: "book.fill")
+            Group {
+                if studyViewModel.isGeneratingQuestions {  // 문제 생성 중일 때
+                    GeneratingQuestionsOverlay(
+                        questionCount: studyViewModel.totalExpectedQuestions
+                    )
+                } else if let problemSet = homeViewModel.selectedProblemSet {
+                    StudyView(
+                        questions: problemSet.questions,
+                        studyViewModel: studyViewModel,
+                        selectedTab: $selectedTab
+                    )
+                } else {
+                    Text("No Problem Set Selected")
                 }
-                .tag(1)
-            } else {
-                Text("No Problem Set Selected")
-                    .tabItem {
-                        Label("Study", systemImage: "book.fill")
-                    }
-                    .tag(1)
             }
+            .tabItem {
+                Label("Study", systemImage: "book.fill")
+            }
+            .tag(1)
             
             ReviewView(viewModel: reviewViewModel)  // viewModel 전달
                 .tabItem {
@@ -102,12 +104,12 @@ struct MainTabView: View {
             statViewModel.setHomeViewModel(homeViewModel)
         }
         .onChange(of: homeViewModel.selectedProblemSet) { _ in
-            if selectedTab == 1 {
-                if let problemSet = homeViewModel.selectedProblemSet {
-                    studyViewModel.loadQuestions(problemSet.questions)
-                }
-            }
-        }
-        .environmentObject(homeViewModel)
+             if selectedTab == 1 {
+                 if let problemSet = homeViewModel.selectedProblemSet {
+                     studyViewModel.loadQuestions(problemSet.questions)
+                 }
+             }
+         }
+         .environmentObject(homeViewModel)
     }
 }
