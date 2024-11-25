@@ -48,25 +48,23 @@ struct ReviewView: View {
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ], spacing: 16) {
-                        ForEach(visibleSubjects, id: \.id) { subject in
-                            let filteredSets = filterProblemSets(subject: subject)
+                        // allSubjects를 사용하여 모든 과목 표시
+                        ForEach(subjectManager.allSubjects, id: \.id) { subject in
                             NavigationLink(
                                 destination: ProblemSetsListView(
                                     subject: subject,
-                                    problemSets: filteredSets
+                                    problemSets: filterProblemSets(subject: subject)
                                 )
                             ) {
                                 SubjectCardView(
                                     subject: subject,
-                                    problemSetCount: filteredSets.count
+                                    problemSetCount: filterProblemSets(subject: subject).count
                                 )
                             }
                             .onAppear {
                                 print("""
                             📱 Subject Card Appeared:
                             • Subject: \(subject.displayName)
-                            • Type: \(subject is SubjectManager.CustomSubject ? "Custom" : "Default")
-                            • Problem Sets: \(filteredSets.count)
                             """)
                             }
                         }
@@ -102,39 +100,17 @@ struct ReviewView: View {
             print("📚 Available subjects: \(visibleSubjects.map { $0.displayName })")
         }
     }
+    // 필터링 함수 수정
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
-        let allProblemSets = homeViewModel.problemSets
-        
-        print("""
-        🔍 Filtering ProblemSets for subject: \(subject.displayName)
-        • Total Sets Available: \(allProblemSets.count)
-        """)
-        
-        let filtered = allProblemSets.filter { problemSet in
-            if let customSubject = subject as? SubjectManager.CustomSubject {
-                let matches = problemSet.subjectType == "custom" &&
-                             problemSet.subjectId == customSubject.id
-                
-                return matches
-                
-            } else if let defaultSubject = subject as? DefaultSubject {
-                let matches = problemSet.subjectType == "default" &&
-                             problemSet.subject == defaultSubject
-                
-                return matches
+        return homeViewModel.problemSets.filter { problemSet in
+            if let defaultSubject = subject as? DefaultSubject {
+                return problemSet.subject == defaultSubject
+            } else if let customSubject = subject as? CustomSubject {
+                return problemSet.subjectId == customSubject.id
             }
             return false
         }
-        
-        print("""
-        ✅ Filtering Results:
-        • Subject: \(subject.displayName)
-        • Filtered Sets: \(filtered.count)
-        """)
-        
-        return filtered
     }
-
 }
 
 struct SubjectCardView: View {
@@ -234,7 +210,7 @@ struct SubjectListRow: View {
         """)
         
         return problemSets.filter { problemSet in
-            if let customSubject = subject as? SubjectManager.CustomSubject {
+            if let customSubject = subject as? CustomSubject {
                 let matches = problemSet.subjectType == "custom" &&
                              problemSet.subjectId == customSubject.id
                 

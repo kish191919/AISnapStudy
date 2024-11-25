@@ -2114,6 +2114,7 @@ enum ReviewFilter: String, CaseIterable {
 // ./AISnapStudy/Models/Question.swift
 
 
+
 import Foundation
 
 public enum QuestionType: String, Codable {
@@ -2470,9 +2471,9 @@ public class SubjectManager: ObservableObject {
 //        print("📢 Notifying observers of changes...")
 //        notifySubjectsChange()
 //    }
-//    
-//    
-//    
+//
+//
+//
 //    // 과목 표시/숨김 토글 함수 수정
 //    func toggleDefaultSubject(_ subject: DefaultSubject) {
 //        print("🔄 Attempting to toggle subject: \(subject.displayName)")
@@ -6166,23 +6167,25 @@ struct MainTabView: View {
                 }
                 .tag(0)
             
-            if let problemSet = homeViewModel.selectedProblemSet {
-                StudyView(
-                    questions: problemSet.questions,
-                    studyViewModel: studyViewModel,
-                    selectedTab: $selectedTab
-                )
-                .tabItem {
-                    Label("Study", systemImage: "book.fill")
+            Group {
+                if studyViewModel.isGeneratingQuestions {  // 문제 생성 중일 때
+                    GeneratingQuestionsOverlay(
+                        questionCount: studyViewModel.totalExpectedQuestions
+                    )
+                } else if let problemSet = homeViewModel.selectedProblemSet {
+                    StudyView(
+                        questions: problemSet.questions,
+                        studyViewModel: studyViewModel,
+                        selectedTab: $selectedTab
+                    )
+                } else {
+                    Text("No Problem Set Selected")
                 }
-                .tag(1)
-            } else {
-                Text("No Problem Set Selected")
-                    .tabItem {
-                        Label("Study", systemImage: "book.fill")
-                    }
-                    .tag(1)
             }
+            .tabItem {
+                Label("Study", systemImage: "book.fill")
+            }
+            .tag(1)
             
             ReviewView(viewModel: reviewViewModel)  // viewModel 전달
                 .tabItem {
@@ -6205,13 +6208,13 @@ struct MainTabView: View {
             statViewModel.setHomeViewModel(homeViewModel)
         }
         .onChange(of: homeViewModel.selectedProblemSet) { _ in
-            if selectedTab == 1 {
-                if let problemSet = homeViewModel.selectedProblemSet {
-                    studyViewModel.loadQuestions(problemSet.questions)
-                }
-            }
-        }
-        .environmentObject(homeViewModel)
+             if selectedTab == 1 {
+                 if let problemSet = homeViewModel.selectedProblemSet {
+                     studyViewModel.loadQuestions(problemSet.questions)
+                 }
+             }
+         }
+         .environmentObject(homeViewModel)
     }
 }
 
@@ -7074,7 +7077,7 @@ struct StudyView: View {
             if studyViewModel.isGeneratingQuestions {
                 VStack(spacing: 16) {
                     GeneratingQuestionsOverlay(
-                        questionCount: studyViewModel.totalExpectedQuestions  // questionCount 매개변수 추가
+                        questionCount: studyViewModel.totalExpectedQuestions
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
@@ -7099,6 +7102,10 @@ struct StudyView: View {
                         }
                     }
                 }
+            } else if !studyViewModel.hasQuestions {
+                Text("No questions available")
+                    .font(.title3)
+                    .foregroundColor(.gray)
             } else {
                 VStack {
                     Spacer()

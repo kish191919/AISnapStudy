@@ -73,9 +73,8 @@ struct HomeView: View {
     }
 }
 
-// SubjectButton을 CustomSubjectButton으로 변경
 struct CustomSubjectButton: View {
-    let subject: SubjectManager.CustomSubject  // UserSubject를 SubjectManager.CustomSubject로 변경
+    let subject: CustomSubject  // SubjectManager.CustomSubject에서 CustomSubject로 변경
     let action: () -> Void
     
     var body: some View {

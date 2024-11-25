@@ -77,6 +77,53 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
     }
 }
 
+// CustomSubject 구조체 추가
+public struct CustomSubject: SubjectType, Codable, Identifiable {
+    public let id: String
+    public var name: String  // let을 var로 변경
+    public let icon: String
+    public var isActive: Bool
+    
+    // SubjectType 프로토콜 요구사항
+    public var displayName: String { name }
+    public var color: Color { .green }  // 계산 프로퍼티로 변경
+    
+    // 기본 초기화자
+    public init(id: String = UUID().uuidString,
+                name: String,
+                icon: String,
+                isActive: Bool = true) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.isActive = isActive
+    }
+    
+    // Codable 구현
+    enum CodingKeys: String, CodingKey {
+        case id, name, icon, isActive
+        // color는 제외 - 항상 .green을 사용할 것이므로
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        icon = try container.decode(String.self, forKey: .icon)
+        isActive = try container.decode(Bool.self, forKey: .isActive)
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(icon, forKey: .icon)
+        try container.encode(isActive, forKey: .isActive)
+    }
+}
+
+
+
 // MARK: - Custom User Subject
 public struct UserSubject: Identifiable, Codable, Hashable, SubjectType {
    public let id: String
@@ -136,9 +183,46 @@ public enum EducationLevel: String, Codable, CaseIterable {
 public class SubjectManager: ObservableObject {
     public static let shared = SubjectManager()
     
+    private init() {
+        loadSettings()
+        loadCustomSubjects()
+    }
+    
     @Published private(set) var customSubjects: [CustomSubject] = []
     @Published private(set) var hiddenDefaultSubjects: Set<String> = []
     @Published private(set) var modifiedDefaultSubjects: [String: String] = [:]
+    
+    // 새로운 과목 추가
+    func addCustomSubject(name: String, icon: String = "book.circle") {
+        let newSubject = CustomSubject(
+            id: UUID().uuidString,
+            name: name,
+            icon: icon,
+            isActive: true
+        )
+        customSubjects.append(newSubject)
+        saveCustomSubjects()
+    }
+    
+    // 과목 제거
+    func removeCustomSubject(_ subject: CustomSubject) {
+        customSubjects.removeAll { $0.id == subject.id }
+        saveCustomSubjects()
+    }
+    
+    // UserDefaults를 사용한 저장 및 로드
+    private func saveCustomSubjects() {
+        if let encoded = try? JSONEncoder().encode(customSubjects) {
+            UserDefaults.standard.set(encoded, forKey: "customSubjects")
+        }
+    }
+    
+    private func loadCustomSubjects() {
+        if let data = UserDefaults.standard.data(forKey: "customSubjects"),
+           let decoded = try? JSONDecoder().decode([CustomSubject].self, from: data) {
+            self.customSubjects = decoded
+        }
+    }
     
     // "삭제된" 과목 복원을 위한 백업 저장
     private var deletedSubjectsBackup: Set<String> = []
@@ -183,30 +267,7 @@ public class SubjectManager: ObservableObject {
         // 변경사항을 알림
         notifySubjectsChange()
     }
-    
-//    // 저장 및 알림 함수 추가
-//    private func saveAndNotify() {
-//        print("💾 Saving settings to UserDefaults...")
-//        saveSettings()
-//        print("📢 Notifying observers of changes...")
-//        notifySubjectsChange()
-//    }
-//
-//
-//
-//    // 과목 표시/숨김 토글 함수 수정
-//    func toggleDefaultSubject(_ subject: DefaultSubject) {
-//        print("🔄 Attempting to toggle subject: \(subject.displayName)")
-//        if hiddenDefaultSubjects.contains(subject.id) {
-//            print("➖ Removing subject from hidden list: \(subject.id)")
-//            hiddenDefaultSubjects.remove(subject.id)
-//        } else {
-//            print("➕ Adding subject to hidden list: \(subject.id)")
-//            hiddenDefaultSubjects.insert(subject.id)
-//        }
-//        print("💾 Current hidden subjects: \(hiddenDefaultSubjects)")
-//        saveAndNotify()
-//    }
+
     
     // 과목 이름 업데이트 함수 수정
     func updateDefaultSubjectName(_ subject: DefaultSubject, newName: String) {
@@ -275,9 +336,7 @@ public class SubjectManager: ObservableObject {
     
     
     
-    private init() {
-        loadSettings()
-    }
+
     
     // 기본 과목 이름 관리 메서드 추가
     func getDisplayName(for subject: DefaultSubject) -> String {
@@ -326,74 +385,17 @@ public class SubjectManager: ObservableObject {
         
         // 모든 활성화된 과목 가져오기 (숨겨지지 않은 기본 과목 + 활성화된 사용자 정의 과목)
     var allSubjects: [SubjectType] {
-        var subjects: [SubjectType] = []
-        
-        // 숨겨지지 않은 기본 과목들
-        let visibleDefaultSubjects = DefaultSubject.allCases.filter { !hiddenDefaultSubjects.contains($0.id) }
-        subjects.append(contentsOf: visibleDefaultSubjects)
-        
-        // 활성화된 커스텀 과목들
-        let activeCustomSubjects = customSubjects.filter { $0.isActive }
-        subjects.append(contentsOf: activeCustomSubjects)
-        
-        print("""
-        📚 SubjectManager - All Subjects:
-        • Default Subjects: \(visibleDefaultSubjects.map { $0.displayName })
-        • Custom Subjects: \(activeCustomSubjects.map { $0.displayName })
-        """)
-        
+        var subjects: [SubjectType] = Array(DefaultSubject.allCases)
+        subjects.append(contentsOf: customSubjects.filter { $0.isActive })
         return subjects
     }
     
-    struct CustomSubject: SubjectType, Identifiable, Codable {
-        let id: String
-        var name: String
-        var colorHex: String
-        var icon: String
-        var isActive: Bool
-        
-        var displayName: String { name }
-        
-        var color: Color {
-            Color(hex: colorHex) ?? .blue
-        }
-        
-        enum CodingKeys: String, CodingKey {
-            case id, name, colorHex, icon, isActive
-        }
-        
-        init(id: String = UUID().uuidString,
-             name: String,
-             color: Color,
-             icon: String,
-             isActive: Bool = true) {
-            self.id = id
-            self.name = name
-            self.colorHex = color.toHex() ?? "0000FF"
-            self.icon = icon
-            self.isActive = isActive
-        }
-        
-        // Custom initializer for cases when we already have the hex color
-        init(id: String = UUID().uuidString,
-             name: String,
-             colorHex: String,
-             icon: String,
-             isActive: Bool = true) {
-            self.id = id
-            self.name = name
-            self.colorHex = colorHex
-            self.icon = icon
-            self.isActive = isActive
-        }
-    }
     
     // 과목 추가 메서드 수정
-    func addSubject(name: String, color: Color, icon: String) {
+    func addSubject(name: String, icon: String) {  // color 매개변수 제거
         let newSubject = CustomSubject(
             id: UUID().uuidString,
             name: name,
-            color: color,
             icon: icon,
             isActive: true
         )

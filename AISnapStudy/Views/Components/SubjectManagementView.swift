@@ -24,19 +24,19 @@ struct SubjectManagementView: View {
                ForEach(allSubjects, id: \.id) { subject in
                    if let defaultSubject = subject as? DefaultSubject {
                        DefaultSubjectRow(
-                           subject: defaultSubject,
-                           subjectManager: subjectManager,
-                           onEdit: { subject in
-                               selectedSubject = subject
-                               newName = subjectManager.getDisplayName(for: subject)
-                               showingEditAlert = true
-                           },
-                           onDelete: {
-                               subjectToDelete = subject
-                               showingDeleteAlert = true
-                           }
+                        subject: defaultSubject,
+                        subjectManager: subjectManager,
+                        onEdit: { subject in
+                            selectedSubject = subject
+                            newName = subjectManager.getDisplayName(for: subject)
+                            showingEditAlert = true
+                        },
+                        onDelete: {
+                            subjectToDelete = subject
+                            showingDeleteAlert = true
+                        }
                        )
-                   } else if let customSubject = subject as? SubjectManager.CustomSubject {
+                   } else if let customSubject = subject as? CustomSubject {
                        CustomSubjectRow(
                            subject: customSubject,
                            subjectManager: subjectManager,
@@ -82,8 +82,8 @@ struct SubjectManagementView: View {
            Button("Save") {
                if let defaultSubject = selectedSubject as? DefaultSubject {
                    subjectManager.updateDefaultSubjectName(defaultSubject, newName: newName)
-               } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
-                   subjectManager.updateSubject(customSubject, newName: newName)
+               } else if let customSubject = selectedSubject as? CustomSubject {  // 변경
+                              subjectManager.updateSubject(customSubject, newName: newName)
                }
            }
            .disabled(newName.isEmpty)
@@ -93,7 +93,7 @@ struct SubjectManagementView: View {
            Button("Delete", role: .destructive) {
                if let subject = subjectToDelete as? DefaultSubject {
                    subjectManager.toggleDefaultSubject(subject)
-               } else if let subject = subjectToDelete as? SubjectManager.CustomSubject {
+               } else if let subject = subjectToDelete as? CustomSubject {  // 변경
                    subjectManager.deleteSubject(subject)
                }
            }
@@ -124,7 +124,7 @@ struct SubjectManagementView: View {
         withAnimation {
             if let defaultSubject = selectedSubject as? DefaultSubject {
                 subjectManager.updateDefaultSubjectName(defaultSubject, newName: newName)
-            } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+            } else if let customSubject = selectedSubject as? CustomSubject {  // 변경
                 subjectManager.updateSubject(customSubject, newName: newName)
             }
         }
@@ -134,7 +134,7 @@ struct SubjectManagementView: View {
         withAnimation {
             if let subject = subjectToDelete as? DefaultSubject {
                 subjectManager.toggleDefaultSubject(subject)
-            } else if let subject = subjectToDelete as? SubjectManager.CustomSubject {
+            } else if let subject = subjectToDelete as? CustomSubject {  // 변경
                 subjectManager.deleteSubject(subject)
             }
         }
@@ -195,8 +195,8 @@ struct DefaultSubjectsSection: View {
 struct CustomSubjectsSection: View {
     @ObservedObject var subjectManager: SubjectManager
     @Binding var showingAddSubject: Bool
-    let onEdit: (SubjectManager.CustomSubject) -> Void
-    let onDelete: (SubjectManager.CustomSubject) -> Void
+    let onEdit: (CustomSubject) -> Void  // 변경
+    let onDelete: (CustomSubject) -> Void  // 변경
     
     var body: some View {
         Section(header: Text("Custom Subjects")) {
@@ -269,10 +269,10 @@ struct DefaultSubjectRow: View {
 
 // 사용자 정의 과목 행을 위한 컴포넌트
 struct CustomSubjectRow: View {
-    let subject: SubjectManager.CustomSubject
+    let subject: CustomSubject  // 변경
     @ObservedObject var subjectManager: SubjectManager
-    let onEdit: (SubjectManager.CustomSubject) -> Void
-    let onDelete: (SubjectManager.CustomSubject) -> Void
+    let onEdit: (CustomSubject) -> Void  // 변경
+    let onDelete: (CustomSubject) -> Void  // 변경
     
     var body: some View {
         HStack {
@@ -363,7 +363,6 @@ struct AddSubjectView: View {
                     Button("Save") {
                         subjectManager.addSubject(
                             name: subjectName,
-                            color: selectedColor,
                             icon: selectedIcon
                         )
                         dismiss()

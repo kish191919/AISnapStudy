@@ -280,7 +280,7 @@ class OpenAIService {
         educationLevel: EducationLevel,
         language: Language
     ) -> SubjectPrompt {
-        let subjectName = if let customSubject = subject as? SubjectManager.CustomSubject {
+        let subjectName = if let customSubject = subject as? CustomSubject {  // 수정된 부분
             customSubject.displayName
         } else {
             subject.displayName

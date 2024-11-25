@@ -10,7 +10,7 @@ class QuestionSettingsViewModel: ObservableObject {
         didSet {
             if let defaultSubject = selectedSubject as? DefaultSubject {
                 UserDefaults.standard.set(defaultSubject.rawValue, forKey: "lastSelectedSubject")
-            } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+            } else if let customSubject = selectedSubject as? CustomSubject {
                 UserDefaults.standard.set("custom_" + customSubject.id, forKey: "lastSelectedSubject")
             }
         }
@@ -652,7 +652,7 @@ class QuestionSettingsViewModel: ObservableObject {
         var subjectName = ""
         var defaultSubject = DefaultSubject.generalKnowledge
         
-        if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+        if let customSubject = selectedSubject as? CustomSubject {
             subjectType = "custom"
             subjectId = customSubject.id
             subjectName = customSubject.displayName
@@ -680,7 +680,7 @@ class QuestionSettingsViewModel: ObservableObject {
         // 2. 질문 업데이트
         let updatedQuestions = questions.map { question in
             var updatedQuestion = question
-            if selectedSubject is SubjectManager.CustomSubject {
+            if let customSubject = selectedSubject as? CustomSubject {
                 // CustomSubject인 경우 generalKnowledge로 설정
                 updatedQuestion = Question(
                     id: question.id,
