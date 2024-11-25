@@ -15,12 +15,19 @@ struct ReviewView: View {
     }
     
     private var visibleSubjects: [SubjectType] {
-        let subjects = subjectManager.allSubjects
+        let defaultSubjects = DefaultSubject.allCases.filter { !subjectManager.isDeleted($0) }
+        let customSubjects = subjectManager.customSubjects.filter { $0.isActive }
+        
+        let subjects = defaultSubjects as [SubjectType] + customSubjects
+        
         print("""
         📚 ReviewView - Visible Subjects:
         • Total Subjects: \(subjects.count)
-        • Subject Names: \(subjects.map { $0.displayName })
+        • Active Default Subjects: \(defaultSubjects.map { $0.displayName })
+        • Active Custom Subjects: \(customSubjects.map { $0.displayName })
+        • Hidden Subjects: \(subjectManager.hiddenDefaultSubjects)
         """)
+        
         return subjects
     }
    
@@ -49,7 +56,7 @@ struct ReviewView: View {
                         GridItem(.flexible())
                     ], spacing: 16) {
                         // allSubjects를 사용하여 모든 과목 표시
-                        ForEach(subjectManager.allSubjects, id: \.id) { subject in
+                        ForEach(visibleSubjects, id: \.id) { subject in
                             NavigationLink(
                                 destination: ProblemSetsListView(
                                     subject: subject,

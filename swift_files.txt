@@ -12,7 +12,7 @@ class QuestionSettingsViewModel: ObservableObject {
         didSet {
             if let defaultSubject = selectedSubject as? DefaultSubject {
                 UserDefaults.standard.set(defaultSubject.rawValue, forKey: "lastSelectedSubject")
-            } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+            } else if let customSubject = selectedSubject as? CustomSubject {
                 UserDefaults.standard.set("custom_" + customSubject.id, forKey: "lastSelectedSubject")
             }
         }
@@ -654,7 +654,7 @@ class QuestionSettingsViewModel: ObservableObject {
         var subjectName = ""
         var defaultSubject = DefaultSubject.generalKnowledge
         
-        if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+        if let customSubject = selectedSubject as? CustomSubject {
             subjectType = "custom"
             subjectId = customSubject.id
             subjectName = customSubject.displayName
@@ -682,7 +682,7 @@ class QuestionSettingsViewModel: ObservableObject {
         // 2. 질문 업데이트
         let updatedQuestions = questions.map { question in
             var updatedQuestion = question
-            if selectedSubject is SubjectManager.CustomSubject {
+            if let customSubject = selectedSubject as? CustomSubject {
                 // CustomSubject인 경우 generalKnowledge로 설정
                 updatedQuestion = Question(
                     id: question.id,
@@ -2357,6 +2357,53 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
     }
 }
 
+// CustomSubject 구조체 추가
+public struct CustomSubject: SubjectType, Codable, Identifiable {
+    public let id: String
+    public var name: String  // let을 var로 변경
+    public let icon: String
+    public var isActive: Bool
+    
+    // SubjectType 프로토콜 요구사항
+    public var displayName: String { name }
+    public var color: Color { .green }  // 계산 프로퍼티로 변경
+    
+    // 기본 초기화자
+    public init(id: String = UUID().uuidString,
+                name: String,
+                icon: String,
+                isActive: Bool = true) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.isActive = isActive
+    }
+    
+    // Codable 구현
+    enum CodingKeys: String, CodingKey {
+        case id, name, icon, isActive
+        // color는 제외 - 항상 .green을 사용할 것이므로
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        icon = try container.decode(String.self, forKey: .icon)
+        isActive = try container.decode(Bool.self, forKey: .isActive)
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(icon, forKey: .icon)
+        try container.encode(isActive, forKey: .isActive)
+    }
+}
+
+
+
 // MARK: - Custom User Subject
 public struct UserSubject: Identifiable, Codable, Hashable, SubjectType {
    public let id: String
@@ -2416,9 +2463,46 @@ public enum EducationLevel: String, Codable, CaseIterable {
 public class SubjectManager: ObservableObject {
     public static let shared = SubjectManager()
     
+    private init() {
+        loadSettings()
+        loadCustomSubjects()
+    }
+    
     @Published private(set) var customSubjects: [CustomSubject] = []
     @Published private(set) var hiddenDefaultSubjects: Set<String> = []
     @Published private(set) var modifiedDefaultSubjects: [String: String] = [:]
+    
+    // 새로운 과목 추가
+    func addCustomSubject(name: String, icon: String = "book.circle") {
+        let newSubject = CustomSubject(
+            id: UUID().uuidString,
+            name: name,
+            icon: icon,
+            isActive: true
+        )
+        customSubjects.append(newSubject)
+        saveCustomSubjects()
+    }
+    
+    // 과목 제거
+    func removeCustomSubject(_ subject: CustomSubject) {
+        customSubjects.removeAll { $0.id == subject.id }
+        saveCustomSubjects()
+    }
+    
+    // UserDefaults를 사용한 저장 및 로드
+    private func saveCustomSubjects() {
+        if let encoded = try? JSONEncoder().encode(customSubjects) {
+            UserDefaults.standard.set(encoded, forKey: "customSubjects")
+        }
+    }
+    
+    private func loadCustomSubjects() {
+        if let data = UserDefaults.standard.data(forKey: "customSubjects"),
+           let decoded = try? JSONDecoder().decode([CustomSubject].self, from: data) {
+            self.customSubjects = decoded
+        }
+    }
     
     // "삭제된" 과목 복원을 위한 백업 저장
     private var deletedSubjectsBackup: Set<String> = []
@@ -2463,30 +2547,7 @@ public class SubjectManager: ObservableObject {
         // 변경사항을 알림
         notifySubjectsChange()
     }
-    
-//    // 저장 및 알림 함수 추가
-//    private func saveAndNotify() {
-//        print("💾 Saving settings to UserDefaults...")
-//        saveSettings()
-//        print("📢 Notifying observers of changes...")
-//        notifySubjectsChange()
-//    }
-//
-//
-//
-//    // 과목 표시/숨김 토글 함수 수정
-//    func toggleDefaultSubject(_ subject: DefaultSubject) {
-//        print("🔄 Attempting to toggle subject: \(subject.displayName)")
-//        if hiddenDefaultSubjects.contains(subject.id) {
-//            print("➖ Removing subject from hidden list: \(subject.id)")
-//            hiddenDefaultSubjects.remove(subject.id)
-//        } else {
-//            print("➕ Adding subject to hidden list: \(subject.id)")
-//            hiddenDefaultSubjects.insert(subject.id)
-//        }
-//        print("💾 Current hidden subjects: \(hiddenDefaultSubjects)")
-//        saveAndNotify()
-//    }
+
     
     // 과목 이름 업데이트 함수 수정
     func updateDefaultSubjectName(_ subject: DefaultSubject, newName: String) {
@@ -2555,9 +2616,7 @@ public class SubjectManager: ObservableObject {
     
     
     
-    private init() {
-        loadSettings()
-    }
+
     
     // 기본 과목 이름 관리 메서드 추가
     func getDisplayName(for subject: DefaultSubject) -> String {
@@ -2606,74 +2665,17 @@ public class SubjectManager: ObservableObject {
         
         // 모든 활성화된 과목 가져오기 (숨겨지지 않은 기본 과목 + 활성화된 사용자 정의 과목)
     var allSubjects: [SubjectType] {
-        var subjects: [SubjectType] = []
-        
-        // 숨겨지지 않은 기본 과목들
-        let visibleDefaultSubjects = DefaultSubject.allCases.filter { !hiddenDefaultSubjects.contains($0.id) }
-        subjects.append(contentsOf: visibleDefaultSubjects)
-        
-        // 활성화된 커스텀 과목들
-        let activeCustomSubjects = customSubjects.filter { $0.isActive }
-        subjects.append(contentsOf: activeCustomSubjects)
-        
-        print("""
-        📚 SubjectManager - All Subjects:
-        • Default Subjects: \(visibleDefaultSubjects.map { $0.displayName })
-        • Custom Subjects: \(activeCustomSubjects.map { $0.displayName })
-        """)
-        
+        var subjects: [SubjectType] = Array(DefaultSubject.allCases)
+        subjects.append(contentsOf: customSubjects.filter { $0.isActive })
         return subjects
     }
     
-    struct CustomSubject: SubjectType, Identifiable, Codable {
-        let id: String
-        var name: String
-        var colorHex: String
-        var icon: String
-        var isActive: Bool
-        
-        var displayName: String { name }
-        
-        var color: Color {
-            Color(hex: colorHex) ?? .blue
-        }
-        
-        enum CodingKeys: String, CodingKey {
-            case id, name, colorHex, icon, isActive
-        }
-        
-        init(id: String = UUID().uuidString,
-             name: String,
-             color: Color,
-             icon: String,
-             isActive: Bool = true) {
-            self.id = id
-            self.name = name
-            self.colorHex = color.toHex() ?? "0000FF"
-            self.icon = icon
-            self.isActive = isActive
-        }
-        
-        // Custom initializer for cases when we already have the hex color
-        init(id: String = UUID().uuidString,
-             name: String,
-             colorHex: String,
-             icon: String,
-             isActive: Bool = true) {
-            self.id = id
-            self.name = name
-            self.colorHex = colorHex
-            self.icon = icon
-            self.isActive = isActive
-        }
-    }
     
     // 과목 추가 메서드 수정
-    func addSubject(name: String, color: Color, icon: String) {
+    func addSubject(name: String, icon: String) {  // color 매개변수 제거
         let newSubject = CustomSubject(
             id: UUID().uuidString,
             name: name,
-            color: color,
             icon: icon,
             isActive: true
         )
@@ -4880,19 +4882,19 @@ struct SubjectManagementView: View {
                ForEach(allSubjects, id: \.id) { subject in
                    if let defaultSubject = subject as? DefaultSubject {
                        DefaultSubjectRow(
-                           subject: defaultSubject,
-                           subjectManager: subjectManager,
-                           onEdit: { subject in
-                               selectedSubject = subject
-                               newName = subjectManager.getDisplayName(for: subject)
-                               showingEditAlert = true
-                           },
-                           onDelete: {
-                               subjectToDelete = subject
-                               showingDeleteAlert = true
-                           }
+                        subject: defaultSubject,
+                        subjectManager: subjectManager,
+                        onEdit: { subject in
+                            selectedSubject = subject
+                            newName = subjectManager.getDisplayName(for: subject)
+                            showingEditAlert = true
+                        },
+                        onDelete: {
+                            subjectToDelete = subject
+                            showingDeleteAlert = true
+                        }
                        )
-                   } else if let customSubject = subject as? SubjectManager.CustomSubject {
+                   } else if let customSubject = subject as? CustomSubject {
                        CustomSubjectRow(
                            subject: customSubject,
                            subjectManager: subjectManager,
@@ -4938,8 +4940,8 @@ struct SubjectManagementView: View {
            Button("Save") {
                if let defaultSubject = selectedSubject as? DefaultSubject {
                    subjectManager.updateDefaultSubjectName(defaultSubject, newName: newName)
-               } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
-                   subjectManager.updateSubject(customSubject, newName: newName)
+               } else if let customSubject = selectedSubject as? CustomSubject {  // 변경
+                              subjectManager.updateSubject(customSubject, newName: newName)
                }
            }
            .disabled(newName.isEmpty)
@@ -4949,7 +4951,7 @@ struct SubjectManagementView: View {
            Button("Delete", role: .destructive) {
                if let subject = subjectToDelete as? DefaultSubject {
                    subjectManager.toggleDefaultSubject(subject)
-               } else if let subject = subjectToDelete as? SubjectManager.CustomSubject {
+               } else if let subject = subjectToDelete as? CustomSubject {  // 변경
                    subjectManager.deleteSubject(subject)
                }
            }
@@ -4980,7 +4982,7 @@ struct SubjectManagementView: View {
         withAnimation {
             if let defaultSubject = selectedSubject as? DefaultSubject {
                 subjectManager.updateDefaultSubjectName(defaultSubject, newName: newName)
-            } else if let customSubject = selectedSubject as? SubjectManager.CustomSubject {
+            } else if let customSubject = selectedSubject as? CustomSubject {  // 변경
                 subjectManager.updateSubject(customSubject, newName: newName)
             }
         }
@@ -4990,7 +4992,7 @@ struct SubjectManagementView: View {
         withAnimation {
             if let subject = subjectToDelete as? DefaultSubject {
                 subjectManager.toggleDefaultSubject(subject)
-            } else if let subject = subjectToDelete as? SubjectManager.CustomSubject {
+            } else if let subject = subjectToDelete as? CustomSubject {  // 변경
                 subjectManager.deleteSubject(subject)
             }
         }
@@ -5051,8 +5053,8 @@ struct DefaultSubjectsSection: View {
 struct CustomSubjectsSection: View {
     @ObservedObject var subjectManager: SubjectManager
     @Binding var showingAddSubject: Bool
-    let onEdit: (SubjectManager.CustomSubject) -> Void
-    let onDelete: (SubjectManager.CustomSubject) -> Void
+    let onEdit: (CustomSubject) -> Void  // 변경
+    let onDelete: (CustomSubject) -> Void  // 변경
     
     var body: some View {
         Section(header: Text("Custom Subjects")) {
@@ -5125,10 +5127,10 @@ struct DefaultSubjectRow: View {
 
 // 사용자 정의 과목 행을 위한 컴포넌트
 struct CustomSubjectRow: View {
-    let subject: SubjectManager.CustomSubject
+    let subject: CustomSubject  // 변경
     @ObservedObject var subjectManager: SubjectManager
-    let onEdit: (SubjectManager.CustomSubject) -> Void
-    let onDelete: (SubjectManager.CustomSubject) -> Void
+    let onEdit: (CustomSubject) -> Void  // 변경
+    let onDelete: (CustomSubject) -> Void  // 변경
     
     var body: some View {
         HStack {
@@ -5219,7 +5221,6 @@ struct AddSubjectView: View {
                     Button("Save") {
                         subjectManager.addSubject(
                             name: subjectName,
-                            color: selectedColor,
                             icon: selectedIcon
                         )
                         dismiss()
@@ -6493,9 +6494,8 @@ struct HomeView: View {
     }
 }
 
-// SubjectButton을 CustomSubjectButton으로 변경
 struct CustomSubjectButton: View {
-    let subject: SubjectManager.CustomSubject  // UserSubject를 SubjectManager.CustomSubject로 변경
+    let subject: CustomSubject  // SubjectManager.CustomSubject에서 CustomSubject로 변경
     let action: () -> Void
     
     var body: some View {
@@ -6597,25 +6597,23 @@ struct ReviewView: View {
                         GridItem(.flexible()),
                         GridItem(.flexible())
                     ], spacing: 16) {
-                        ForEach(visibleSubjects, id: \.id) { subject in
-                            let filteredSets = filterProblemSets(subject: subject)
+                        // allSubjects를 사용하여 모든 과목 표시
+                        ForEach(subjectManager.allSubjects, id: \.id) { subject in
                             NavigationLink(
                                 destination: ProblemSetsListView(
                                     subject: subject,
-                                    problemSets: filteredSets
+                                    problemSets: filterProblemSets(subject: subject)
                                 )
                             ) {
                                 SubjectCardView(
                                     subject: subject,
-                                    problemSetCount: filteredSets.count
+                                    problemSetCount: filterProblemSets(subject: subject).count
                                 )
                             }
                             .onAppear {
                                 print("""
                             📱 Subject Card Appeared:
                             • Subject: \(subject.displayName)
-                            • Type: \(subject is SubjectManager.CustomSubject ? "Custom" : "Default")
-                            • Problem Sets: \(filteredSets.count)
                             """)
                             }
                         }
@@ -6651,39 +6649,17 @@ struct ReviewView: View {
             print("📚 Available subjects: \(visibleSubjects.map { $0.displayName })")
         }
     }
+    // 필터링 함수 수정
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
-        let allProblemSets = homeViewModel.problemSets
-        
-        print("""
-        🔍 Filtering ProblemSets for subject: \(subject.displayName)
-        • Total Sets Available: \(allProblemSets.count)
-        """)
-        
-        let filtered = allProblemSets.filter { problemSet in
-            if let customSubject = subject as? SubjectManager.CustomSubject {
-                let matches = problemSet.subjectType == "custom" &&
-                             problemSet.subjectId == customSubject.id
-                
-                return matches
-                
-            } else if let defaultSubject = subject as? DefaultSubject {
-                let matches = problemSet.subjectType == "default" &&
-                             problemSet.subject == defaultSubject
-                
-                return matches
+        return homeViewModel.problemSets.filter { problemSet in
+            if let defaultSubject = subject as? DefaultSubject {
+                return problemSet.subject == defaultSubject
+            } else if let customSubject = subject as? CustomSubject {
+                return problemSet.subjectId == customSubject.id
             }
             return false
         }
-        
-        print("""
-        ✅ Filtering Results:
-        • Subject: \(subject.displayName)
-        • Filtered Sets: \(filtered.count)
-        """)
-        
-        return filtered
     }
-
 }
 
 struct SubjectCardView: View {
@@ -6783,7 +6759,7 @@ struct SubjectListRow: View {
         """)
         
         return problemSets.filter { problemSet in
-            if let customSubject = subject as? SubjectManager.CustomSubject {
+            if let customSubject = subject as? CustomSubject {
                 let matches = problemSet.subjectType == "custom" &&
                              problemSet.subjectId == customSubject.id
                 
@@ -8292,7 +8268,7 @@ class OpenAIService {
         educationLevel: EducationLevel,
         language: Language
     ) -> SubjectPrompt {
-        let subjectName = if let customSubject = subject as? SubjectManager.CustomSubject {
+        let subjectName = if let customSubject = subject as? CustomSubject {  // 수정된 부분
             customSubject.displayName
         } else {
             subject.displayName
