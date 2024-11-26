@@ -3,7 +3,7 @@ import Foundation
 public struct ProblemSet: Identifiable, Codable, Hashable {
     // Core properties
     public let id: String
-    public let subject: DefaultSubject  // 필수 프로퍼티로 유지
+    public let subject: SubjectType  // 필수 프로퍼티로 유지
     public let subjectType: String
     public let subjectId: String
     public let subjectName: String
@@ -31,7 +31,7 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
     // CustomSubject를 위한 생성자
     public init(
         id: String = UUID().uuidString,
-        subject: DefaultSubject,
+        subject: SubjectType,
         subjectType: String,
         subjectId: String,
         subjectName: String,
@@ -62,12 +62,22 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
     }
 
     public init(from decoder: Decoder) throws {
+        
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
-        subject = try container.decode(DefaultSubject.self, forKey: .subject)
+        
+        // Properly decode subject based on subjectType
         subjectType = try container.decode(String.self, forKey: .subjectType)
         subjectId = try container.decode(String.self, forKey: .subjectId)
         subjectName = try container.decode(String.self, forKey: .subjectName)
+        
+        if subjectType == "custom" {
+            subject = CustomSubject(id: subjectId, name: subjectName, icon: "book.fill")
+        } else {
+            subject = try container.decode(DefaultSubject.self, forKey: .subject)
+        }
+        
+        // Decode remaining properties
         questions = try container.decode([Question].self, forKey: .questions)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         lastAttempted = try container.decodeIfPresent(Date.self, forKey: .lastAttempted)

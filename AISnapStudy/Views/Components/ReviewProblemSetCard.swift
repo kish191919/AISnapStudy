@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ReviewProblemSetCard: View {
-    let subject: DefaultSubject
+    let subject: SubjectType
     let problemSet: ProblemSet
     
     var body: some View {

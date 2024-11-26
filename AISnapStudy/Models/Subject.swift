@@ -2,11 +2,12 @@
 import SwiftUI
 
 // MARK: - Basic Subject Protocol
-public protocol SubjectType {
+public protocol SubjectType: Codable {
    var id: String { get }
    var displayName: String { get }
    var color: Color { get }
    var icon: String { get }
+   var rawValue: String { get }  // 추가
 }
 
 
@@ -87,6 +88,7 @@ public struct CustomSubject: SubjectType, Codable, Identifiable {
     // SubjectType 프로토콜 요구사항
     public var displayName: String { name }
     public var color: Color { .green }  // 계산 프로퍼티로 변경
+    public var rawValue: String { id }  // 추가: id를 rawValue로 사용
     
     // 기본 초기화자
     public init(id: String = UUID().uuidString,
@@ -144,6 +146,8 @@ public struct UserSubject: Identifiable, Codable, Hashable, SubjectType {
    public var icon: String {
        iconName
    }
+    
+    public var rawValue: String { id }  // 추가: id를 rawValue로 사용
 }
 
 // MARK: - Education Level

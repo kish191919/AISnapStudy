@@ -111,9 +111,11 @@ struct ReviewView: View {
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
         return homeViewModel.problemSets.filter { problemSet in
             if let defaultSubject = subject as? DefaultSubject {
-                return problemSet.subject == defaultSubject
+                return problemSet.subjectType == "default" &&
+                       problemSet.subject.rawValue == defaultSubject.rawValue
             } else if let customSubject = subject as? CustomSubject {
-                return problemSet.subjectId == customSubject.id
+                return problemSet.subjectType == "custom" &&
+                       problemSet.subjectId == customSubject.id
             }
             return false
         }
@@ -211,39 +213,13 @@ struct SubjectListRow: View {
     }
     
     private func filterProblemSets(subject: SubjectType, problemSets: [ProblemSet]) -> [ProblemSet] {
-        print("""
-        🔍 SubjectListRow - Filtering ProblemSets for subject: \(subject.displayName)
-        📊 Total ProblemSets to filter: \(problemSets.count)
-        """)
-        
         return problemSets.filter { problemSet in
-            if let customSubject = subject as? CustomSubject {
-                let matches = problemSet.subjectType == "custom" &&
-                             problemSet.subjectId == customSubject.id
-                
-                print("""
-                📝 Custom Subject Check:
-                • Subject Name: \(customSubject.name)
-                • Subject ID: \(customSubject.id)
-                • ProblemSet Type: \(problemSet.subjectType)
-                • ProblemSet ID: \(problemSet.subjectId)
-                • Matches: \(matches)
-                """)
-                
-                return matches
-            } else if let defaultSubject = subject as? DefaultSubject {
-                let matches = problemSet.subjectType == "default" &&
-                             problemSet.subject == defaultSubject
-                
-                print("""
-                📝 Default Subject Check:
-                • Subject: \(defaultSubject.displayName)
-                • ProblemSet Type: \(problemSet.subjectType)
-                • ProblemSet Subject: \(problemSet.subject.displayName)
-                • Matches: \(matches)
-                """)
-                
-                return matches
+            if let defaultSubject = subject as? DefaultSubject {
+                return problemSet.subjectType == "default" &&
+                       problemSet.subject.rawValue == defaultSubject.rawValue
+            } else if let customSubject = subject as? CustomSubject {
+                return problemSet.subjectType == "custom" &&
+                       problemSet.subjectId == customSubject.id
             }
             return false
         }
@@ -258,8 +234,10 @@ struct ReviewDefaultSubjectsSection: View {
     var body: some View {
         Section(header: Text("Default Subjects")) {
             ForEach(DefaultSubject.allCases, id: \.id) { subject in
-                let filteredSets = problemSets.filter { $0.subject == subject }
-                    .sorted(by: { $0.createdAt > $1.createdAt })
+                let filteredSets = problemSets.filter {
+                    $0.subjectType == "default" &&
+                    $0.subject.rawValue == subject.rawValue
+                }.sorted(by: { $0.createdAt > $1.createdAt })
                 
                 NavigationLink(
                     destination: ProblemSetsListView(
@@ -329,7 +307,7 @@ struct ProblemSetsListView: View {
                     isShowingStudyView = true
                 }) {
                     ReviewProblemSetCard(
-                        subject: problemSet.subject,
+                        subject: problemSet.resolvedSubject,
                         problemSet: problemSet
                     )
                 }
@@ -443,7 +421,7 @@ struct SubjectRow: View {
 }
 
 struct DefaultSubjectProblemSetList: View {    // 구조체 이름 추가
-    let subject: DefaultSubject
+    let subject: SubjectType
     let problemSets: [ProblemSet]
     @EnvironmentObject var homeViewModel: HomeViewModel
     @State private var isShowingStudyView = false
@@ -454,7 +432,7 @@ struct DefaultSubjectProblemSetList: View {    // 구조체 이름 추가
                 homeViewModel.setSelectedProblemSet(problemSet)
                 isShowingStudyView = true
             }) {
-                ReviewProblemSetCard(subject: problemSet.subject, problemSet: problemSet)
+                ReviewProblemSetCard(subject: problemSet.resolvedSubject, problemSet: problemSet)
             }
             .background(
                 NavigationLink(

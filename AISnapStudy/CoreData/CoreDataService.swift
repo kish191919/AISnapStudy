@@ -259,9 +259,27 @@ class CoreDataService {
     public func saveProblemSet(_ problemSet: ProblemSet) throws {
         print("📝 Starting to save ProblemSet: \(problemSet.id)")
         
-        let cdProblemSet = CDProblemSet(context: viewContext)
+        let context = persistentContainer.viewContext
+        let cdProblemSet = CDProblemSet(context: context)
+        
         cdProblemSet.id = problemSet.id
-        cdProblemSet.subject = problemSet.subject.rawValue
+        
+        // subject 저장 로직 수정
+        if let defaultSubject = problemSet.subject as? DefaultSubject {
+            cdProblemSet.subject = defaultSubject.rawValue
+        } else if let customSubject = problemSet.subject as? CustomSubject {
+            cdProblemSet.subject = customSubject.id  // CustomSubject의 경우 id 사용
+            cdProblemSet.subjectType = "custom"
+            cdProblemSet.subjectName = customSubject.name
+        } else {
+            cdProblemSet.subject = DefaultSubject.generalKnowledge.rawValue
+        }
+        
+        cdProblemSet.subjectType = problemSet.subjectType
+        cdProblemSet.subjectId = problemSet.subjectId
+        cdProblemSet.subjectName = problemSet.subjectName
+        cdProblemSet.name = problemSet.name  // Ensure name is saved
+        
         cdProblemSet.createdAt = problemSet.createdAt
         cdProblemSet.lastAttempted = problemSet.lastAttempted
         
