@@ -27,12 +27,10 @@ class VisionService {
         let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         let request = VNRecognizeTextRequest()
         
-        // 범용 텍스트 인식 설정
+        // Universal text recognition settings
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
-        // recognitionLanguages를 설정하지 않음으로써
-        // Vision이 모든 가능한 언어를 자동으로 감지하도록 함
+        request.automaticallyDetectsLanguage = true // Enable automatic language detection
         
         print("📝 Configured for universal text recognition")
         
@@ -42,39 +40,62 @@ class VisionService {
             let observations = request.results ?? []
             print("📊 Found \(observations.count) text observations")
             
-            var extractedTexts: [String] = []
+            var textBlocks: [(text: String, location: CGRect)] = []
             
             for observation in observations {
                 if let candidate = observation.topCandidates(1).first {
                     let text = candidate.string
                     let confidence = candidate.confidence
                     
-//                    print("""
-//                        🔤 Extracted text segment:
-//                        • Text: \(text)
-//                        • Confidence: \(confidence)
-//                        """)
-                    
-                    if confidence > 0.3 { // 신뢰도 임계값을 낮춤
-                        extractedTexts.append(text)
+                    if confidence > 0.2 {
+                        textBlocks.append((text, observation.boundingBox))
                     }
                 }
             }
             
-            let finalText = extractedTexts.joined(separator: "\n")
-//            print("✅ Final extracted text:\n\(finalText)")
+            let finalText = processTextBlocks(textBlocks)
             
-            // 텍스트 검증
             guard !finalText.isEmpty else {
                 print("⚠️ No valid text extracted")
                 throw VisionError.noTextFound
             }
             
+            print("✅ Successfully extracted text")
             return finalText
             
         } catch {
             print("❌ Text extraction failed: \(error.localizedDescription)")
             throw VisionError.processingFailed
         }
+    }
+    
+    private func processTextBlocks(_ blocks: [(text: String, location: CGRect)]) -> String {
+        // Sort blocks by their position on the page
+        let sortedBlocks = blocks.sorted { (block1, block2) -> Bool in
+            // Different lines (threshold for line height difference)
+            if abs(block1.location.minY - block2.location.minY) > 0.05 {
+                return block1.location.minY > block2.location.minY
+            }
+            // Same line - left to right
+            return block1.location.minX < block2.location.minX
+        }
+        
+        // Process and join text blocks
+        let processedText = sortedBlocks
+            .map { block in
+                var text = block.text
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // Fix common punctuation issues
+                text = text.replacingOccurrences(of: "\\s*([.,!?])\\s*", with: "$1 ", options: .regularExpression)
+                text = text.replacingOccurrences(of: "([.,!?])\\1+", with: "$1", options: .regularExpression)
+                
+                return text
+            }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return processedText
     }
 }

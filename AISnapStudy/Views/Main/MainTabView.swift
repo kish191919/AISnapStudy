@@ -83,11 +83,14 @@ struct MainTabView: View {
             }
             .tag(1)
             
-            ReviewView(viewModel: reviewViewModel)  // viewModel 전달
-                .tabItem {
-                    Label("Review", systemImage: "clock.fill")
-                }
-                .tag(2)
+            ReviewView(
+                viewModel: reviewViewModel,
+                selectedTab: $selectedTab  // selectedTab 바인딩 전달
+            )
+            .tabItem {
+                Label("Review", systemImage: "clock.fill")
+            }
+            .tag(2)
             
             StatView(
                 viewModel: statViewModel,

@@ -9,9 +9,12 @@ struct ReviewView: View {
     @State private var showSubjectManagement = false
     @State private var searchText = ""
     @State private var selectedSubject: SubjectType?
+    @Binding var selectedTab: Int  // 새로 추가
    
-    public init(viewModel: ReviewViewModel) {
+    // 초기화 구문 수정
+    public init(viewModel: ReviewViewModel, selectedTab: Binding<Int>) {
         self.viewModel = viewModel
+        self._selectedTab = selectedTab
     }
     
     private var visibleSubjects: [SubjectType] {
@@ -60,7 +63,8 @@ struct ReviewView: View {
                             NavigationLink(
                                 destination: ProblemSetsListView(
                                     subject: subject,
-                                    problemSets: filterProblemSets(subject: subject)
+                                    problemSets: filterProblemSets(subject: subject),
+                                    selectedTab: $selectedTab  // selectedTab 전달
                                 )
                             ) {
                                 SubjectCardView(
@@ -185,13 +189,15 @@ struct SubjectListRow: View {
     let subject: SubjectType
     let problemSets: [ProblemSet]
     let subjectManager: SubjectManager  // SubjectManager 인스턴스 필요
+    @Binding var selectedTab: Int  // 추가
     
     var body: some View {
         if !subjectManager.isDeleted(subject.id) {
             NavigationLink(
                 destination: ProblemSetsListView(
                     subject: subject,
-                    problemSets: filterProblemSets(subject: subject, problemSets: problemSets)
+                    problemSets: filterProblemSets(subject: subject, problemSets: problemSets),
+                    selectedTab: $selectedTab  // 추가
                 )
             ) {
                 HStack {
@@ -230,6 +236,7 @@ struct ReviewDefaultSubjectsSection: View {
     @ObservedObject var subjectManager: SubjectManager
     let problemSets: [ProblemSet]
     @ObservedObject var homeViewModel: HomeViewModel
+    @Binding var selectedTab: Int  // 추가
     
     var body: some View {
         Section(header: Text("Default Subjects")) {
@@ -242,7 +249,8 @@ struct ReviewDefaultSubjectsSection: View {
                 NavigationLink(
                     destination: ProblemSetsListView(
                         subject: subject,
-                        problemSets: filteredSets
+                        problemSets: filteredSets,
+                        selectedTab: $selectedTab  // 추가
                     )
                 ) {
                     SubjectRow(subject: subject)
@@ -257,6 +265,7 @@ struct ReviewCustomSubjectsSection: View {
     @ObservedObject var subjectManager: SubjectManager
     let problemSets: [ProblemSet]
     @ObservedObject var homeViewModel: HomeViewModel
+    @Binding var selectedTab: Int  // 추가
     
     var body: some View {
         Section(header: Text("Custom Subjects")) {
@@ -267,7 +276,8 @@ struct ReviewCustomSubjectsSection: View {
                 NavigationLink(
                     destination: ProblemSetsListView(
                         subject: subject,
-                        problemSets: filteredSets
+                        problemSets: filteredSets,
+                        selectedTab: $selectedTab  // 추가
                     )
                 ) {
                     SubjectRow(subject: subject)
@@ -296,6 +306,15 @@ struct ProblemSetsListView: View {
     @State private var isShowingStudyView = false
     @State private var isShowingDeleteAlert = false
     @State private var problemSetToDelete: ProblemSet?
+    @Binding var selectedTab: Int  // 새로 추가
+    
+    init(subject: SubjectType,
+         problemSets: [ProblemSet],
+         selectedTab: Binding<Int>) {  // 초기화 구문에 selectedTab 추가
+        self.subject = subject
+        self.problemSets = problemSets
+        self._selectedTab = selectedTab
+    }
     
     var body: some View {
         List {
@@ -304,7 +323,8 @@ struct ProblemSetsListView: View {
                     problemSet: problemSet,
                     isShowingStudyView: $isShowingStudyView,
                     isShowingDeleteAlert: $isShowingDeleteAlert,
-                    problemSetToDelete: $problemSetToDelete
+                    problemSetToDelete: $problemSetToDelete,
+                    selectedTab: $selectedTab  // selectedTab 전달
                 )
             }
         }
@@ -327,66 +347,75 @@ struct ProblemSetsListView: View {
 
 // 별도의 row 컴포넌트로 분리
 struct ProblemSetRow: View {
-   let problemSet: ProblemSet
-   @Binding var isShowingStudyView: Bool
-   @Binding var isShowingDeleteAlert: Bool
-   @Binding var problemSetToDelete: ProblemSet?
-   @EnvironmentObject var homeViewModel: HomeViewModel
-   @StateObject private var refreshTrigger = RefreshTrigger()
-   
-   // 이름 변경을 위한 상태 변수
-   @State private var displayName: String
-   
-   init(problemSet: ProblemSet,
-        isShowingStudyView: Binding<Bool>,
-        isShowingDeleteAlert: Binding<Bool>,
-        problemSetToDelete: Binding<ProblemSet?>) {
-       self.problemSet = problemSet
-       self._isShowingStudyView = isShowingStudyView
-       self._isShowingDeleteAlert = isShowingDeleteAlert
-       self._problemSetToDelete = problemSetToDelete
-       self._displayName = State(initialValue: problemSet.name)
-   }
-   
-   var body: some View {
-       Button(action: {
-           // ProblemSet 설정
-           homeViewModel.setSelectedProblemSet(problemSet)
-           
-           // StudyViewModel에 직접 questions 설정
-           if let studyViewModel = homeViewModel.studyViewModel {
-               Task {
-                   // 상태 리셋
-                   await studyViewModel.resetState()
-                   // 문제 로드
-                   studyViewModel.loadQuestions(problemSet.questions)
-               }
-           }
-           
-           isShowingStudyView = true
-       }) {
-           ReviewProblemSetCard(
-               subject: problemSet.resolvedSubject,
-               problemSet: problemSet.copy(withName: displayName),
-               onDelete: {
-                   problemSetToDelete = problemSet
-                   isShowingDeleteAlert = true
-               },
-               onRename: { newName in
-                   Task {
-                       await homeViewModel.renameProblemSet(problemSet, newName: newName)
-                       // UI 즉시 업데이트
-                       await MainActor.run {
-                           displayName = newName
-                       }
-                   }
-               }
-           )
-       }
-       .onChange(of: problemSet.name) { newName in
-           displayName = newName
-       }
-   }
+    let problemSet: ProblemSet
+    @Binding var isShowingStudyView: Bool
+    @Binding var isShowingDeleteAlert: Bool
+    @Binding var problemSetToDelete: ProblemSet?
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @StateObject private var refreshTrigger = RefreshTrigger()
+    @Binding var selectedTab: Int  // 새로 추가
+    
+    // 이름 변경을 위한 상태 변수
+    @State private var displayName: String
+    
+    init(problemSet: ProblemSet,
+         isShowingStudyView: Binding<Bool>,
+         isShowingDeleteAlert: Binding<Bool>,
+         problemSetToDelete: Binding<ProblemSet?>,
+         selectedTab: Binding<Int>) {  // 초기화 구문에 selectedTab 추가
+        self.problemSet = problemSet
+        self._isShowingStudyView = isShowingStudyView
+        self._isShowingDeleteAlert = isShowingDeleteAlert
+        self._problemSetToDelete = problemSetToDelete
+        self._selectedTab = selectedTab  // 새로 추가
+        self._displayName = State(initialValue: problemSet.name)
+    }
+    
+    var body: some View {
+        Button(action: {
+            Task {
+                // ProblemSet 설정
+                homeViewModel.setSelectedProblemSet(problemSet)
+                
+                // StudyViewModel에 직접 questions 설정
+                if let studyViewModel = homeViewModel.studyViewModel {
+                    // 상태 리셋
+                    await studyViewModel.resetState()
+                    // 문제 로드
+                    studyViewModel.loadQuestions(problemSet.questions)
+                    
+                    // 탭 전환 및 UI 업데이트
+                    await MainActor.run {
+                        withAnimation {
+                            selectedTab = 1  // Study 탭으로 전환
+                            isShowingStudyView = true
+                        }
+                    }
+                }
+            }
+        }) {
+            ReviewProblemSetCard(
+                subject: problemSet.resolvedSubject,
+                problemSet: problemSet.copy(withName: displayName),
+                onDelete: {
+                    problemSetToDelete = problemSet
+                    isShowingDeleteAlert = true
+                },
+                onRename: { newName in
+                    Task {
+                        await homeViewModel.renameProblemSet(problemSet, newName: newName)
+                        // UI 즉시 업데이트
+                        await MainActor.run {
+                            displayName = newName
+                        }
+                    }
+                }
+            )
+        }
+        .onChange(of: problemSet.name) { newName in
+            displayName = newName
+        }
+    }
 }
 
 extension ProblemSet {

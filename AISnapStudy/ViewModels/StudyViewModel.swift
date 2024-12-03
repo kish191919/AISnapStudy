@@ -141,14 +141,20 @@ class StudyViewModel: ObservableObject {
         """)
     }
    
-   func loadQuestions(_ newQuestions: [Question]) {
-       print("📝 Loading fresh set of \(newQuestions.count) questions")
-       questions = newQuestions
-       currentIndex = 0
-       currentQuestion = questions.isEmpty ? nil : questions[0]
-       
-       print("✅ First question loaded explicitly: \(currentQuestion?.question ?? "No question loaded") with currentIndex: \(currentIndex)")
-   }
+    @MainActor
+    func loadQuestions(_ newQuestions: [Question]) {
+        guard questions != newQuestions else {
+            print("⚠️ Same questions already loaded, skipping")
+            return
+        }
+        
+        print("📝 Loading fresh set of \(newQuestions.count) questions")
+        questions = newQuestions
+        currentIndex = 0
+        currentQuestion = questions.isEmpty ? nil : questions[0]
+        
+        print("✅ Questions loaded: \(currentQuestion?.question ?? "No question loaded")")
+    }
    
    private func setupCurrentSession() {
        let session = CDStudySession(context: context)
