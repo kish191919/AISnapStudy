@@ -213,3 +213,62 @@ class HomeViewModel: ObservableObject {
         }
     }
 }
+
+extension HomeViewModel {
+    @MainActor
+    func renameProblemSet(_ problemSet: ProblemSet, newName: String) async {
+        do {
+            // Create a new ProblemSet with updated name
+            var updatedProblemSet = problemSet
+            updatedProblemSet.name = newName
+            
+            // Update in CoreData
+            try await Task {
+                try coreDataService.updateProblemSet(problemSet, newName: newName)
+            }.value
+        
+            
+            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+                problemSets[index] = problemSets[index].copy(withName: newName)
+                
+                // Update selected problem set if needed
+                if selectedProblemSet?.id == problemSet.id {
+                    selectedProblemSet = problemSets[index]
+                }
+            }
+            
+            // Notify all observers
+            objectWillChange.send()
+            
+            print("""
+            ✅ Problem Set renamed and updated:
+            • ID: \(problemSet.id)
+            • New Name: \(newName)
+            • In Memory Update: Success
+            """)
+        } catch {
+            print("❌ Failed to rename problem set: \(error)")
+        }
+    }
+    
+    @MainActor
+    func deleteProblemSet(_ problemSet: ProblemSet) async {
+        do {
+            try await coreDataService.deleteProblemSet(problemSet)
+            problemSets.removeAll { $0.id == problemSet.id }
+            
+            if selectedProblemSet?.id == problemSet.id {
+                selectedProblemSet = nil
+            }
+            
+            print("""
+            ✅ Problem Set deleted:
+            • ID: \(problemSet.id)
+            • Name: \(problemSet.name)
+            """)
+        } catch {
+            self.error = error
+            print("❌ Failed to delete problem set: \(error)")
+        }
+    }
+}

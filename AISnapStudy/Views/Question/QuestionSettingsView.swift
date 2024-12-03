@@ -410,37 +410,6 @@ struct ProblemSetNamePopup: View {
     }
 }
 
-// Generate Questions Footer
-struct GenerateQuestionsFooter: View {
-    @ObservedObject var viewModel: QuestionSettingsViewModel
-    @Binding var isGeneratingQuestions: Bool
-    @Binding var showNamePopup: Bool
-    let isGenerateButtonEnabled: Bool
-    
-    var body: some View {
-        VStack {
-            Button(action: {
-                showNamePopup = true
-                isGeneratingQuestions = true
-                Task {
-                    await viewModel.sendAllImages()
-                }
-            }) {
-                Text("Generate Questions")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
-                    .cornerRadius(10)
-            }
-            .disabled(!isGenerateButtonEnabled)
-            .padding()
-        }
-        .background(Color(UIColor.systemGroupedBackground))
-    }
-}
-
 struct SubjectSelectionButton: View {
     let subject: any SubjectType
     let isSelected: Bool

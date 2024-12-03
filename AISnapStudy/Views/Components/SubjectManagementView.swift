@@ -118,37 +118,6 @@ struct SubjectManagementView: View {
            print("🗑️ Hidden subjects: \(subjectManager.hiddenDefaultSubjects)")
        }
    }
-    
-    
-    private func handleRename() {
-        withAnimation {
-            if let defaultSubject = selectedSubject as? DefaultSubject {
-                subjectManager.updateDefaultSubjectName(defaultSubject, newName: newName)
-            } else if let customSubject = selectedSubject as? CustomSubject {  // 변경
-                subjectManager.updateSubject(customSubject, newName: newName)
-            }
-        }
-    }
-    
-    private func handleDelete() {
-        withAnimation {
-            if let subject = subjectToDelete as? DefaultSubject {
-                subjectManager.toggleDefaultSubject(subject)
-            } else if let subject = subjectToDelete as? CustomSubject {  // 변경
-                subjectManager.deleteSubject(subject)
-            }
-        }
-    }
-    
-    private func handleRestore() {
-        withAnimation {
-            DefaultSubject.allCases.forEach { subject in
-                if subjectManager.isDeleted(subject) {
-                    subjectManager.restoreDeletedSubject(subject)
-                }
-            }
-        }
-    }
 }
 
     

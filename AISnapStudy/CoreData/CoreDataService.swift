@@ -393,3 +393,34 @@ extension CDQuestion {
         )
     }
 }
+extension CoreDataService {
+    @MainActor
+    func updateProblemSet(_ problemSet: ProblemSet, newName: String) throws {
+        let context = persistentContainer.viewContext
+        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
+        
+        if let cdProblemSet = try context.fetch(request).first {
+            cdProblemSet.name = newName
+            
+            // Save immediately
+            if context.hasChanges {
+                try context.save()
+                print("💾 CoreData: Successfully updated problem set name to: \(newName)")
+            }
+        } else {
+            print("⚠️ CoreData: Problem set not found with ID: \(problemSet.id)")
+        }
+    }
+    
+    func deleteProblemSet(_ problemSet: ProblemSet) throws {
+        let context = persistentContainer.viewContext
+        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
+        
+        if let cdProblemSet = try context.fetch(request).first {
+            context.delete(cdProblemSet)
+            try context.save()
+        }
+    }
+}

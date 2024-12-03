@@ -170,15 +170,15 @@ struct LanguageRow: View {
 // Language.swift (새로운 파일)
 enum Language: String, CaseIterable, Identifiable {
     case auto = "AUTO"
-    case english = "ENGLISH"
-    case korean = "한국어"
-    case japanese = "日本語"
-    case chinese = "中文"
-    case spanish = "ESPAÑOL"
-    case french = "FRANÇAIS"
-    case german = "DEUTSCH"
-    case russian = "РУССКИЙ"
-    case italian = "ITALIANO"
+    case english = "english"
+    case korean = "korean"
+    case japanese = "japanese"
+    case chinese = "chinese"
+    case spanish = "spanish"
+    case french = "french"
+    case german = "german"
+    case russian = "russian"
+    case italian = "italian"
     
     var id: String { self.rawValue }
     

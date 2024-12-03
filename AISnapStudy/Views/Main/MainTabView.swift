@@ -103,13 +103,14 @@ struct MainTabView: View {
         .onAppear {
             statViewModel.setHomeViewModel(homeViewModel)
         }
-        .onChange(of: homeViewModel.selectedProblemSet) { _ in
-             if selectedTab == 1 {
-                 if let problemSet = homeViewModel.selectedProblemSet {
-                     studyViewModel.loadQuestions(problemSet.questions)
-                 }
-             }
-         }
+        .onChange(of: homeViewModel.selectedProblemSet) { newProblemSet in
+            if let problemSet = newProblemSet,
+               // Review에서 선택된 경우에만 탭 전환
+               selectedTab == 2 {  // 2는 Review 탭
+                studyViewModel.loadQuestions(problemSet.questions)
+                selectedTab = 1  // Study 탭으로 전환
+            }
+        }
          .environmentObject(homeViewModel)
     }
 }

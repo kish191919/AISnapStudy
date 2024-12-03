@@ -287,85 +287,152 @@ extension SubjectType {
 }
 
 // ProblemSetsListView는 그대로 유지
+
+
 struct ProblemSetsListView: View {
     let subject: SubjectType
     let problemSets: [ProblemSet]
     @EnvironmentObject var homeViewModel: HomeViewModel
     @State private var isShowingStudyView = false
+    @State private var isShowingDeleteAlert = false
+    @State private var problemSetToDelete: ProblemSet?
     
     var body: some View {
         List {
             ForEach(problemSets) { problemSet in
-                Button(action: {
-                    print("""
-                    🔍 Selected ProblemSet:
-                    • Name: \(problemSet.name)
-                    • Questions: \(problemSet.questions.count)
-                    • Subject: \(problemSet.subjectName)
-                    """)
-                    homeViewModel.setSelectedProblemSet(problemSet)
-                    isShowingStudyView = true
-                }) {
-                    ReviewProblemSetCard(
-                        subject: problemSet.resolvedSubject,
-                        problemSet: problemSet
-                    )
-                }
-                .background(
-                    NavigationLink(
-                        destination: Group {
-                            if let studyViewModel = homeViewModel.studyViewModel {
-                                StudyView(
-                                    questions: problemSet.questions,
-                                    studyViewModel: studyViewModel,
-                                    selectedTab: .constant(1)
-                                )
-                            } else {
-                                Text("Study ViewModel not available")
-                            }
-                        },
-                        isActive: $isShowingStudyView
-                    ) {
-                        EmptyView()
-                    }
+                ProblemSetRow(
+                    problemSet: problemSet,
+                    isShowingStudyView: $isShowingStudyView,
+                    isShowingDeleteAlert: $isShowingDeleteAlert,
+                    problemSetToDelete: $problemSetToDelete
                 )
             }
         }
         .listStyle(InsetGroupedListStyle())
         .navigationTitle("\(subject.displayName) Sets")
-        .onAppear {
-            print("""
-            📱 ProblemSetsListView appeared:
-            • Subject: \(subject.displayName)
-            • Available ProblemSets: \(problemSets.count)
-            """)
+        .alert("Delete Problem Set", isPresented: $isShowingDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let problemSet = problemSetToDelete {
+                    Task {
+                        await homeViewModel.deleteProblemSet(problemSet)
+                    }
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete this problem set? This action cannot be undone.")
         }
     }
 }
 
-struct SavedQuestionsSection: View {
-    let savedQuestions: [Question]
-    let homeViewModel: HomeViewModel
+// 별도의 row 컴포넌트로 분리
+struct ProblemSetRow: View {
+   let problemSet: ProblemSet
+   @Binding var isShowingStudyView: Bool
+   @Binding var isShowingDeleteAlert: Bool
+   @Binding var problemSetToDelete: ProblemSet?
+   @EnvironmentObject var homeViewModel: HomeViewModel
+   @StateObject private var refreshTrigger = RefreshTrigger()
+   
+   // 이름 변경을 위한 상태 변수
+   @State private var displayName: String
+   
+   init(problemSet: ProblemSet,
+        isShowingStudyView: Binding<Bool>,
+        isShowingDeleteAlert: Binding<Bool>,
+        problemSetToDelete: Binding<ProblemSet?>) {
+       self.problemSet = problemSet
+       self._isShowingStudyView = isShowingStudyView
+       self._isShowingDeleteAlert = isShowingDeleteAlert
+       self._problemSetToDelete = problemSetToDelete
+       self._displayName = State(initialValue: problemSet.name)
+   }
+   
+   var body: some View {
+       Button(action: {
+           // ProblemSet 설정
+           homeViewModel.setSelectedProblemSet(problemSet)
+           
+           // StudyViewModel에 직접 questions 설정
+           if let studyViewModel = homeViewModel.studyViewModel {
+               Task {
+                   // 상태 리셋
+                   await studyViewModel.resetState()
+                   // 문제 로드
+                   studyViewModel.loadQuestions(problemSet.questions)
+               }
+           }
+           
+           isShowingStudyView = true
+       }) {
+           ReviewProblemSetCard(
+               subject: problemSet.resolvedSubject,
+               problemSet: problemSet.copy(withName: displayName),
+               onDelete: {
+                   problemSetToDelete = problemSet
+                   isShowingDeleteAlert = true
+               },
+               onRename: { newName in
+                   Task {
+                       await homeViewModel.renameProblemSet(problemSet, newName: newName)
+                       // UI 즉시 업데이트
+                       await MainActor.run {
+                           displayName = newName
+                       }
+                   }
+               }
+           )
+       }
+       .onChange(of: problemSet.name) { newName in
+           displayName = newName
+       }
+   }
+}
+
+extension ProblemSet {
+    func copy(withName newName: String) -> ProblemSet {
+        ProblemSet(
+            id: self.id,
+            subject: self.subject,
+            subjectType: self.subjectType,
+            subjectId: self.subjectId,
+            subjectName: self.subjectName,
+            questions: self.questions,
+            createdAt: self.createdAt,
+            educationLevel: self.educationLevel,
+            name: newName  // 새 이름 사용
+        )
+    }
+}
+
+
+// StudyView destination을 별도 컴포넌트로 분리
+// StudyDestinationView (기존과 동일)
+struct StudyDestinationView: View {
+    let problemSet: ProblemSet
+    @EnvironmentObject var homeViewModel: HomeViewModel
     
     var body: some View {
-        Section(header: Text("Saved Questions")) {
-            NavigationLink(
-                destination: SavedQuestionsView(
-                    questions: savedQuestions,
-                    homeViewModel: homeViewModel
+        Group {
+            if let studyViewModel = homeViewModel.studyViewModel {
+                StudyView(
+                    questions: problemSet.questions,
+                    studyViewModel: studyViewModel,
+                    selectedTab: .constant(1)
                 )
-            ) {
-                HStack {
-                    Image(systemName: "bookmark.fill")
-                        .foregroundColor(.blue)
-                    Text("Saved Questions")
-                        .font(.headline)
-                    Spacer()
-                    Text("\(savedQuestions.count)")
-                        .foregroundColor(.secondary)
-                }
+            } else {
+                Text("Study ViewModel not available")
             }
         }
+    }
+}
+
+
+class RefreshTrigger: ObservableObject {
+    @Published var id = UUID()
+    
+    func refresh() {
+        id = UUID()
     }
 }
 
@@ -417,43 +484,5 @@ struct SubjectRow: View {
             }
         }
         .padding(.vertical, style == .management ? 8 : 0)
-    }
-}
-
-struct DefaultSubjectProblemSetList: View {    // 구조체 이름 추가
-    let subject: SubjectType
-    let problemSets: [ProblemSet]
-    @EnvironmentObject var homeViewModel: HomeViewModel
-    @State private var isShowingStudyView = false
-    
-    var body: some View {
-        List(problemSets) { problemSet in
-            Button(action: {
-                homeViewModel.setSelectedProblemSet(problemSet)
-                isShowingStudyView = true
-            }) {
-                ReviewProblemSetCard(subject: problemSet.resolvedSubject, problemSet: problemSet)
-            }
-            .background(
-                NavigationLink(
-                    destination: Group {
-                        if let studyViewModel = homeViewModel.studyViewModel {
-                            StudyView(
-                                questions: problemSet.questions,
-                                studyViewModel: studyViewModel,
-                                selectedTab: .constant(1)
-                            )
-                        } else {
-                            Text("Study ViewModel not available")
-                        }
-                    },
-                    isActive: $isShowingStudyView
-                ) {
-                    EmptyView()
-                }
-            )
-        }
-        .navigationTitle("\(subject.displayName) Sets")
-        .listStyle(InsetGroupedListStyle())
     }
 }
