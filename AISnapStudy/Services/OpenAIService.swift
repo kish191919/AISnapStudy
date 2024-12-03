@@ -160,17 +160,6 @@ class OpenAIService {
             return []
         }
     }
-    
-    // StreamResponse 구조체도 필요합니다
-    private struct StreamResponse: Codable {
-        struct Choice: Codable {
-            struct Delta: Codable {
-                let content: String?
-            }
-            let delta: Delta
-        }
-        let choices: [Choice]
-    }
 
     // extractCompleteQuestion 함수도 추가
     private func extractCompleteQuestion(from json: String) throws -> QuestionGenerationSchema.QuestionData? {

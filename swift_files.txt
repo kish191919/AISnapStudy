@@ -8703,9 +8703,10 @@ class VisionService {
         let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         let request = VNRecognizeTextRequest()
         
+        // Universal text recognition settings
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
+        request.automaticallyDetectsLanguage = true // Enable automatic language detection
         
         print("📝 Configured for universal text recognition")
         
@@ -8715,27 +8716,20 @@ class VisionService {
             let observations = request.results ?? []
             print("📊 Found \(observations.count) text observations")
             
-            var extractedTexts: [String] = []
-            var textLocations: [(String, CGFloat)] = []
+            var textBlocks: [(text: String, location: CGRect)] = []
             
             for observation in observations {
                 if let candidate = observation.topCandidates(1).first {
                     let text = candidate.string
                     let confidence = candidate.confidence
                     
-                    if confidence > 0.3 {
-                        textLocations.append((text, observation.boundingBox.origin.y))
+                    if confidence > 0.2 {
+                        textBlocks.append((text, observation.boundingBox))
                     }
                 }
             }
             
-            // y 좌표를 기준으로 정렬 (상단에서 하단으로)
-            textLocations.sort { $0.1 > $1.1 }
-            
-            // 정렬된 텍스트만 추출
-            extractedTexts = textLocations.map { $0.0 }
-            
-            let finalText = processExtractedTexts(extractedTexts)
+            let finalText = processTextBlocks(textBlocks)
             
             guard !finalText.isEmpty else {
                 print("⚠️ No valid text extracted")
@@ -8751,32 +8745,34 @@ class VisionService {
         }
     }
     
-    private func processExtractedTexts(_ texts: [String]) -> String {
-        let cleanedTexts = texts.map { cleanExtractedText($0) }
-        return formatFinalText(cleanedTexts)
-    }
-    
-    private func cleanExtractedText(_ text: String) -> String {
-        var cleaned = text
+    private func processTextBlocks(_ blocks: [(text: String, location: CGRect)]) -> String {
+        // Sort blocks by their position on the page
+        let sortedBlocks = blocks.sorted { (block1, block2) -> Bool in
+            // Different lines (threshold for line height difference)
+            if abs(block1.location.minY - block2.location.minY) > 0.05 {
+                return block1.location.minY > block2.location.minY
+            }
+            // Same line - left to right
+            return block1.location.minX < block2.location.minX
+        }
         
-        // 불필요한 공백과 줄바꿈 정리
-        cleaned = cleaned.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        
-        // 불필요한 마침표 제거
-        cleaned = cleaned.replacingOccurrences(of: "\\s*\\.\\s*(?=[^\\p{L}\\p{N}])", with: "", options: .regularExpression)
-        
-        // 앞뒤 공백 제거
-        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        return cleaned
-    }
-    
-    private func formatFinalText(_ texts: [String]) -> String {
-        // 빈 텍스트 제거하고 공백으로 연결
-        return texts
-            .filter { !$0.isEmpty }
+        // Process and join text blocks
+        let processedText = sortedBlocks
+            .map { block in
+                var text = block.text
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // Fix common punctuation issues
+                text = text.replacingOccurrences(of: "\\s*([.,!?])\\s*", with: "$1 ", options: .regularExpression)
+                text = text.replacingOccurrences(of: "([.,!?])\\1+", with: "$1", options: .regularExpression)
+                
+                return text
+            }
             .joined(separator: " ")
-            .replacingOccurrences(of: "\\s+\\.", with: ".", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return processedText
     }
 }
 

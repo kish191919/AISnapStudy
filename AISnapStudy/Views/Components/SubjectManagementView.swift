@@ -120,25 +120,6 @@ struct SubjectManagementView: View {
    }
 }
 
-    
-// 복원 섹션을 위한 별도의 뷰
-struct RestoreSection: View {
-    @ObservedObject var subjectManager: SubjectManager
-    @Binding var showingRestoreAlert: Bool
-    
-    var body: some View {
-        if !subjectManager.hiddenDefaultSubjects.isEmpty {
-            Section(header: Text("Recently Deleted Subjects")) {
-                Button(action: {
-                    showingRestoreAlert = true
-                }) {
-                    Label("Restore All Deleted Subjects", systemImage: "arrow.counterclockwise")
-                        .foregroundColor(.blue)
-                }
-            }
-        }
-    }
-}
 
     // 기본 과목 섹션을 위한 별도의 뷰
 struct DefaultSubjectsSection: View {
