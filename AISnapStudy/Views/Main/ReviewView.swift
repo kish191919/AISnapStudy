@@ -52,63 +52,57 @@ struct ReviewView: View {
    
     var body: some View {
         NavigationView {
-            VStack(spacing: 16) {
-                ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.flexible()),
-                        GridItem(.flexible())
-                    ], spacing: 16) {
-                        // allSubjects를 사용하여 모든 과목 표시
-                        ForEach(visibleSubjects, id: \.id) { subject in
-                            NavigationLink(
-                                destination: ProblemSetsListView(
-                                    subject: subject,
-                                    problemSets: filterProblemSets(subject: subject),
-                                    selectedTab: $selectedTab  // selectedTab 전달
-                                )
-                            ) {
-                                SubjectCardView(
-                                    subject: subject,
-                                    problemSetCount: filterProblemSets(subject: subject).count
-                                )
-                            }
-                            .onAppear {
-                                print("""
-                            📱 Subject Card Appeared:
-                            • Subject: \(subject.displayName)
-                            """)
-                            }
-                        }
-                    }
-                    .padding()
-                }
-                .navigationTitle("Review")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: {
-                            showSubjectManagement = true
-                        }) {
-                            Image(systemName: "slider.horizontal.3")
-                                .foregroundColor(.blue)
-                        }
-                    }
-                }
-                .sheet(isPresented: $showSubjectManagement) {
-                    NavigationView {
-                        SubjectManagementView()
-                            .navigationTitle("Manage Subjects")
-                            .navigationBarItems(
-                                trailing: Button("Done") {
-                                    showSubjectManagement = false
-                                }
+            ScrollView {
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ], spacing: 16) {
+                    ForEach(visibleSubjects, id: \.id) { subject in
+                        NavigationLink(
+                            destination: ProblemSetsListView(
+                                subject: subject,
+                                problemSets: filterProblemSets(subject: subject),
+                                selectedTab: $selectedTab
                             )
+                        ) {
+                            SubjectCardView(
+                                subject: subject,
+                                problemSetCount: filterProblemSets(subject: subject).count
+                            )
+                        }
                     }
+                }
+                .padding(.horizontal)
+            }
+            .navigationBarTitleDisplayMode(.inline) // 이걸 추가하여 네비게이션 바 높이를 줄임
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Review")
+                        .font(.title.bold())
+                        .padding(.bottom, 10)
                 }
                 
-            }}
-        .onAppear {
-            print("📱 ReviewView appeared")
-            print("📚 Available subjects: \(visibleSubjects.map { $0.displayName })")
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        showSubjectManagement = true
+                    }) {
+                        Image(systemName: "slider.horizontal.3")
+                            .foregroundColor(.blue)
+                            .imageScale(.large)
+                    }
+                }
+            }
+            .sheet(isPresented: $showSubjectManagement) {
+                NavigationView {
+                    SubjectManagementView()
+                        .navigationTitle("Manage Subjects")
+                        .navigationBarItems(
+                            trailing: Button("Done") {
+                                showSubjectManagement = false
+                            }
+                        )
+                }
+            }
         }
     }
     // 필터링 함수 수정
@@ -466,8 +460,8 @@ struct ProblemSetsListView: View {
                    Task {
                        print("💾 Saving merged set: \(mergedSet.name)")
                        await homeViewModel.saveProblemSet(mergedSet)
-                       await homeViewModel.deleteProblemSet(source)
-                       await homeViewModel.deleteProblemSet(target)
+//                       await homeViewModel.deleteProblemSet(source)
+//                       await homeViewModel.deleteProblemSet(target)
                        
                        mergingProblemSets = nil
                        draggedProblemSet = nil
