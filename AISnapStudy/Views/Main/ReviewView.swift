@@ -297,134 +297,208 @@ extension SubjectType {
 }
 
 struct ProblemSetsListView: View {
-    let subject: SubjectType
-    let problemSets: [ProblemSet]
-    @EnvironmentObject var homeViewModel: HomeViewModel
-    @State private var isShowingStudyView = false
-    @State private var isShowingDeleteAlert = false
-    @State private var problemSetToDelete: ProblemSet?
-    @Binding var selectedTab: Int
-    
-    // Drag and drop state
-    @State private var draggedProblemSet: ProblemSet?
-    @State private var showingMergeAlert = false
-    @State private var mergingProblemSets: (source: ProblemSet, target: ProblemSet)?
-    @State private var mergeSetName = ""
-    @State private var isTargeted = false
-    
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 12) {
-                ForEach(problemSets) { problemSet in
-                    ProblemSetRow(
-                        problemSet: problemSet,
-                        isShowingStudyView: $isShowingStudyView,
-                        isShowingDeleteAlert: $isShowingDeleteAlert,
-                        problemSetToDelete: $problemSetToDelete,
-                        selectedTab: $selectedTab
-                    )
-                    .draggable(problemSet) {
-                        DragPreviewView(problemSet: problemSet)
-                    }
-                    .dropDestination(for: ProblemSet.self) { droppedItems, location in
-                        print("📥 Drop detected on: \(problemSet.name)")
-                        
-                        guard let droppedSet = droppedItems.first else {
-                            print("❌ No dropped set found")
-                            return false
-                        }
-                        
-                        if droppedSet.id != problemSet.id {
-                            print("✨ Preparing to merge: \(droppedSet.name) into \(problemSet.name)")
-                            mergingProblemSets = (droppedSet, problemSet)
-                            mergeSetName = "Merged: \(droppedSet.name) + \(problemSet.name)"
-                            showingMergeAlert = true
-                            HapticManager.shared.impact(style: .medium)
-                            return true
-                        }
-                        
-                        print("⚠️ Cannot merge set with itself")
-                        return false
-                    } isTargeted: { isTargeted in
-                        print("🎯 Target status for \(problemSet.name): \(isTargeted)")
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            if let draggedId = draggedProblemSet?.id,
-                               draggedId != problemSet.id {
-                                self.draggedProblemSet = isTargeted ? problemSet : nil
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(isTargeted ? Color.blue.opacity(0.1) : Color.clear)
-                    )
-                    .animation(.easeInOut(duration: 0.2), value: isTargeted)
-                }
-            }
-            .padding(.vertical)
-        }
-        .listStyle(InsetGroupedListStyle())
-        .navigationTitle("\(subject.displayName) Sets")
-        .alert("Delete Problem Set", isPresented: $isShowingDeleteAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                if let problemSet = problemSetToDelete {
-                    Task {
-                        await homeViewModel.deleteProblemSet(problemSet)
-                    }
-                }
-            }
-        }
-        .alert("Merge Problem Sets", isPresented: $showingMergeAlert) {
-            TextField("New Set Name", text: $mergeSetName)
-            Button("Cancel", role: .cancel) {
-                mergingProblemSets = nil
-                draggedProblemSet = nil
-            }
-            Button("Merge") {
-                if let (source, target) = mergingProblemSets {
-                    let mergedSet = ProblemSet.merge(
-                        problemSets: [source, target],
-                        name: mergeSetName
-                    )
-                    
-                    Task {
-                        print("💾 Saving merged set: \(mergedSet.name)")
-                        await homeViewModel.saveProblemSet(mergedSet)
-                        await homeViewModel.deleteProblemSet(source)
-                        await homeViewModel.deleteProblemSet(target)
-                        
-                        mergingProblemSets = nil
-                        draggedProblemSet = nil
-                        HapticManager.shared.impact(style: .medium)
-                    }
-                }
-            }
-        } message: {
-            if let sets = mergingProblemSets {
-                Text("Merge '\(sets.source.name)' with '\(sets.target.name)'")
-            }
-        }
-    }
+   let subject: SubjectType
+   let problemSets: [ProblemSet]
+   @EnvironmentObject var homeViewModel: HomeViewModel
+   @State private var isShowingStudyView = false
+   @State private var isShowingDeleteAlert = false
+   @State private var problemSetToDelete: ProblemSet?
+   @Binding var selectedTab: Int
+   @State private var isEditMode = false
+   @State private var showHelpAlert = false
+   
+   // Drag and drop state
+   @State private var draggedProblemSet: ProblemSet?
+   @State private var showingMergeAlert = false
+   @State private var mergingProblemSets: (source: ProblemSet, target: ProblemSet)?
+   @State private var mergeSetName = ""
+   @State private var isTargeted = false
+   
+   private var shouldShowMergeTip: Bool {
+       !UserDefaults.standard.bool(forKey: "hasSeenMergeTip") && problemSets.count >= 2
+   }
+   
+   var body: some View {
+       ScrollView {
+           VStack(spacing: 12) {
+               if shouldShowMergeTip {
+                   VStack {
+                       Text("💡 Tip: Drag one question set onto another to merge them!")
+                           .font(.callout)
+                           .padding()
+                           .background(Color.blue.opacity(0.1))
+                           .cornerRadius(8)
+                   }
+                   .padding(.horizontal)
+                   .onAppear {
+                       UserDefaults.standard.set(true, forKey: "hasSeenMergeTip")
+                   }
+               }
+               
+               LazyVStack(spacing: 12) {
+                   ForEach(problemSets) { problemSet in
+                       ReviewProblemSetCard(
+                           subject: problemSet.resolvedSubject,
+                           problemSet: problemSet,
+                           isEditMode: isEditMode,
+                           onDelete: {
+                               problemSetToDelete = problemSet
+                               isShowingDeleteAlert = true
+                           },
+                           onRename: { newName in
+                               Task {
+                                   await homeViewModel.renameProblemSet(problemSet, newName: newName)
+                               }
+                           }
+                       )
+                       .highPriorityGesture(
+                           DragGesture(minimumDistance: 10)
+                               .onChanged { _ in
+                                   print("🔄 Drag detected")
+                               }
+                       )
+                       .onTapGesture {
+                           Task {
+                               homeViewModel.setSelectedProblemSet(problemSet)
+                               if let studyViewModel = homeViewModel.studyViewModel {
+                                   await studyViewModel.resetState()
+                                   studyViewModel.loadQuestions(problemSet.questions)
+                                   await MainActor.run {
+                                       withAnimation {
+                                           selectedTab = 1
+                                           isShowingStudyView = true
+                                       }
+                                   }
+                               }
+                           }
+                       }
+                       .draggable(problemSet) {
+                           DragPreviewView(problemSet: problemSet)
+                       }
+                       .dropDestination(for: ProblemSet.self) { droppedItems, location in
+                           print("📥 Drop detected on: \(problemSet.name)")
+                           
+                           guard let droppedSet = droppedItems.first else {
+                               print("❌ No dropped set found")
+                               return false
+                           }
+                           
+                           if droppedSet.id != problemSet.id {
+                               print("✨ Preparing to merge: \(droppedSet.name) into \(problemSet.name)")
+                               mergingProblemSets = (droppedSet, problemSet)
+                               mergeSetName = "Merged: \(droppedSet.name) + \(problemSet.name)"
+                               showingMergeAlert = true
+                               HapticManager.shared.impact(style: .medium)
+                               return true
+                           }
+                           
+                           print("⚠️ Cannot merge set with itself")
+                           return false
+                       } isTargeted: { isTargeted in
+                           print("🎯 Target status for \(problemSet.name): \(isTargeted)")
+                           withAnimation(.easeInOut(duration: 0.2)) {
+                               self.isTargeted = isTargeted
+                           }
+                       }
+                       .padding(.horizontal)
+                       .background(
+                           RoundedRectangle(cornerRadius: 12)
+                               .fill(isTargeted ? Color.blue.opacity(0.1) : Color.clear)
+                       )
+                       .animation(.easeInOut(duration: 0.2), value: isTargeted)
+                   }
+               }
+           }
+           .padding(.vertical)
+       }
+       .navigationTitle("\(subject.displayName) Sets")
+       .toolbar {
+           ToolbarItem(placement: .navigationBarTrailing) {
+               HStack(spacing: 16) {
+                   Button(action: {
+                       showHelpAlert = true
+                   }) {
+                       Image(systemName: "questionmark.circle")
+                           .imageScale(.large)
+                           .foregroundColor(.blue)
+                   }
+                   
+                   Button(action: {
+                       withAnimation {
+                           isEditMode.toggle()
+                       }
+                   }) {
+                       Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
+                           .imageScale(.large)
+                           .foregroundColor(isEditMode ? .green : .blue)
+                   }
+               }
+           }
+       }
+       .alert("How to Merge Question Sets", isPresented: $showHelpAlert) {
+           Button("Got it!", role: .cancel) {}
+       } message: {
+           Text("To merge question sets:\n\n1. Touch and hold a question set\n2. Drag it onto another question set\n3. Release to merge them\n\nThis is useful for combining related sets!")
+       }
+       .alert("Delete Problem Set", isPresented: $isShowingDeleteAlert) {
+           Button("Cancel", role: .cancel) { }
+           Button("Delete", role: .destructive) {
+               if let problemSet = problemSetToDelete {
+                   Task {
+                       await homeViewModel.deleteProblemSet(problemSet)
+                   }
+               }
+           }
+       }
+       .alert("Merge Problem Sets", isPresented: $showingMergeAlert) {
+           TextField("New Set Name", text: $mergeSetName)
+           Button("Cancel", role: .cancel) {
+               mergingProblemSets = nil
+               draggedProblemSet = nil
+           }
+           Button("Merge") {
+               if let (source, target) = mergingProblemSets {
+                   let mergedSet = ProblemSet.merge(
+                       problemSets: [source, target],
+                       name: mergeSetName
+                   )
+                   
+                   Task {
+                       print("💾 Saving merged set: \(mergedSet.name)")
+                       await homeViewModel.saveProblemSet(mergedSet)
+                       await homeViewModel.deleteProblemSet(source)
+                       await homeViewModel.deleteProblemSet(target)
+                       
+                       mergingProblemSets = nil
+                       draggedProblemSet = nil
+                       HapticManager.shared.impact(style: .medium)
+                   }
+               }
+           }
+       } message: {
+           if let sets = mergingProblemSets {
+               Text("Merge '\(sets.source.name)' with '\(sets.target.name)'")
+           }
+       }
+   }
 }
 
-// ProblemSetsListView 외부에 DragPreviewView 정의
+
 private struct DragPreviewView: View {
-    let problemSet: ProblemSet
-    
-    var body: some View {
-        VStack(spacing: 4) {
-            Text(problemSet.name)
-                .font(.headline)
-            Text("\(problemSet.questions.count) questions")
-                .font(.caption)
-        }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(8)
-        .shadow(radius: 3)
-    }
+   let problemSet: ProblemSet
+   
+   var body: some View {
+       VStack(spacing: 4) {
+           Text(problemSet.name)
+               .font(.headline)
+           Text("\(problemSet.questions.count) questions")
+               .font(.caption)
+       }
+       .padding()
+       .background(Color(.systemBackground))
+       .cornerRadius(8)
+       .shadow(radius: 3)
+   }
 }
 
 
@@ -439,6 +513,7 @@ struct ProblemSetRow: View {
     @StateObject private var refreshTrigger = RefreshTrigger()
     @Binding var selectedTab: Int
     @State private var isTargeted = false
+    @Binding var isEditMode: Bool  // 추가
     
     // 이름 변경을 위한 상태 변수
     @State private var displayName: String
@@ -447,12 +522,14 @@ struct ProblemSetRow: View {
          isShowingStudyView: Binding<Bool>,
          isShowingDeleteAlert: Binding<Bool>,
          problemSetToDelete: Binding<ProblemSet?>,
-         selectedTab: Binding<Int>) {
+         selectedTab: Binding<Int>,
+         isEditMode: Binding<Bool>) {  // 추가
         self.problemSet = problemSet
         self._isShowingStudyView = isShowingStudyView
         self._isShowingDeleteAlert = isShowingDeleteAlert
         self._problemSetToDelete = problemSetToDelete
         self._selectedTab = selectedTab
+        self._isEditMode = isEditMode  // 추가
         self._displayName = State(initialValue: problemSet.name)
     }
     
@@ -475,6 +552,7 @@ struct ProblemSetRow: View {
             ReviewProblemSetCard(
                 subject: problemSet.resolvedSubject,
                 problemSet: problemSet.copy(withName: displayName),
+                isEditMode: isEditMode,  // 추가
                 onDelete: {
                     problemSetToDelete = problemSet
                     isShowingDeleteAlert = true
