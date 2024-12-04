@@ -1,4 +1,6 @@
 import Foundation
+import SwiftUI
+import UniformTypeIdentifiers
 
 public struct ProblemSet: Identifiable, Codable, Hashable {
     // Core properties
@@ -27,6 +29,7 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
             return SubjectManager.shared.customSubjects.first(where: { $0.id == subjectId }) ?? DefaultSubject.generalKnowledge
         }
     }
+    
 
     // CustomSubject를 위한 생성자
     public init(
@@ -104,6 +107,8 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(problemSetDescription, forKey: .problemSetDescription)
         try container.encode(isFavorite, forKey: .isFavorite)
     }
+    
+    
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
@@ -111,5 +116,56 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
 
     public static func == (lhs: ProblemSet, rhs: ProblemSet) -> Bool {
         lhs.id == rhs.id
+    }
+    
+    static func merge(problemSets: [ProblemSet], name: String) -> ProblemSet {
+        let mergedQuestions = problemSets.flatMap { $0.questions }
+        let firstSet = problemSets[0]
+        
+        return ProblemSet(
+            id: UUID().uuidString,
+            subject: firstSet.subject,
+            subjectType: firstSet.subjectType,
+            subjectId: firstSet.subjectId,
+            subjectName: firstSet.subjectName,
+            questions: mergedQuestions,
+            createdAt: Date(),
+            educationLevel: firstSet.educationLevel,
+            name: name
+        )
+    }
+}
+
+// ProblemSet extension 추가
+extension ProblemSet: Transferable {
+    public static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .problemSet)
+    }
+}
+
+// UTType extension 추가
+extension UTType {
+    static var problemSet: UTType {
+        UTType(exportedAs: "com.aisnapquiz.problemset")
+    }
+}
+
+extension ProblemSet {
+    static func merge(_ sets: [ProblemSet], name: String) -> ProblemSet {
+        let allQuestions = sets.flatMap { $0.questions }
+        // 첫 번째 세트의 속성들을 기본값으로 사용
+        let firstSet = sets[0]
+        
+        return ProblemSet(
+            id: UUID().uuidString,
+            subject: firstSet.subject,
+            subjectType: firstSet.subjectType,
+            subjectId: firstSet.subjectId,
+            subjectName: firstSet.subjectName,
+            questions: allQuestions,
+            createdAt: Date(),
+            educationLevel: firstSet.educationLevel,
+            name: name
+        )
     }
 }

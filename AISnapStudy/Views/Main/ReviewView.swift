@@ -296,9 +296,6 @@ extension SubjectType {
     }
 }
 
-// ProblemSetsListView는 그대로 유지
-
-
 struct ProblemSetsListView: View {
     let subject: SubjectType
     let problemSets: [ProblemSet]
@@ -306,27 +303,66 @@ struct ProblemSetsListView: View {
     @State private var isShowingStudyView = false
     @State private var isShowingDeleteAlert = false
     @State private var problemSetToDelete: ProblemSet?
-    @Binding var selectedTab: Int  // 새로 추가
+    @Binding var selectedTab: Int
     
-    init(subject: SubjectType,
-         problemSets: [ProblemSet],
-         selectedTab: Binding<Int>) {  // 초기화 구문에 selectedTab 추가
-        self.subject = subject
-        self.problemSets = problemSets
-        self._selectedTab = selectedTab
-    }
+    // Drag and drop state
+    @State private var draggedProblemSet: ProblemSet?
+    @State private var showingMergeAlert = false
+    @State private var mergingProblemSets: (source: ProblemSet, target: ProblemSet)?
+    @State private var mergeSetName = ""
+    @State private var isTargeted = false
     
     var body: some View {
-        List {
-            ForEach(problemSets) { problemSet in
-                ProblemSetRow(
-                    problemSet: problemSet,
-                    isShowingStudyView: $isShowingStudyView,
-                    isShowingDeleteAlert: $isShowingDeleteAlert,
-                    problemSetToDelete: $problemSetToDelete,
-                    selectedTab: $selectedTab  // selectedTab 전달
-                )
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(problemSets) { problemSet in
+                    ProblemSetRow(
+                        problemSet: problemSet,
+                        isShowingStudyView: $isShowingStudyView,
+                        isShowingDeleteAlert: $isShowingDeleteAlert,
+                        problemSetToDelete: $problemSetToDelete,
+                        selectedTab: $selectedTab
+                    )
+                    .draggable(problemSet) {
+                        DragPreviewView(problemSet: problemSet)
+                    }
+                    .dropDestination(for: ProblemSet.self) { droppedItems, location in
+                        print("📥 Drop detected on: \(problemSet.name)")
+                        
+                        guard let droppedSet = droppedItems.first else {
+                            print("❌ No dropped set found")
+                            return false
+                        }
+                        
+                        if droppedSet.id != problemSet.id {
+                            print("✨ Preparing to merge: \(droppedSet.name) into \(problemSet.name)")
+                            mergingProblemSets = (droppedSet, problemSet)
+                            mergeSetName = "Merged: \(droppedSet.name) + \(problemSet.name)"
+                            showingMergeAlert = true
+                            HapticManager.shared.impact(style: .medium)
+                            return true
+                        }
+                        
+                        print("⚠️ Cannot merge set with itself")
+                        return false
+                    } isTargeted: { isTargeted in
+                        print("🎯 Target status for \(problemSet.name): \(isTargeted)")
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if let draggedId = draggedProblemSet?.id,
+                               draggedId != problemSet.id {
+                                self.draggedProblemSet = isTargeted ? problemSet : nil
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(isTargeted ? Color.blue.opacity(0.1) : Color.clear)
+                    )
+                    .animation(.easeInOut(duration: 0.2), value: isTargeted)
+                }
             }
+            .padding(.vertical)
         }
         .listStyle(InsetGroupedListStyle())
         .navigationTitle("\(subject.displayName) Sets")
@@ -339,11 +375,59 @@ struct ProblemSetsListView: View {
                     }
                 }
             }
+        }
+        .alert("Merge Problem Sets", isPresented: $showingMergeAlert) {
+            TextField("New Set Name", text: $mergeSetName)
+            Button("Cancel", role: .cancel) {
+                mergingProblemSets = nil
+                draggedProblemSet = nil
+            }
+            Button("Merge") {
+                if let (source, target) = mergingProblemSets {
+                    let mergedSet = ProblemSet.merge(
+                        problemSets: [source, target],
+                        name: mergeSetName
+                    )
+                    
+                    Task {
+                        print("💾 Saving merged set: \(mergedSet.name)")
+                        await homeViewModel.saveProblemSet(mergedSet)
+                        await homeViewModel.deleteProblemSet(source)
+                        await homeViewModel.deleteProblemSet(target)
+                        
+                        mergingProblemSets = nil
+                        draggedProblemSet = nil
+                        HapticManager.shared.impact(style: .medium)
+                    }
+                }
+            }
         } message: {
-            Text("Are you sure you want to delete this problem set? This action cannot be undone.")
+            if let sets = mergingProblemSets {
+                Text("Merge '\(sets.source.name)' with '\(sets.target.name)'")
+            }
         }
     }
 }
+
+// ProblemSetsListView 외부에 DragPreviewView 정의
+private struct DragPreviewView: View {
+    let problemSet: ProblemSet
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(problemSet.name)
+                .font(.headline)
+            Text("\(problemSet.questions.count) questions")
+                .font(.caption)
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(8)
+        .shadow(radius: 3)
+    }
+}
+
+
 
 // 별도의 row 컴포넌트로 분리
 struct ProblemSetRow: View {
@@ -353,7 +437,8 @@ struct ProblemSetRow: View {
     @Binding var problemSetToDelete: ProblemSet?
     @EnvironmentObject var homeViewModel: HomeViewModel
     @StateObject private var refreshTrigger = RefreshTrigger()
-    @Binding var selectedTab: Int  // 새로 추가
+    @Binding var selectedTab: Int
+    @State private var isTargeted = false
     
     // 이름 변경을 위한 상태 변수
     @State private var displayName: String
@@ -362,32 +447,25 @@ struct ProblemSetRow: View {
          isShowingStudyView: Binding<Bool>,
          isShowingDeleteAlert: Binding<Bool>,
          problemSetToDelete: Binding<ProblemSet?>,
-         selectedTab: Binding<Int>) {  // 초기화 구문에 selectedTab 추가
+         selectedTab: Binding<Int>) {
         self.problemSet = problemSet
         self._isShowingStudyView = isShowingStudyView
         self._isShowingDeleteAlert = isShowingDeleteAlert
         self._problemSetToDelete = problemSetToDelete
-        self._selectedTab = selectedTab  // 새로 추가
+        self._selectedTab = selectedTab
         self._displayName = State(initialValue: problemSet.name)
     }
     
     var body: some View {
         Button(action: {
             Task {
-                // ProblemSet 설정
                 homeViewModel.setSelectedProblemSet(problemSet)
-                
-                // StudyViewModel에 직접 questions 설정
                 if let studyViewModel = homeViewModel.studyViewModel {
-                    // 상태 리셋
                     await studyViewModel.resetState()
-                    // 문제 로드
                     studyViewModel.loadQuestions(problemSet.questions)
-                    
-                    // 탭 전환 및 UI 업데이트
                     await MainActor.run {
                         withAnimation {
-                            selectedTab = 1  // Study 탭으로 전환
+                            selectedTab = 1
                             isShowingStudyView = true
                         }
                     }
@@ -404,7 +482,6 @@ struct ProblemSetRow: View {
                 onRename: { newName in
                     Task {
                         await homeViewModel.renameProblemSet(problemSet, newName: newName)
-                        // UI 즉시 업데이트
                         await MainActor.run {
                             displayName = newName
                         }
@@ -412,6 +489,41 @@ struct ProblemSetRow: View {
                 }
             )
         }
+        .draggable(problemSet) {
+            DragPreviewView(problemSet: problemSet)
+        }
+        .dropDestination(for: ProblemSet.self) { droppedItems, location in
+            guard let droppedSet = droppedItems.first,
+                  droppedSet.id != problemSet.id else {
+                print("⚠️ Invalid drop operation")
+                return false
+            }
+            
+            print("🎯 Drop detected: \(droppedSet.name) onto \(problemSet.name)")
+            
+            let mergedSet = ProblemSet.merge(
+                problemSets: [droppedSet, problemSet],
+                name: "Merged: \(droppedSet.name) + \(problemSet.name)"
+            )
+            
+            Task {
+                await homeViewModel.saveProblemSet(mergedSet)
+                HapticManager.shared.impact(style: .medium)
+            }
+            
+            return true
+        } isTargeted: { targeted in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isTargeted = targeted
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.blue, lineWidth: isTargeted ? 2 : 0)
+                .animation(.easeInOut(duration: 0.2), value: isTargeted)
+        )
+        .scaleEffect(isTargeted ? 1.02 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: isTargeted)
         .onChange(of: problemSet.name) { newName in
             displayName = newName
         }

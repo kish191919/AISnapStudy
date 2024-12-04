@@ -4,10 +4,28 @@ import SwiftUI
 struct ProblemSetCard: View {
     let problemSet: ProblemSet
     
+    // Add selection state
+    @Binding var isSelected: Bool
+    let selectionEnabled: Bool // 새로운 프로퍼티 추가
+    
+    // 기본값을 가진 생성자 추가
+    init(problemSet: ProblemSet, isSelected: Binding<Bool> = .constant(false), selectionEnabled: Bool = false) {
+        self.problemSet = problemSet
+        self._isSelected = isSelected
+        self.selectionEnabled = selectionEnabled
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // 상단 헤더
             HStack {
+                if selectionEnabled {  // isSelectable 대신 selectionEnabled 사용
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(.blue)
+                        .onTapGesture {
+                            isSelected.toggle()
+                        }
+                }
+                
                 VStack(alignment: .leading, spacing: 4) {
                     Text(problemSet.name.isEmpty ? "No Name" : problemSet.name)
                         .font(.headline)
