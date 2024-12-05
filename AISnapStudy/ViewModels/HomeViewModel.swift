@@ -146,17 +146,21 @@ class HomeViewModel: ObservableObject {
     @MainActor
     func saveProblemSet(_ problemSet: ProblemSet) async {
         do {
-            print("💾 Saving ProblemSet with \(problemSet.questions.count) questions")
+            // 기존 ProblemSet 제거
+            problemSets.removeAll { $0.id == problemSet.id }
+            
+            // 새 ProblemSet 저장
             try await coreDataService.saveProblemSet(problemSet)
-            
-            // 데이터 리로드 대신 문제 세트 직접 추가
             problemSets.insert(problemSet, at: 0)
-            setSelectedProblemSet(problemSet)
             
-            print("✅ Saved ProblemSet: \(problemSet.questions.count) questions")
+            if selectedProblemSet?.id == problemSet.id {
+                selectedProblemSet = problemSet
+            }
+            
+            print("✅ Updated ProblemSet with new subject: \(problemSet.subjectName)")
         } catch {
             self.error = error
-            print("❌ Failed to save ProblemSet: \(error)")
+            print("❌ Failed to update ProblemSet: \(error)")
         }
     }
     
@@ -235,38 +239,43 @@ class HomeViewModel: ObservableObject {
 extension HomeViewModel {
     @MainActor
     func renameProblemSet(_ problemSet: ProblemSet, newName: String) async {
-        do {
-            // Create a new ProblemSet with updated name
-            var updatedProblemSet = problemSet
-            updatedProblemSet.name = newName
-            
-            // Update in CoreData
-            try await Task {
-                try coreDataService.updateProblemSet(problemSet, newName: newName)
-            }.value
-        
-            
-            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
-                problemSets[index] = problemSets[index].copy(withName: newName)
-                
-                // Update selected problem set if needed
-                if selectedProblemSet?.id == problemSet.id {
-                    selectedProblemSet = problemSets[index]
-                }
-            }
-            
-            // Notify all observers
-            objectWillChange.send()
-            
-            print("""
-            ✅ Problem Set renamed and updated:
-            • ID: \(problemSet.id)
-            • New Name: \(newName)
-            • In Memory Update: Success
-            """)
-        } catch {
-            print("❌ Failed to rename problem set: \(error)")
-        }
+       do {
+           // CoreData 업데이트
+           try await coreDataService.updateProblemSet(problemSet, newName: newName)
+           
+           // 메모리의 ProblemSet 업데이트
+           if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+               let updatedSet = ProblemSet(
+                   id: problemSet.id,
+                   subject: problemSet.subject,
+                   subjectType: problemSet.subjectType,
+                   subjectId: problemSet.subjectId,
+                   subjectName: problemSet.subjectName,
+                   questions: problemSet.questions,
+                   createdAt: problemSet.createdAt,
+                   educationLevel: problemSet.educationLevel,
+                   name: newName
+               )
+               
+               problemSets[index] = updatedSet
+               
+               if selectedProblemSet?.id == problemSet.id {
+                   selectedProblemSet = updatedSet
+               }
+           }
+           
+           // UI 업데이트를 위해 변경 알림
+           objectWillChange.send()
+           
+           print("""
+           ✅ Problem Set renamed and updated:
+           • ID: \(problemSet.id)
+           • New Name: \(newName)
+           • In Memory Update: Success
+           """)
+       } catch {
+           print("❌ Failed to rename problem set: \(error)")
+       }
     }
     
     @MainActor

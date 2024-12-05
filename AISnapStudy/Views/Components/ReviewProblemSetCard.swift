@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct ReviewProblemSetCard: View {
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @StateObject private var subjectManager = SubjectManager.shared
+    
     let subject: SubjectType
     let problemSet: ProblemSet
     let isEditMode: Bool
@@ -8,6 +11,7 @@ struct ReviewProblemSetCard: View {
     let onRename: (String) -> Void
     
     @State private var isShowingRenameAlert = false
+    @State private var isShowingSubjectPicker = false
     @State private var newName = ""
     
     var body: some View {
@@ -29,11 +33,22 @@ struct ReviewProblemSetCard: View {
                 Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                Text("Subject: \(subject.displayName)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             
-            // 편집 모드일 때만 보이는 버튼들
             if isEditMode {
                 HStack(spacing: 12) {
+                    Button(action: {
+                        isShowingSubjectPicker = true
+                    }) {
+                        Image(systemName: "arrow.triangle.swap")
+                            .foregroundColor(.blue)
+                            .imageScale(.large)
+                    }
+                    
                     Button(action: {
                         newName = problemSet.name
                         isShowingRenameAlert = true
@@ -58,6 +73,12 @@ struct ReviewProblemSetCard: View {
                 .fill(Color(UIColor.systemBackground))
                 .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
         )
+        .sheet(isPresented: $isShowingSubjectPicker) {
+            SubjectPickerView(
+                problemSet: problemSet,
+                currentSubject: subject
+            )
+        }
         .alert("Rename Problem Set", isPresented: $isShowingRenameAlert) {
             TextField("New name", text: $newName)
             Button("Cancel", role: .cancel) { }
