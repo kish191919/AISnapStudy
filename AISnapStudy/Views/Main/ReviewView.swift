@@ -53,33 +53,40 @@ struct ReviewView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                LazyVGrid(columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ], spacing: 16) {
-                    ForEach(visibleSubjects, id: \.id) { subject in
-                        NavigationLink(
-                            destination: ProblemSetsListView(
-                                subject: subject,
-                                problemSets: filterProblemSets(subject: subject),
-                                selectedTab: $selectedTab
-                            )
-                        ) {
-                            SubjectCardView(
-                                subject: subject,
-                                problemSetCount: filterProblemSets(subject: subject).count
-                            )
+                VStack(spacing: 5) {
+                    // 상단 여백 추가
+                    Spacer()
+                        .frame(height: 5)
+                    
+                    LazyVGrid(columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible())
+                    ], spacing: 5) {
+                        ForEach(visibleSubjects, id: \.id) { subject in
+                            NavigationLink(
+                                destination: ProblemSetsListView(
+                                    subject: subject,
+                                    problemSets: filterProblemSets(subject: subject),
+                                    selectedTab: $selectedTab
+                                )
+                            ) {
+                                SubjectCardView(
+                                    subject: subject,
+                                    problemSetCount: filterProblemSets(subject: subject).count
+                                )
+                            }
                         }
                     }
+                    .padding(.horizontal)
                 }
-                .padding(.horizontal)
+                .padding(.vertical)
             }
-            .navigationBarTitleDisplayMode(.inline) // 이걸 추가하여 네비게이션 바 높이를 줄임
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Review")
-                        .font(.title.bold())
-                        .padding(.bottom, 10)
+                        .font(.title)
+                        .padding(.bottom, 5)
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -104,8 +111,7 @@ struct ReviewView: View {
                 }
             }
         }
-    }
-    // 필터링 함수 수정
+    }    // 필터링 함수 수정
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
         return homeViewModel.problemSets.filter { problemSet in
             if let defaultSubject = subject as? DefaultSubject {
@@ -380,7 +386,7 @@ struct ProblemSetsListView: View {
                            if droppedSet.id != problemSet.id {
                                print("✨ Preparing to merge: \(droppedSet.name) into \(problemSet.name)")
                                mergingProblemSets = (droppedSet, problemSet)
-                               mergeSetName = "Merged: \(droppedSet.name) + \(problemSet.name)"
+                               mergeSetName = "\(droppedSet.name) + \(problemSet.name)"
                                showingMergeAlert = true
                                HapticManager.shared.impact(style: .medium)
                                return true
@@ -405,7 +411,7 @@ struct ProblemSetsListView: View {
            }
            .padding(.vertical)
        }
-       .navigationTitle("\(subject.displayName) Sets")
+       .navigationTitle("\(subject.displayName)")
        .toolbar {
            ToolbarItem(placement: .navigationBarTrailing) {
                HStack(spacing: 16) {
