@@ -5,6 +5,7 @@ struct StudyView: View {
    @Environment(\.managedObjectContext) private var context
    @Binding var selectedTab: Int
    @ObservedObject var studyViewModel: StudyViewModel
+    @EnvironmentObject var homeViewModel: HomeViewModel  // 추가
    let questions: [Question]
    
    @State private var showExplanation: Bool = false
@@ -12,6 +13,8 @@ struct StudyView: View {
    @State private var isSaved: Bool = false
    @State private var previewSelectedAnswer: String? = nil  // 추가
    @State private var previewIsCorrect: Bool? = nil        // 추가
+    @State private var showDeleteAlert = false  // 추가
+    @State private var questionToDelete: Question? = nil  // 추가
    
    init(questions: [Question],
         studyViewModel: StudyViewModel,
@@ -114,7 +117,11 @@ struct StudyView: View {
                                     UtilityButtons(
                                         showExplanation: $showExplanation,
                                         isSaved: $isSaved,
-                                        studyViewModel: studyViewModel
+                                        studyViewModel: studyViewModel,
+                                        onDelete: {
+                                            questionToDelete = studyViewModel.currentQuestion
+                                            showDeleteAlert = true
+                                        }
                                     )
                                 }
                                 
@@ -132,6 +139,22 @@ struct StudyView: View {
                 }
             }
         }
+        .alert("Delete Question", isPresented: $showDeleteAlert) {  // 추가
+                    Button("Cancel", role: .cancel) { }
+                    Button("Delete", role: .destructive) {
+                        if let question = questionToDelete,
+                           let problemSet = homeViewModel.selectedProblemSet {
+                            Task {
+                                await homeViewModel.removeQuestionFromProblemSet(
+                                    question.id,
+                                    from: problemSet
+                                )
+                            }
+                        }
+                    }
+                } message: {
+                    Text("Are you sure you want to delete this question?")
+                }
         .onAppear {
             if let currentQuestion = studyViewModel.currentQuestion {
                 isSaved = currentQuestion.isSaved
@@ -249,6 +272,7 @@ private struct UtilityButtons: View {
    @Binding var showExplanation: Bool
    @Binding var isSaved: Bool
    @ObservedObject var studyViewModel: StudyViewModel
+   let onDelete: () -> Void
    
    var body: some View {
        Group {
@@ -279,6 +303,14 @@ private struct UtilityButtons: View {
                    .font(.system(size: 24))
                    .padding(8)
                    .background(Circle().fill(Color.blue.opacity(0.2)))
+           }
+           
+           Button(action: onDelete) {
+               Image(systemName: "trash")
+                   .foregroundColor(.red)
+                   .font(.system(size: 24))
+                   .padding(8)
+                   .background(Circle().fill(Color.red.opacity(0.2)))
            }
        }
    }

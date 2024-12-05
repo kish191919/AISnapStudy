@@ -108,6 +108,22 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         try container.encode(isFavorite, forKey: .isFavorite)
     }
     
+    // 질문 삭제 메소드 추가
+    public func removeQuestion(_ questionId: String) -> ProblemSet {
+        let updatedQuestions = questions.filter { $0.id != questionId }
+        return ProblemSet(
+            id: self.id,
+            subject: self.subject,
+            subjectType: self.subjectType,
+            subjectId: self.subjectId,
+            subjectName: self.subjectName,
+            questions: updatedQuestions,
+            createdAt: self.createdAt,
+            educationLevel: self.educationLevel,
+            name: self.name
+        )
+    }
+    
     
 
     public func hash(into hasher: inout Hasher) {

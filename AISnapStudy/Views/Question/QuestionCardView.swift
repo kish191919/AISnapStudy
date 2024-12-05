@@ -6,9 +6,23 @@ struct QuestionCardView: View {
     @Binding var selectedAnswer: String?
     @Binding var isCorrect: Bool? // Bind to indicate if answer is correct
     var onAnswerSelected: (Bool) -> Void // Closure to handle answer selection
+    let onDelete: () -> Void // 추가
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(question.question)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                }
+            }
+            
             Text(question.question)
                 .font(.title3)
                 .fontWeight(.semibold)

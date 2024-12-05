@@ -69,6 +69,24 @@ class HomeViewModel: ObservableObject {
         """)
     }
     
+    @MainActor
+    func removeQuestionFromProblemSet(_ questionId: String, from problemSet: ProblemSet) async {
+        let updatedProblemSet = problemSet.removeQuestion(questionId)
+        
+        do {
+            try await coreDataService.updateProblemSet(problemSet, newName: problemSet.name) // newName 매개변수 추가
+            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+                problemSets[index] = updatedProblemSet
+            }
+            
+            if selectedProblemSet?.id == problemSet.id {
+                selectedProblemSet = updatedProblemSet
+            }
+        } catch {
+            print("❌ Failed to remove question: \(error)")
+        }
+    }
+    
     // MARK: - Data Loading
     @MainActor
     private func loadInitialData() async {
