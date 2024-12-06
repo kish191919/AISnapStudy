@@ -102,6 +102,13 @@ struct MainTabView: View {
                 Label("Stats", systemImage: "chart.bar.fill")
             }
             .tag(3)
+            
+            // 새로 추가된 DailyStatsView 탭
+            DailyStatsView(viewModel: statViewModel)
+                .tabItem {
+                    Label("Daily", systemImage: "calendar")
+                }
+                .tag(4)
         }
         .onAppear {
             statViewModel.setHomeViewModel(homeViewModel)

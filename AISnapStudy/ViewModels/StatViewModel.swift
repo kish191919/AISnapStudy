@@ -96,15 +96,78 @@ class StatViewModel: ObservableObject {
         isLoading = true
         let request: NSFetchRequest<CDStudySession> = CDStudySession.fetchRequest()
         
+        // 오늘 날짜에 해당하는 세션만 필터링
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        
+        request.predicate = NSPredicate(
+            format: "startTime >= %@ AND startTime < %@",
+            today as NSDate,
+            tomorrow as NSDate
+        )
+
         do {
             let sessions = try context.fetch(request)
             calculateStats(from: sessions)
+            
+            // Weekly Progress 계산 추가
+            calculateWeeklyProgress(from: sessions)
         } catch {
             print("Failed to fetch study sessions:", error)
         }
         
         isLoading = false
     }
+    
+    private func calculateWeeklyProgress(from sessions: [CDStudySession]) {
+        let calendar = Calendar.current
+        let today = Date()
+        // 일주일 전 날짜 계산
+        let weekAgo = calendar.date(byAdding: .day, value: -6, to: today)!
+        
+        // 빈 진행 상황으로 초기화
+        var progress: [DailyProgress] = []
+        
+        // 지난 7일 동안의 날짜 생성
+        for dayOffset in 0...6 {
+            let date = calendar.date(byAdding: .day, value: dayOffset, to: weekAgo)!
+            let dayStart = calendar.startOfDay(for: date)
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+            
+            // 해당 날짜의 세션 필터링
+            let daysSessions = sessions.filter { session in
+                guard let sessionTime = session.startTime else { return false }
+                return sessionTime >= dayStart && sessionTime < dayEnd
+            }
+            
+            // 해당 날짜의 통계 계산
+            let questionsCompleted = daysSessions.reduce(0) { sum, session in
+                sum + (session.questions?.count ?? 0)
+            }
+            
+            let correctAnswers = daysSessions.reduce(0) { sum, session in
+                sum + (session.questions?.filter { ($0 as? CDQuestion)?.isCorrect == true }.count ?? 0)
+            }
+            
+            let totalTime = daysSessions.reduce(0.0) { sum, session in
+                guard let start = session.startTime,
+                      let end = session.endTime else { return sum }
+                return sum + end.timeIntervalSince(start)
+            }
+            
+            // 진행 상황 추가
+            progress.append(DailyProgress(
+                date: date,
+                questionsCompleted: questionsCompleted,
+                correctAnswers: correctAnswers,
+                totalTime: totalTime
+            ))
+        }
+        
+        weeklyProgress = progress
+    }
+    
 
     private func calculateStats(from sessions: [CDStudySession]) {
         totalQuestions = sessions.reduce(0) { total, session in

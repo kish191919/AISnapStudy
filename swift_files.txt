@@ -703,11 +703,11 @@ class QuestionSettingsViewModel: ObservableObject {
         // 3. ProblemSet 생성
         let problemSet = ProblemSet(
             id: UUID().uuidString,
-            subject: defaultSubject,
-            subjectType: subjectType,
-            subjectId: subjectId,
-            subjectName: subjectName,
-            questions: updatedQuestions,
+            subject: selectedSubject,  // 선택된 subject 그대로 사용
+            subjectType: selectedSubject is DefaultSubject ? "default" : "custom",
+            subjectId: selectedSubject.id,
+            subjectName: selectedSubject.displayName,
+            questions: questions,  // 질문들을 수정하지 않고 그대로 사용
             createdAt: Date(),
             educationLevel: self.educationLevel,
             name: name
@@ -1459,6 +1459,79 @@ class ReviewViewModel: ObservableObject {
 }
 
 
+// ./AISnapStudy/ViewModels/DetailedStatsViewModel.swift
+
+
+import Foundation
+import SwiftUI
+import Combine
+
+@MainActor
+class DetailedStatsViewModel: ObservableObject {
+    @Published private(set) var dailyStats: [DailyStats] = []
+    @Published private(set) var streakInfo: StreakInfo
+    @Published private(set) var monthlyData: [Date: [DailyStats]] = [:]
+    
+    private let calendar = Calendar.current
+    
+    init() {
+        self.streakInfo = StreakInfo(currentStreak: 0, longestStreak: 0, lastActiveDate: Date())
+        loadStats()
+    }
+    
+    func loadStats() {
+        // Load saved stats from UserDefaults or CoreData
+    }
+    
+    func updateDailyStats(correctAnswers: Int, totalQuestions: Int) {
+        let today = Date()
+        let newStats = DailyStats(
+            id: UUID(), // UUID().uuidString 대신 UUID() 사용
+            date: today,
+            totalQuestions: totalQuestions,
+            correctAnswers: correctAnswers,
+            wrongAnswers: totalQuestions - correctAnswers,
+            timeSpent: 0  // 기본값 사용
+        )
+        
+        dailyStats.append(newStats)
+        updateStreak(date: today)
+        updateMonthlyData()
+    }
+    
+    private func updateStreak(date: Date) {
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: date)!
+        
+        if calendar.isDate(date, inSameDayAs: streakInfo.lastActiveDate) {
+            // Same day, no streak update needed
+            return
+        } else if calendar.isDate(yesterday, inSameDayAs: streakInfo.lastActiveDate) {
+            // Consecutive day
+            let newStreak = streakInfo.currentStreak + 1
+            streakInfo = StreakInfo(
+                currentStreak: newStreak,
+                longestStreak: max(newStreak, streakInfo.longestStreak),
+                lastActiveDate: date
+            )
+        } else {
+            // Streak broken
+            streakInfo = StreakInfo(
+                currentStreak: 1,
+                longestStreak: streakInfo.longestStreak,
+                lastActiveDate: date
+            )
+        }
+    }
+    
+    private func updateMonthlyData() {
+        monthlyData = Dictionary(grouping: dailyStats) { stats in
+            calendar.startOfMonth(for: stats.date)
+        }
+    }
+}
+
+
+
 // ./AISnapStudy/ViewModels/StudyViewModel.swift
 
 import Foundation
@@ -1872,6 +1945,66 @@ class HapticManager {
     func selection() {
         let generator = UISelectionFeedbackGenerator()
         generator.selectionChanged()
+    }
+}
+
+
+// ./AISnapStudy/Utils/Extensions/Calendar+Extension.swift
+
+import Foundation
+
+extension Calendar {
+    func generateDates(
+        for dateInterval: DateInterval,
+        matching components: DateComponents
+    ) -> [Date] {
+        var dates: [Date] = []
+        dates.reserveCapacity(40)
+        
+        var date = dateInterval.start
+        
+        while date <= dateInterval.end {
+            dates.append(date)
+            guard let nextDate = self.date(
+                byAdding: .day,
+                value: 1,
+                to: date
+            ) else { break }
+            date = nextDate
+        }
+        
+        return dates
+    }
+    
+    func monthDateRange(for date: Date) -> (start: Date, end: Date) {
+        let components = dateComponents([.year, .month], from: date)
+        let startOfMonth = self.date(from: components)!
+        
+        var nextMonthComponents = DateComponents()
+        nextMonthComponents.month = 1
+        let endOfMonth = self.date(
+            byAdding: nextMonthComponents,
+            to: startOfMonth
+        )!
+        
+        return (startOfMonth, endOfMonth)
+    }
+    
+    func startOfMonth(for date: Date) -> Date {
+        let components = dateComponents([.year, .month], from: date)
+        return self.date(from: components) ?? date
+    }
+    
+    func endOfMonth(for date: Date) -> Date {
+        guard let startOfNextMonth = self.date(
+            byAdding: DateComponents(month: 1),
+            to: startOfMonth(for: date)
+        ) else { return date }
+        
+        return self.date(
+            byAdding: DateComponents(second: -1),
+            to: startOfNextMonth
+        ) ?? date
     }
 }
 
@@ -2512,6 +2645,17 @@ extension Question {
 }
 
 
+// ./AISnapStudy/Models/UserStats.swift
+
+import Foundation
+
+struct StreakInfo: Codable {
+    let currentStreak: Int
+    let longestStreak: Int
+    let lastActiveDate: Date
+}
+
+
 // ./AISnapStudy/Models/Subject.swift
 
 
@@ -2984,6 +3128,44 @@ extension Color {
         let b = Double(rgb & 0x0000FF) / 255.0
         
         self.init(red: r, green: g, blue: b)
+    }
+}
+
+
+// ./AISnapStudy/Models/DailyStats.swift
+
+
+
+import Foundation
+
+struct DailyStats: Identifiable, Codable {
+    let id: UUID
+    let date: Date
+    let totalQuestions: Int
+    let correctAnswers: Int
+    let wrongAnswers: Int
+    let timeSpent: TimeInterval
+    
+    var accuracy: Double {
+        guard totalQuestions > 0 else { return 0 }
+        return Double(correctAnswers) / Double(totalQuestions) * 100
+    }
+    
+    // 초기화자를 수정
+    init(
+        id: UUID = UUID(),
+        date: Date,
+        totalQuestions: Int,
+        correctAnswers: Int,
+        wrongAnswers: Int,
+        timeSpent: TimeInterval = 0
+    ) {
+        self.id = id
+        self.date = date
+        self.totalQuestions = totalQuestions
+        self.correctAnswers = correctAnswers
+        self.wrongAnswers = wrongAnswers
+        self.timeSpent = timeSpent
     }
 }
 
@@ -5510,22 +5692,6 @@ struct SubjectPickerView: View {
             })
         }
     }
-    
-//    private func updateProblemSetSubject(to newSubject: SubjectType) async {
-//        let updatedProblemSet = ProblemSet(
-//            id: problemSet.id,
-//            subject: newSubject,
-//            subjectType: newSubject is DefaultSubject ? "default" : "custom",
-//            subjectId: newSubject.id,
-//            subjectName: newSubject.displayName,
-//            questions: problemSet.questions,
-//            createdAt: problemSet.createdAt,
-//            educationLevel: problemSet.educationLevel,
-//            name: problemSet.name
-//        )
-//        
-//        await homeViewModel.saveProblemSet(updatedProblemSet)
-//    }
 
 }
 
@@ -6575,6 +6741,13 @@ struct MainTabView: View {
                 Label("Stats", systemImage: "chart.bar.fill")
             }
             .tag(3)
+            
+            // 새로 추가된 DailyStatsView 탭
+            DailyStatsView(viewModel: statViewModel)
+                .tabItem {
+                    Label("Daily", systemImage: "calendar")
+                }
+                .tag(4)
         }
         .onAppear {
             statViewModel.setHomeViewModel(homeViewModel)
@@ -8051,6 +8224,486 @@ struct GeneratedQuestionPreviewCard: View {
         .background(Color.white)
         .cornerRadius(10)
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
+    }
+}
+
+
+// ./AISnapStudy/Views/Stats/CalendarStatsView.swift
+
+import SwiftUI
+
+struct CalendarStatsView: View {
+    @Binding var selectedMonth: Date
+    let monthlyData: [Date: [DailyStats]]
+    private let calendar = Calendar.current
+    private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    var body: some View {
+        VStack {
+            HStack {
+                Button(action: previousMonth) {
+                    Image(systemName: "chevron.left")
+                }
+                
+                Text(monthString)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                
+                Button(action: nextMonth) {
+                    Image(systemName: "chevron.right")
+                }
+            }
+            .padding(.bottom)
+            
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
+                ForEach(daysInWeek, id: \.self) { day in
+                    Text(day)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                ForEach(days, id: \.self) { date in
+                    if let stats = statsFor(date: date) {
+                        DayCellView(stats: stats)
+                    } else {
+                        Color.clear
+                            .aspectRatio(1, contentMode: .fit)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var monthString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: selectedMonth)
+    }
+    
+    private var days: [Date] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: selectedMonth),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let monthLastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end) else {
+            return []
+        }
+        
+        let dateInterval = DateInterval(start: monthFirstWeek.start, end: monthLastWeek.end)
+        return calendar.generateDates(for: dateInterval, matching: DateComponents(hour: 0))
+    }
+    
+    private func statsFor(date: Date) -> DailyStats? {
+        let monthRange = calendar.monthDateRange(for: selectedMonth)
+        guard let stats = monthlyData[monthRange.start] else { return nil }
+        return stats.first { calendar.isDate($0.date, inSameDayAs: date) }
+    }
+    
+    
+    private func previousMonth() {
+        selectedMonth = calendar.date(byAdding: .month, value: -1, to: selectedMonth) ?? selectedMonth
+    }
+    
+    private func nextMonth() {
+        selectedMonth = calendar.date(byAdding: .month, value: 1, to: selectedMonth) ?? selectedMonth
+    }
+}
+
+struct DayCellView: View {
+    let stats: DailyStats
+    
+    private var accuracyColor: Color {
+        let accuracy = stats.accuracy
+        switch accuracy {
+        case 90...100: return .green
+        case 70..<90: return .blue
+        case 50..<70: return .orange
+        default: return .red
+        }
+    }
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(accuracyColor.opacity(0.2))
+            
+            VStack(spacing: 2) {
+                Text("\(Calendar.current.component(.day, from: stats.date))")
+                    .font(.caption2)
+                Text("\(Int(stats.accuracy))%")
+                    .font(.system(size: 8))
+                    .foregroundColor(accuracyColor)
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+
+// ./AISnapStudy/Views/Stats/DailyStatsView.swift
+
+import SwiftUI
+import Charts
+
+struct DailyStatsView: View {
+    @ObservedObject var viewModel: StatViewModel
+    @State private var selectedTimeRange: TimeRange = .week
+    @State private var showingDatePicker = false
+    @State private var selectedDate = Date()
+    
+    enum TimeRange: String, CaseIterable {
+        case week = "Week"
+        case month = "Month"
+        case year = "Year"
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Time Range Picker
+                Picker("Time Range", selection: $selectedTimeRange) {
+                    ForEach(TimeRange.allCases, id: \.self) { range in
+                        Text(range.rawValue).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                
+                // Daily Progress
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Daily Progress")
+                        .font(.headline)
+                    
+                    Chart {
+                        ForEach(viewModel.weeklyProgress) { progress in
+                            // Total Questions Bar
+                            BarMark(
+                                x: .value("Date", progress.date, unit: .day),
+                                y: .value("Questions", progress.questionsCompleted)
+                            )
+                            .position(by: .value("Type", "Total"))
+                            .foregroundStyle(.blue.opacity(0.3))
+
+                            // Correct Answers Bar
+                            BarMark(
+                                x: .value("Date", progress.date, unit: .day),
+                                y: .value("Questions", progress.correctAnswers)
+                            )
+                            .position(by: .value("Type", "Correct"))
+                            .foregroundStyle(.green)
+                        }
+                    }
+                    .frame(height: 200)
+                    .chartLegend(position: .top)
+                    .chartForegroundStyleScale([
+                        "Total": .blue.opacity(0.3),
+                        "Correct": .green
+                    ])
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+                
+                // Daily Stats Summary
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ], spacing: 16) {
+                    DailyStatCard(
+                        title: "Today's Questions",
+                        value: "\(viewModel.completedQuestions)",
+                        trend: "+5",
+                        trendUp: true
+                    )
+                    
+                    DailyStatCard(
+                        title: "Accuracy",
+                        value: String(format: "%.1f%%", viewModel.accuracyRate),
+                        trend: "+2.3%",
+                        trendUp: true
+                    )
+                    
+                    DailyStatCard(
+                        title: "Study Time",
+                        value: "45min",
+                        trend: "+10min",
+                        trendUp: true
+                    )
+                    
+                    DailyStatCard(
+                        title: "Current Streak",
+                        value: "\(viewModel.streak) days",
+                        trend: "",
+                        trendUp: true
+                    )
+                }
+                .padding()
+                
+                // Activity Summary
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Activity Summary")
+                        .font(.headline)
+                    
+                    VStack(spacing: 16) {
+                        ActivityRow(
+                            title: "Most Active Day",
+                            value: "Wednesday",
+                            icon: "calendar",
+                            color: .blue
+                        )
+                        
+                        ActivityRow(
+                            title: "Best Subject",
+                            value: "Mathematics",
+                            icon: "function",
+                            color: .green
+                        )
+                        
+                        ActivityRow(
+                            title: "Study Streak",
+                            value: "\(viewModel.streak) days",
+                            icon: "flame.fill",
+                            color: .orange
+                        )
+                    }
+                }
+                .padding()
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                .shadow(radius: 2)
+            }
+            .padding()
+        }
+        .navigationTitle("Daily Statistics")
+    }
+}
+
+struct DailyStatCard: View {
+    let title: String
+    let value: String
+    let trend: String
+    let trendUp: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            Text(value)
+                .font(.title2)
+                .bold()
+            
+            if !trend.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: trendUp ? "arrow.up.right" : "arrow.down.right")
+                    Text(trend)
+                }
+                .font(.caption)
+                .foregroundColor(trendUp ? .green : .red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+}
+
+struct ActivityRow: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .frame(width: 30)
+            
+            Text(title)
+                .foregroundColor(.secondary)
+            
+            Spacer()
+            
+            Text(value)
+                .bold()
+        }
+    }
+}
+
+
+// ./AISnapStudy/Views/Stats/StreakBadgeView.swift
+
+import SwiftUI
+
+struct StreakBadgeView: View {
+    let streakInfo: StreakInfo
+    
+    private var streakMessage: String {
+        switch streakInfo.currentStreak {
+        case 2: return "2 Days! Keep going! 🎯"
+        case 3: return "3 Days! You're on fire! 🔥"
+        case 4: return "4 Days! Fantastic! ⭐️"
+        case 5: return "5 Days! Incredible! 🌟"
+        case 6: return "6 Days! Amazing! 🏆"
+        case 7...: return "7+ Days! Legendary! 👑"
+        default: return "Start your streak today! 💫"
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("\(streakInfo.currentStreak)")
+                .font(.system(size: 48, weight: .bold))
+                .foregroundColor(.orange)
+            
+            Text("Day Streak")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            
+            Text(streakMessage)
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.primary)
+            
+            if streakInfo.longestStreak > streakInfo.currentStreak {
+                Text("Longest streak: \(streakInfo.longestStreak) days")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 15)
+                .fill(Color(.systemBackground))
+                .shadow(radius: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 15)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 2)
+        )
+    }
+}
+
+
+// ./AISnapStudy/Views/Stats/DetailedStatsView.swift
+
+import SwiftUI
+import Charts
+
+struct DetailedStatsView: View {
+    @StateObject private var viewModel = DetailedStatsViewModel()
+    @State private var selectedMonth = Date()
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Streak Badge Section
+                StreakBadgeView(streakInfo: viewModel.streakInfo)
+                    .padding()
+                
+                // Calendar View
+                CalendarStatsView(
+                    selectedMonth: $selectedMonth,
+                    monthlyData: viewModel.monthlyData
+                )
+                .padding()
+                
+                // Stats Summary
+                StatsSummaryView(dailyStats: viewModel.dailyStats)
+                    .padding()
+                
+                // Progress Chart
+                ProgressChartView(dailyStats: viewModel.dailyStats)
+                    .frame(height: 250)
+                    .padding()
+            }
+        }
+        .navigationTitle("Detailed Stats")
+    }
+}
+
+struct StatsSummaryView: View {
+    let dailyStats: [DailyStats]
+    
+    private var totalQuestions: Int {
+        dailyStats.reduce(0) { $0 + $1.totalQuestions }
+    }
+    
+    private var totalCorrect: Int {
+        dailyStats.reduce(0) { $0 + $1.correctAnswers }
+    }
+    
+    private var averageAccuracy: Double {
+        guard totalQuestions > 0 else { return 0 }
+        return Double(totalCorrect) / Double(totalQuestions) * 100
+    }
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Summary")
+                .font(.headline)
+            
+            HStack(spacing: 20) {
+                StatCard(
+                    title: "Total",
+                    value: "\(totalQuestions)",
+                    icon: "list.bullet",
+                    color: .blue
+                )
+                
+                StatCard(
+                    title: "Correct",
+                    value: "\(totalCorrect)",
+                    icon: "checkmark",
+                    color: .green
+                )
+                
+                StatCard(
+                    title: "Accuracy",
+                    value: String(format: "%.1f%%", averageAccuracy),
+                    icon: "percent",
+                    color: .orange
+                )
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+}
+
+struct ProgressChartView: View {
+    let dailyStats: [DailyStats]
+    
+    var body: some View {
+        Chart {
+            ForEach(dailyStats) { stats in
+                BarMark(
+                    x: .value("Date", stats.date),
+                    y: .value("Questions", stats.totalQuestions)
+                )
+                .foregroundStyle(by: .value("Type", "Total"))
+                
+                BarMark(
+                    x: .value("Date", stats.date),
+                    y: .value("Questions", stats.correctAnswers)
+                )
+                .foregroundStyle(by: .value("Type", "Correct"))
+            }
+        }
+        .chartForegroundStyleScale([
+            "Total": Color.blue.opacity(0.3),
+            "Correct": Color.green
+        ])
+        .chartLegend(position: .top)
     }
 }
 
