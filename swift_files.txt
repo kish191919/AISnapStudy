@@ -1062,6 +1062,51 @@ class HomeViewModel: ObservableObject {
         """)
     }
     
+    func updateProblemSetSubject(_ problemSet: ProblemSet, to newSubject: SubjectType) async {
+        do {
+            // 1. 새로운 ProblemSet 인스턴스 생성
+            let updatedSet = ProblemSet(
+                id: UUID().uuidString,  // 새로운 ID 생성
+                subject: newSubject,
+                subjectType: newSubject is DefaultSubject ? "default" : "custom",
+                subjectId: newSubject.id,
+                subjectName: newSubject.displayName,
+                questions: problemSet.questions,
+                createdAt: problemSet.createdAt,
+                educationLevel: problemSet.educationLevel,
+                name: problemSet.name
+            )
+            
+            // 2. 기존 ProblemSet 삭제
+            try await coreDataService.deleteProblemSet(problemSet)
+            
+            // 3. 메모리에서 기존 ProblemSet 제거
+            problemSets.removeAll { $0.id == problemSet.id }
+            
+            // 4. 새로운 ProblemSet 저장
+            try await coreDataService.saveProblemSet(updatedSet)
+            problemSets.append(updatedSet)
+            
+            // 5. selectedProblemSet 업데이트
+            if selectedProblemSet?.id == problemSet.id {
+                selectedProblemSet = updatedSet
+            }
+            
+            // 6. UI 업데이트
+            objectWillChange.send()
+            
+            print("""
+            ✅ Problem Set subject updated:
+            • Old Subject: \(problemSet.subjectName)
+            • New Subject: \(newSubject.displayName)
+            • Old ID: \(problemSet.id)
+            • New ID: \(updatedSet.id)
+            """)
+        } catch {
+            print("❌ Failed to update problem set subject: \(error)")
+        }
+    }
+    
     @MainActor
     func removeQuestionFromProblemSet(_ questionId: String, from problemSet: ProblemSet) async {
         let updatedProblemSet = problemSet.removeQuestion(questionId)
@@ -1136,20 +1181,32 @@ class HomeViewModel: ObservableObject {
     }
     
     // MARK: - Problem Set Management
+    // 파일: ./AISnapStudy/ViewModels/HomeViewModel.swift
+
     @MainActor
     func saveProblemSet(_ problemSet: ProblemSet) async {
         do {
-            print("💾 Saving ProblemSet with \(problemSet.questions.count) questions")
+            // 1. 기존 ProblemSet 찾기
+            if let existingSet = problemSets.first(where: {
+                $0.questions == problemSet.questions && $0.id != problemSet.id
+            }) {
+                // 2. 기존 ProblemSet 삭제
+                try await coreDataService.deleteProblemSet(existingSet)
+                problemSets.removeAll { $0.id == existingSet.id }
+            }
+
+            // 3. 새로운 ProblemSet 저장
             try await coreDataService.saveProblemSet(problemSet)
-            
-            // 데이터 리로드 대신 문제 세트 직접 추가
             problemSets.insert(problemSet, at: 0)
-            setSelectedProblemSet(problemSet)
             
-            print("✅ Saved ProblemSet: \(problemSet.questions.count) questions")
+            if selectedProblemSet?.id == problemSet.id {
+                selectedProblemSet = problemSet
+            }
+            
+            print("✅ Successfully updated ProblemSet with new subject: \(problemSet.subjectName)")
         } catch {
             self.error = error
-            print("❌ Failed to save ProblemSet: \(error)")
+            print("❌ Failed to update ProblemSet: \(error)")
         }
     }
     
@@ -1228,34 +1285,48 @@ class HomeViewModel: ObservableObject {
 extension HomeViewModel {
     @MainActor
     func renameProblemSet(_ problemSet: ProblemSet, newName: String) async {
+        // 빈 이름이나 공백만 있는 경우 처리 방지
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            print("❌ Cannot rename problem set: Name is empty")
+            return
+        }
+
         do {
-            // Create a new ProblemSet with updated name
-            var updatedProblemSet = problemSet
-            updatedProblemSet.name = newName
+            // 1. CoreData 업데이트
+            try await coreDataService.updateProblemSet(problemSet, newName: trimmedName)
             
-            // Update in CoreData
-            try await Task {
-                try coreDataService.updateProblemSet(problemSet, newName: newName)
-            }.value
-        
-            
-            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
-                problemSets[index] = problemSets[index].copy(withName: newName)
+            await MainActor.run {
+                // 2. 새로운 ProblemSet 인스턴스 생성
+                let updatedSet = ProblemSet(
+                    id: problemSet.id,
+                    subject: problemSet.subject,
+                    subjectType: problemSet.subjectType,
+                    subjectId: problemSet.subjectId,
+                    subjectName: problemSet.subjectName,
+                    questions: problemSet.questions,
+                    createdAt: problemSet.createdAt,
+                    educationLevel: problemSet.educationLevel,
+                    name: trimmedName  // trimmed된 이름 사용
+                )
                 
-                // Update selected problem set if needed
-                if selectedProblemSet?.id == problemSet.id {
-                    selectedProblemSet = problemSets[index]
+                // 3. problemSets 배열 업데이트
+                if let index = self.problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+                    self.problemSets[index] = updatedSet
+                }
+                
+                // 4. selectedProblemSet 업데이트
+                if self.selectedProblemSet?.id == problemSet.id {
+                    self.selectedProblemSet = updatedSet
                 }
             }
             
-            // Notify all observers
-            objectWillChange.send()
-            
             print("""
-            ✅ Problem Set renamed and updated:
+            ✅ Problem Set renamed successfully:
             • ID: \(problemSet.id)
-            • New Name: \(newName)
-            • In Memory Update: Success
+            • Old Name: \(problemSet.name)
+            • New Name: \(trimmedName)
+            • Memory Update: Success
             """)
         } catch {
             print("❌ Failed to rename problem set: \(error)")
@@ -5388,11 +5459,85 @@ struct AddSubjectView: View {
 
 
 
+// ./AISnapStudy/Views/Components/SubjectPickerView.swift
+
+
+import SwiftUI
+
+struct SubjectPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @StateObject private var subjectManager = SubjectManager.shared
+    
+    let problemSet: ProblemSet
+    let currentSubject: SubjectType
+    
+    private func updateProblemSetSubject(to newSubject: SubjectType) async {
+        await homeViewModel.updateProblemSetSubject(problemSet, to: newSubject)
+        dismiss()
+    }
+    
+    var body: some View {
+        NavigationView {
+            List {
+                ForEach(subjectManager.availableSubjects, id: \.id) { subject in
+                    Button(action: {
+                        Task {
+                            await updateProblemSetSubject(to: subject)
+                            dismiss()
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: subject.icon)
+                                .foregroundColor(subject.color)
+                            
+                            Text(subject.displayName)
+                                .foregroundColor(.primary)
+                            
+                            Spacer()
+                            
+                            if subject.id == currentSubject.id {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Change Subject")
+            .navigationBarItems(trailing: Button("Cancel") {
+                dismiss()
+            })
+        }
+    }
+    
+//    private func updateProblemSetSubject(to newSubject: SubjectType) async {
+//        let updatedProblemSet = ProblemSet(
+//            id: problemSet.id,
+//            subject: newSubject,
+//            subjectType: newSubject is DefaultSubject ? "default" : "custom",
+//            subjectId: newSubject.id,
+//            subjectName: newSubject.displayName,
+//            questions: problemSet.questions,
+//            createdAt: problemSet.createdAt,
+//            educationLevel: problemSet.educationLevel,
+//            name: problemSet.name
+//        )
+//        
+//        await homeViewModel.saveProblemSet(updatedProblemSet)
+//    }
+
+}
+
+
 // ./AISnapStudy/Views/Components/ReviewProblemSetCard.swift
 
 import SwiftUI
 
 struct ReviewProblemSetCard: View {
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @StateObject private var subjectManager = SubjectManager.shared
+    
     let subject: SubjectType
     let problemSet: ProblemSet
     let isEditMode: Bool
@@ -5400,6 +5545,7 @@ struct ReviewProblemSetCard: View {
     let onRename: (String) -> Void
     
     @State private var isShowingRenameAlert = false
+    @State private var isShowingSubjectPicker = false
     @State private var newName = ""
     
     var body: some View {
@@ -5421,11 +5567,22 @@ struct ReviewProblemSetCard: View {
                 Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                
+                Text("Subject: \(subject.displayName)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
             
-            // 편집 모드일 때만 보이는 버튼들
             if isEditMode {
                 HStack(spacing: 12) {
+                    Button(action: {
+                        isShowingSubjectPicker = true
+                    }) {
+                        Image(systemName: "arrow.triangle.swap")
+                            .foregroundColor(.blue)
+                            .imageScale(.large)
+                    }
+                    
                     Button(action: {
                         newName = problemSet.name
                         isShowingRenameAlert = true
@@ -5450,15 +5607,32 @@ struct ReviewProblemSetCard: View {
                 .fill(Color(UIColor.systemBackground))
                 .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
         )
+        .sheet(isPresented: $isShowingSubjectPicker) {
+            SubjectPickerView(
+                problemSet: problemSet,
+                currentSubject: subject
+            )
+        }
         .alert("Rename Problem Set", isPresented: $isShowingRenameAlert) {
             TextField("New name", text: $newName)
-            Button("Cancel", role: .cancel) { }
-            Button("Save") {
-                if !newName.isEmpty {
-                    onRename(newName)
-                }
+            Button("Cancel", role: .cancel) {
+                newName = ""
             }
+            Button("Save") {
+                // 공백 제거 후 빈 문자열 체크
+                let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedName.isEmpty else { return }
+                
+                Task {
+                    await homeViewModel.renameProblemSet(problemSet, newName: trimmedName)
+                    onRename(trimmedName)
+                }
+                newName = ""
+            }
+        } message: {
+            Text("Enter a new name for this problem set")
         }
+
     }
 }
 
@@ -6426,110 +6600,111 @@ import CoreData
 
 
 struct StatView: View {
-    @ObservedObject var viewModel: StatViewModel
-    @Binding var selectedTab: Int
-    let correctAnswers: Int
-    let totalQuestions: Int
-    @EnvironmentObject private var homeViewModel: HomeViewModel
-    
-    // 초기화 함수의 매개변수 순서 수정
-    init(
-        viewModel: StatViewModel,
-        selectedTab: Binding<Int>,
-        correctAnswers: Int,
-        totalQuestions: Int
-    ) {
-        self.viewModel = viewModel
-        self._selectedTab = selectedTab
-        self.correctAnswers = correctAnswers
-        self.totalQuestions = totalQuestions
-    }
-    
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Text("학습 통계")
-                    .font(.title)
-                    .padding(.top)
-                
-                // 현재 스트릭
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("현재 스트릭")
-                            .font(.headline)
-                        Text("\(viewModel.streak)일")
-                            .font(.title)
-                            .foregroundColor(.blue)
-                    }
-                    Spacer()
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.orange)
-                }
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(10)
-                
-                // 통계 그리드
-                LazyVGrid(columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ], spacing: 20) {
-                    StatCard(
-                        title: "이번 세트 점수",
-                        value: "\(correctAnswers * 10)점",  // correctAnswers 직접 사용
-                        icon: "star.fill",
-                        color: .yellow
-                    )
-                    
-                    StatCard(
-                        title: "정답률",
-                        value: String(format: "%.1f%%",
-                            Double(correctAnswers) / Double(totalQuestions) * 100),
-                        icon: "percent",
-                        color: .blue
-                    )
-                    
-                    StatCard(
-                        title: "완료한 문제",
-                        value: "\(totalQuestions)개",
-                        icon: "checkmark.circle.fill",
-                        color: .green
-                    )
-                    
-                    StatCard(
-                        title: "정답 수",
-                        value: "\(correctAnswers)개",
-                        icon: "target",
-                        color: .red
-                    )
-                }
-                .padding()
-                
-                Spacer()  // 나머지 공간을 채움
-                
-                // 다시 풀기 버튼을 맨 아래에 배치
-                Button(action: {
-                    viewModel.resetProgress()
-                    viewModel.logCurrentQuestionState()
-                    withAnimation {
-                        selectedTab = 1
-                    }
-                }) {
-                    Text("다시 풀기")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 20)  // 하단 여백 추가
-            }
-        }
-    }
+   @ObservedObject var viewModel: StatViewModel
+   @Binding var selectedTab: Int
+   let correctAnswers: Int
+   let totalQuestions: Int
+   
+   var incorrectAnswers: Int {
+       totalQuestions - correctAnswers
+   }
+   
+   var percentageCorrect: Int {
+       guard totalQuestions > 0 else { return 0 }
+       return Int((Double(correctAnswers) / Double(totalQuestions)) * 100)
+   }
+   
+   var body: some View {
+       ScrollView {
+           VStack(spacing: 20) {
+               Text("Result")
+                   .font(.title)
+                   .padding(.top)
+               
+               // Progress Circle
+               ZStack {
+                   Circle()
+                       .trim(from: 0, to: 1)
+                       .stroke(Color.orange, lineWidth: 25)
+                       .rotationEffect(.degrees(-90))
+                       .frame(width: 200, height: 200)
+                   
+                   Circle()
+                       .trim(from: 0, to: Double(correctAnswers) / Double(totalQuestions))
+                       .stroke(Color.green, lineWidth: 25)
+                       .rotationEffect(.degrees(-90))
+                       .frame(width: 200, height: 200)
+                   
+                   Text("\(percentageCorrect)%")
+                       .font(.system(size: 40, weight: .bold))
+               }
+               .padding(.vertical)
+               
+               // Correct/Incorrect Labels
+               HStack(spacing: 50) {
+                   HStack {
+                       Text("Correct")
+                           .foregroundColor(.green)
+                       Text("\(correctAnswers)")
+                           .font(.headline)
+                           .padding(8)
+                           .background(
+                               Circle()
+                                   .fill(Color.green.opacity(0.2))
+                           )
+                   }
+                   
+                   HStack {
+                       Text("Incorrect")
+                           .foregroundColor(.orange)
+                       Text("\(incorrectAnswers)")
+                           .font(.headline)
+                           .padding(8)
+                           .background(
+                               Circle()
+                                   .fill(Color.orange.opacity(0.2))
+                           )
+                   }
+               }
+               
+               Spacer()
+               
+               VStack(spacing: 12) {
+                   Button(action: {
+                       viewModel.resetProgress()
+                       viewModel.logCurrentQuestionState()
+                       withAnimation {
+                           selectedTab = 1
+                       }
+                   }) {
+                       Text("Retry Test")
+                           .font(.headline)
+                           .foregroundColor(.white)
+                           .padding()
+                           .frame(maxWidth: .infinity)
+                           .background(Color.blue)
+                           .cornerRadius(10)
+                   }
+                   
+                   Button(action: {
+                       withAnimation {
+                           selectedTab = 2  // Review 탭으로 이동
+                       }
+                   }) {
+                       Text("Take New Test")
+                           .font(.headline)
+                           .foregroundColor(.white)
+                           .padding()
+                           .frame(maxWidth: .infinity)
+                           .background(Color.green)
+                           .cornerRadius(10)
+                   }
+               }
+               .padding(.horizontal)
+               .padding(.bottom, 20)
+           }
+       }
+   }
 }
 
 

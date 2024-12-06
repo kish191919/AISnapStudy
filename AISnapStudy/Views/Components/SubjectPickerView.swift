@@ -9,6 +9,11 @@ struct SubjectPickerView: View {
     let problemSet: ProblemSet
     let currentSubject: SubjectType
     
+    private func updateProblemSetSubject(to newSubject: SubjectType) async {
+        await homeViewModel.updateProblemSetSubject(problemSet, to: newSubject)
+        dismiss()
+    }
+    
     var body: some View {
         NavigationView {
             List {
@@ -41,22 +46,6 @@ struct SubjectPickerView: View {
                 dismiss()
             })
         }
-    }
-    
-    private func updateProblemSetSubject(to newSubject: SubjectType) async {
-        let updatedProblemSet = ProblemSet(
-            id: problemSet.id,
-            subject: newSubject,
-            subjectType: newSubject is DefaultSubject ? "default" : "custom",
-            subjectId: newSubject.id,
-            subjectName: newSubject.displayName,
-            questions: problemSet.questions,
-            createdAt: problemSet.createdAt,
-            educationLevel: problemSet.educationLevel,
-            name: problemSet.name  // 현재 이름 유지
-        )
-        
-        await homeViewModel.saveProblemSet(updatedProblemSet)
     }
 
 }

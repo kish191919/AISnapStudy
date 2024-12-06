@@ -4,108 +4,109 @@ import CoreData
 
 
 struct StatView: View {
-    @ObservedObject var viewModel: StatViewModel
-    @Binding var selectedTab: Int
-    let correctAnswers: Int
-    let totalQuestions: Int
-    @EnvironmentObject private var homeViewModel: HomeViewModel
-    
-    // 초기화 함수의 매개변수 순서 수정
-    init(
-        viewModel: StatViewModel,
-        selectedTab: Binding<Int>,
-        correctAnswers: Int,
-        totalQuestions: Int
-    ) {
-        self.viewModel = viewModel
-        self._selectedTab = selectedTab
-        self.correctAnswers = correctAnswers
-        self.totalQuestions = totalQuestions
-    }
-    
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Text("학습 통계")
-                    .font(.title)
-                    .padding(.top)
-                
-                // 현재 스트릭
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text("현재 스트릭")
-                            .font(.headline)
-                        Text("\(viewModel.streak)일")
-                            .font(.title)
-                            .foregroundColor(.blue)
-                    }
-                    Spacer()
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.orange)
-                }
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(10)
-                
-                // 통계 그리드
-                LazyVGrid(columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ], spacing: 20) {
-                    StatCard(
-                        title: "이번 세트 점수",
-                        value: "\(correctAnswers * 10)점",  // correctAnswers 직접 사용
-                        icon: "star.fill",
-                        color: .yellow
-                    )
-                    
-                    StatCard(
-                        title: "정답률",
-                        value: String(format: "%.1f%%",
-                            Double(correctAnswers) / Double(totalQuestions) * 100),
-                        icon: "percent",
-                        color: .blue
-                    )
-                    
-                    StatCard(
-                        title: "완료한 문제",
-                        value: "\(totalQuestions)개",
-                        icon: "checkmark.circle.fill",
-                        color: .green
-                    )
-                    
-                    StatCard(
-                        title: "정답 수",
-                        value: "\(correctAnswers)개",
-                        icon: "target",
-                        color: .red
-                    )
-                }
-                .padding()
-                
-                Spacer()  // 나머지 공간을 채움
-                
-                // 다시 풀기 버튼을 맨 아래에 배치
-                Button(action: {
-                    viewModel.resetProgress()
-                    viewModel.logCurrentQuestionState()
-                    withAnimation {
-                        selectedTab = 1
-                    }
-                }) {
-                    Text("다시 풀기")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .cornerRadius(10)
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 20)  // 하단 여백 추가
-            }
-        }
-    }
+   @ObservedObject var viewModel: StatViewModel
+   @Binding var selectedTab: Int
+   let correctAnswers: Int
+   let totalQuestions: Int
+   
+   var incorrectAnswers: Int {
+       totalQuestions - correctAnswers
+   }
+   
+   var percentageCorrect: Int {
+       guard totalQuestions > 0 else { return 0 }
+       return Int((Double(correctAnswers) / Double(totalQuestions)) * 100)
+   }
+   
+   var body: some View {
+       ScrollView {
+           VStack(spacing: 20) {
+               Text("Result")
+                   .font(.title)
+                   .padding(.top)
+               
+               // Progress Circle
+               ZStack {
+                   Circle()
+                       .trim(from: 0, to: 1)
+                       .stroke(Color.orange, lineWidth: 25)
+                       .rotationEffect(.degrees(-90))
+                       .frame(width: 200, height: 200)
+                   
+                   Circle()
+                       .trim(from: 0, to: Double(correctAnswers) / Double(totalQuestions))
+                       .stroke(Color.green, lineWidth: 25)
+                       .rotationEffect(.degrees(-90))
+                       .frame(width: 200, height: 200)
+                   
+                   Text("\(percentageCorrect)%")
+                       .font(.system(size: 40, weight: .bold))
+               }
+               .padding(.vertical)
+               
+               // Correct/Incorrect Labels
+               HStack(spacing: 50) {
+                   HStack {
+                       Text("Correct")
+                           .foregroundColor(.green)
+                       Text("\(correctAnswers)")
+                           .font(.headline)
+                           .padding(8)
+                           .background(
+                               Circle()
+                                   .fill(Color.green.opacity(0.2))
+                           )
+                   }
+                   
+                   HStack {
+                       Text("Incorrect")
+                           .foregroundColor(.orange)
+                       Text("\(incorrectAnswers)")
+                           .font(.headline)
+                           .padding(8)
+                           .background(
+                               Circle()
+                                   .fill(Color.orange.opacity(0.2))
+                           )
+                   }
+               }
+               
+               Spacer()
+               
+               VStack(spacing: 12) {
+                   Button(action: {
+                       viewModel.resetProgress()
+                       viewModel.logCurrentQuestionState()
+                       withAnimation {
+                           selectedTab = 1
+                       }
+                   }) {
+                       Text("Retry Test")
+                           .font(.headline)
+                           .foregroundColor(.white)
+                           .padding()
+                           .frame(maxWidth: .infinity)
+                           .background(Color.blue)
+                           .cornerRadius(10)
+                   }
+                   
+                   Button(action: {
+                       withAnimation {
+                           selectedTab = 2  // Review 탭으로 이동
+                       }
+                   }) {
+                       Text("Take New Test")
+                           .font(.headline)
+                           .foregroundColor(.white)
+                           .padding()
+                           .frame(maxWidth: .infinity)
+                           .background(Color.green)
+                           .cornerRadius(10)
+                   }
+               }
+               .padding(.horizontal)
+               .padding(.bottom, 20)
+           }
+       }
+   }
 }

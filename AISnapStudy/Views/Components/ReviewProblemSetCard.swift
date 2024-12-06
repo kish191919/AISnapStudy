@@ -81,12 +81,23 @@ struct ReviewProblemSetCard: View {
         }
         .alert("Rename Problem Set", isPresented: $isShowingRenameAlert) {
             TextField("New name", text: $newName)
-            Button("Cancel", role: .cancel) { }
-            Button("Save") {
-                if !newName.isEmpty {
-                    onRename(newName)
-                }
+            Button("Cancel", role: .cancel) {
+                newName = ""
             }
+            Button("Save") {
+                // 공백 제거 후 빈 문자열 체크
+                let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedName.isEmpty else { return }
+                
+                Task {
+                    await homeViewModel.renameProblemSet(problemSet, newName: trimmedName)
+                    onRename(trimmedName)
+                }
+                newName = ""
+            }
+        } message: {
+            Text("Enter a new name for this problem set")
         }
+
     }
 }

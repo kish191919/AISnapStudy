@@ -69,6 +69,51 @@ class HomeViewModel: ObservableObject {
         """)
     }
     
+    func updateProblemSetSubject(_ problemSet: ProblemSet, to newSubject: SubjectType) async {
+        do {
+            // 1. 새로운 ProblemSet 인스턴스 생성
+            let updatedSet = ProblemSet(
+                id: UUID().uuidString,  // 새로운 ID 생성
+                subject: newSubject,
+                subjectType: newSubject is DefaultSubject ? "default" : "custom",
+                subjectId: newSubject.id,
+                subjectName: newSubject.displayName,
+                questions: problemSet.questions,
+                createdAt: problemSet.createdAt,
+                educationLevel: problemSet.educationLevel,
+                name: problemSet.name
+            )
+            
+            // 2. 기존 ProblemSet 삭제
+            try await coreDataService.deleteProblemSet(problemSet)
+            
+            // 3. 메모리에서 기존 ProblemSet 제거
+            problemSets.removeAll { $0.id == problemSet.id }
+            
+            // 4. 새로운 ProblemSet 저장
+            try await coreDataService.saveProblemSet(updatedSet)
+            problemSets.append(updatedSet)
+            
+            // 5. selectedProblemSet 업데이트
+            if selectedProblemSet?.id == problemSet.id {
+                selectedProblemSet = updatedSet
+            }
+            
+            // 6. UI 업데이트
+            objectWillChange.send()
+            
+            print("""
+            ✅ Problem Set subject updated:
+            • Old Subject: \(problemSet.subjectName)
+            • New Subject: \(newSubject.displayName)
+            • Old ID: \(problemSet.id)
+            • New ID: \(updatedSet.id)
+            """)
+        } catch {
+            print("❌ Failed to update problem set subject: \(error)")
+        }
+    }
+    
     @MainActor
     func removeQuestionFromProblemSet(_ questionId: String, from problemSet: ProblemSet) async {
         let updatedProblemSet = problemSet.removeQuestion(questionId)
@@ -143,13 +188,21 @@ class HomeViewModel: ObservableObject {
     }
     
     // MARK: - Problem Set Management
+    // 파일: ./AISnapStudy/ViewModels/HomeViewModel.swift
+
     @MainActor
     func saveProblemSet(_ problemSet: ProblemSet) async {
         do {
-            // 기존 ProblemSet 제거
-            problemSets.removeAll { $0.id == problemSet.id }
-            
-            // 새 ProblemSet 저장
+            // 1. 기존 ProblemSet 찾기
+            if let existingSet = problemSets.first(where: {
+                $0.questions == problemSet.questions && $0.id != problemSet.id
+            }) {
+                // 2. 기존 ProblemSet 삭제
+                try await coreDataService.deleteProblemSet(existingSet)
+                problemSets.removeAll { $0.id == existingSet.id }
+            }
+
+            // 3. 새로운 ProblemSet 저장
             try await coreDataService.saveProblemSet(problemSet)
             problemSets.insert(problemSet, at: 0)
             
@@ -157,7 +210,7 @@ class HomeViewModel: ObservableObject {
                 selectedProblemSet = problemSet
             }
             
-            print("✅ Updated ProblemSet with new subject: \(problemSet.subjectName)")
+            print("✅ Successfully updated ProblemSet with new subject: \(problemSet.subjectName)")
         } catch {
             self.error = error
             print("❌ Failed to update ProblemSet: \(error)")
@@ -239,43 +292,52 @@ class HomeViewModel: ObservableObject {
 extension HomeViewModel {
     @MainActor
     func renameProblemSet(_ problemSet: ProblemSet, newName: String) async {
-       do {
-           // CoreData 업데이트
-           try await coreDataService.updateProblemSet(problemSet, newName: newName)
-           
-           // 메모리의 ProblemSet 업데이트
-           if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
-               let updatedSet = ProblemSet(
-                   id: problemSet.id,
-                   subject: problemSet.subject,
-                   subjectType: problemSet.subjectType,
-                   subjectId: problemSet.subjectId,
-                   subjectName: problemSet.subjectName,
-                   questions: problemSet.questions,
-                   createdAt: problemSet.createdAt,
-                   educationLevel: problemSet.educationLevel,
-                   name: newName
-               )
-               
-               problemSets[index] = updatedSet
-               
-               if selectedProblemSet?.id == problemSet.id {
-                   selectedProblemSet = updatedSet
-               }
-           }
-           
-           // UI 업데이트를 위해 변경 알림
-           objectWillChange.send()
-           
-           print("""
-           ✅ Problem Set renamed and updated:
-           • ID: \(problemSet.id)
-           • New Name: \(newName)
-           • In Memory Update: Success
-           """)
-       } catch {
-           print("❌ Failed to rename problem set: \(error)")
-       }
+        // 빈 이름이나 공백만 있는 경우 처리 방지
+        let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            print("❌ Cannot rename problem set: Name is empty")
+            return
+        }
+
+        do {
+            // 1. CoreData 업데이트
+            try await coreDataService.updateProblemSet(problemSet, newName: trimmedName)
+            
+            await MainActor.run {
+                // 2. 새로운 ProblemSet 인스턴스 생성
+                let updatedSet = ProblemSet(
+                    id: problemSet.id,
+                    subject: problemSet.subject,
+                    subjectType: problemSet.subjectType,
+                    subjectId: problemSet.subjectId,
+                    subjectName: problemSet.subjectName,
+                    questions: problemSet.questions,
+                    createdAt: problemSet.createdAt,
+                    educationLevel: problemSet.educationLevel,
+                    name: trimmedName  // trimmed된 이름 사용
+                )
+                
+                // 3. problemSets 배열 업데이트
+                if let index = self.problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+                    self.problemSets[index] = updatedSet
+                }
+                
+                // 4. selectedProblemSet 업데이트
+                if self.selectedProblemSet?.id == problemSet.id {
+                    self.selectedProblemSet = updatedSet
+                }
+            }
+            
+            print("""
+            ✅ Problem Set renamed successfully:
+            • ID: \(problemSet.id)
+            • Old Name: \(problemSet.name)
+            • New Name: \(trimmedName)
+            • Memory Update: Success
+            """)
+        } catch {
+            print("❌ Failed to rename problem set: \(error)")
+        }
     }
     
     @MainActor

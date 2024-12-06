@@ -701,11 +701,11 @@ class QuestionSettingsViewModel: ObservableObject {
         // 3. ProblemSet 생성
         let problemSet = ProblemSet(
             id: UUID().uuidString,
-            subject: defaultSubject,
-            subjectType: subjectType,
-            subjectId: subjectId,
-            subjectName: subjectName,
-            questions: updatedQuestions,
+            subject: selectedSubject,  // 선택된 subject 그대로 사용
+            subjectType: selectedSubject is DefaultSubject ? "default" : "custom",
+            subjectId: selectedSubject.id,
+            subjectName: selectedSubject.displayName,
+            questions: questions,  // 질문들을 수정하지 않고 그대로 사용
             createdAt: Date(),
             educationLevel: self.educationLevel,
             name: name
