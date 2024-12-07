@@ -13,6 +13,37 @@ struct DailyStatsView: View {
         case year = "Year"
     }
     
+    var dailyProgressBinding: Binding<[DailyProgress]> {
+        Binding(
+            get: { viewModel.weeklyProgress },
+            set: { viewModel.weeklyProgress = $0 }
+        )
+    }
+    
+    // weeklyProgress에서 오늘의 데이터만 정확하게 가져오기
+    private var todayStats: DailyProgress? {
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // 디버그: 현재 weeklyProgress 상태 출력
+        print("DailyStatsView: Getting today's stats")
+        viewModel.weeklyProgress.forEach { progress in
+            print("Date: \(progress.date), Questions: \(progress.questionsCompleted)")
+        }
+        
+        let stats = viewModel.weeklyProgress
+            .first { calendar.isDate($0.date, inSameDayAs: today) }
+        
+        if let stats = stats {
+            print("Found today's stats: Questions=\(stats.questionsCompleted)")
+        } else {
+            print("No stats found for today")
+        }
+        
+        return stats
+    }
+    
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -32,15 +63,13 @@ struct DailyStatsView: View {
                     
                     Chart {
                         ForEach(viewModel.weeklyProgress) { progress in
-                            // Total Questions Bar
                             BarMark(
                                 x: .value("Date", progress.date, unit: .day),
                                 y: .value("Questions", progress.questionsCompleted)
                             )
                             .position(by: .value("Type", "Total"))
                             .foregroundStyle(.blue.opacity(0.3))
-
-                            // Correct Answers Bar
+                            
                             BarMark(
                                 x: .value("Date", progress.date, unit: .day),
                                 y: .value("Questions", progress.correctAnswers)
@@ -48,6 +77,10 @@ struct DailyStatsView: View {
                             .position(by: .value("Type", "Correct"))
                             .foregroundStyle(.green)
                         }
+                    }
+                    .onChange(of: viewModel.completedQuestions) { _ in
+                        viewModel.updateStats(correctAnswers: viewModel.correctAnswers,
+                                            totalQuestions: viewModel.completedQuestions)
                     }
                     .frame(height: 200)
                     .chartLegend(position: .top)
@@ -68,31 +101,19 @@ struct DailyStatsView: View {
                 ], spacing: 16) {
                     DailyStatCard(
                         title: "Today's Questions",
-                        value: "\(viewModel.completedQuestions)",
-                        trend: "+5",
+                        value: "\(todayStats?.questionsCompleted ?? 0)",  // 수정된 부분
+                        trend: "",  // trend는 일단 빈 문자열로
                         trendUp: true
                     )
                     
                     DailyStatCard(
                         title: "Accuracy",
-                        value: String(format: "%.1f%%", viewModel.accuracyRate),
-                        trend: "+2.3%",
-                        trendUp: true
-                    )
-                    
-                    DailyStatCard(
-                        title: "Study Time",
-                        value: "45min",
-                        trend: "+10min",
-                        trendUp: true
-                    )
-                    
-                    DailyStatCard(
-                        title: "Current Streak",
-                        value: "\(viewModel.streak) days",
+                        value: String(format: "%.1f%%", todayStats?.accuracy ?? 0),  // 수정된 부분
                         trend: "",
                         trendUp: true
                     )
+
+                    
                 }
                 .padding()
                 

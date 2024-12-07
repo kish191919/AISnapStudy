@@ -4,9 +4,8 @@ import Foundation
 struct DailyProgress: Identifiable {
     let id = UUID()
     let date: Date
-    let day: String          // "Mon", "Tue", etc.
-    let questionsCompleted: Int
-    let correctAnswers: Int
+    var questionsCompleted: Int  // let -> var
+    var correctAnswers: Int      // let -> var
     let totalTime: TimeInterval
     
     var accuracy: Double {
@@ -14,11 +13,14 @@ struct DailyProgress: Identifiable {
         return Double(correctAnswers) / Double(questionsCompleted) * 100
     }
     
-    init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {
-        self.date = date
-        self.day = date.formatted(.dateTime.weekday(.abbreviated))
-        self.questionsCompleted = questionsCompleted
-        self.correctAnswers = correctAnswers
-        self.totalTime = totalTime
+    var day: String {
+        date.formatted(.dateTime.weekday(.abbreviated))
     }
+    
+    init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {
+           self.date = date
+           self.questionsCompleted = questionsCompleted
+           self.correctAnswers = correctAnswers
+           self.totalTime = totalTime
+       }
 }

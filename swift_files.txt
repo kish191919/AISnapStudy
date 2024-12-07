@@ -810,9 +810,13 @@ class StatViewModel: ObservableObject {
     @Published var completedQuestions: Int = 0
     @Published var accuracyRate: Double = 0.0
     @Published var isLoading = false
+    private var todaysSessionStats: (questions: Int, correct: Int) = (0, 0)
+    private var existingStats: (questions: Int, correct: Int) = (0, 0)
     
     private weak var studyViewModel: StudyViewModel?
     private weak var homeViewModel: HomeViewModel?
+    private var todayTotalQuestions: Int = 0
+    private var todayCorrectAnswers: Int = 0
 
     
     @Published var totalPoints: Int = 0      // 현재 세션의 점수
@@ -827,6 +831,14 @@ class StatViewModel: ObservableObject {
     private let context: NSManagedObjectContext
     private let calendar = Calendar.current
     
+    private var sessionStats: SessionStats = .init() // 새로 추가
+
+    struct SessionStats {
+        var completedQuestions: Int = 0
+        var correctAnswers: Int = 0
+        var startTime: Date = Date()
+    }
+    
 
     
     init(context: NSManagedObjectContext,
@@ -838,6 +850,34 @@ class StatViewModel: ObservableObject {
         
         // Move the loadStats() call to the end of the init method
         loadStats()
+        setupObservers()
+    }
+    private func setupObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleStudyProgressUpdate),
+            name: .studyProgressDidUpdate,
+            object: nil
+        )
+    }
+    
+    @objc private func handleStudyProgressUpdate(_ notification: Notification) {
+        guard let currentIndex = notification.userInfo?["currentIndex"] as? Int,
+              let correctAnswers = notification.userInfo?["correctAnswers"] as? Int else {
+            return
+        }
+        
+        // 새로운 문제가 완료될 때마다 통계 업데이트
+        let addedQuestions = 1  // 한 문제씩 추가
+        let addedCorrect = correctAnswers - self.correctAnswers  // 새로운 정답만큼만 추가
+        
+        updateStats(
+            correctAnswers: addedCorrect,
+            totalQuestions: addedQuestions,
+            isNewSession: false
+        )
+        
+        self.correctAnswers = correctAnswers
     }
     
     var currentSessionScore: Int {
@@ -861,18 +901,68 @@ class StatViewModel: ObservableObject {
         }
     }
     
-    func updateStats(correctAnswers: Int, totalQuestions: Int) {
-        self.correctAnswers = correctAnswers
-        self.completedQuestions = totalQuestions
-        self.accuracyRate = totalQuestions > 0 ?
-            (Double(correctAnswers) / Double(totalQuestions)) * 100 : 0
-            
-        print("""
-        📊 Stats Updated:
-        • Correct Answers: \(correctAnswers)
-        • Total Score: \(correctAnswers * 10)
-        • Accuracy Rate: \(accuracyRate)%
-        """)
+    func updateStats(correctAnswers: Int, totalQuestions: Int, isNewSession: Bool = false) {
+         let today = Date()
+         
+         // 기존 통계를 찾거나 새로 생성
+         if let existingIndex = weeklyProgress.firstIndex(where: {
+             Calendar.current.isDate($0.date, inSameDayAs: today)
+         }) {
+             let existingProgress = weeklyProgress[existingIndex]
+             let updatedQuestions = isNewSession ?
+                 existingProgress.questionsCompleted :
+                 existingProgress.questionsCompleted + totalQuestions
+             let updatedCorrect = isNewSession ?
+                 existingProgress.correctAnswers :
+                 existingProgress.correctAnswers + correctAnswers
+                 
+             weeklyProgress[existingIndex] = DailyProgress(
+                 date: today,
+                 questionsCompleted: updatedQuestions,
+                 correctAnswers: updatedCorrect,
+                 totalTime: existingProgress.totalTime
+             )
+         } else {
+             weeklyProgress.append(DailyProgress(
+                 date: today,
+                 questionsCompleted: totalQuestions,
+                 correctAnswers: correctAnswers,
+                 totalTime: 0.0
+             ))
+         }
+         
+         print("""
+         📊 Stats updated:
+         • Added Questions: \(totalQuestions)
+         • Added Correct: \(correctAnswers)
+         • Total Questions: \(weeklyProgress.last?.questionsCompleted ?? 0)
+         • New Session: \(isNewSession)
+         """)
+         
+         objectWillChange.send()
+     }
+    
+    private func updateWeeklyProgress() {
+        let today = Date()
+        if let index = weeklyProgress.firstIndex(where: { Calendar.current.isDate($0.date, inSameDayAs: today) }) {
+            let updatedProgress = DailyProgress(
+                date: today,
+                questionsCompleted: completedQuestions,
+                correctAnswers: correctAnswers,
+                totalTime: weeklyProgress[index].totalTime
+            )
+            weeklyProgress[index] = updatedProgress
+        } else {
+            let newProgress = DailyProgress(
+                date: today,
+                questionsCompleted: completedQuestions,
+                correctAnswers: correctAnswers,
+                totalTime: 0.0  // New entry starts with 0 time
+            )
+            weeklyProgress.append(newProgress)
+        }
+        
+        objectWillChange.send()
     }
     
     func setHomeViewModel(_ viewModel: HomeViewModel) {
@@ -889,36 +979,139 @@ class StatViewModel: ObservableObject {
 
 
     func loadStats() {
+        print("📊 Starting stats loading...")
         isLoading = true
         let request: NSFetchRequest<CDStudySession> = CDStudySession.fetchRequest()
         
         do {
             let sessions = try context.fetch(request)
             calculateStats(from: sessions)
+            calculateWeeklyProgress(from: sessions)
+            
+            if let todayStats = weeklyProgress.last {
+                existingStats = (todayStats.questionsCompleted, todayStats.correctAnswers)
+                
+                DispatchQueue.main.async { [weak self] in
+                    self?.completedQuestions = todayStats.questionsCompleted
+                    self?.correctAnswers = todayStats.correctAnswers
+                    self?.accuracyRate = todayStats.accuracy
+                    print("""
+                    📊 Stats updated from weekly progress:
+                    • Questions: \(todayStats.questionsCompleted)
+                    • Correct: \(todayStats.correctAnswers)
+                    • Accuracy: \(todayStats.accuracy)%
+                    """)
+                }
+            }
         } catch {
-            print("Failed to fetch study sessions:", error)
+            print("❌ Failed to fetch study sessions: \(error)")
         }
         
         isLoading = false
     }
+    
+    
+    private func calculateWeeklyProgress(from sessions: [CDStudySession]) {
+        print("📊 Starting weekly progress calculation...")
+        let calendar = Calendar.current
+        let today = Date()
+        let weekAgo = calendar.date(byAdding: .day, value: -6, to: today)!
+        
+        var progress: [DailyProgress] = []
+        
+        for dayOffset in 0...6 {
+            let date = calendar.date(byAdding: .day, value: dayOffset, to: weekAgo)!
+            let dayStart = calendar.startOfDay(for: date)
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+            
+            // Filter sessions for current day
+            let daysSessions = sessions.filter { session in
+                guard let sessionTime = session.startTime else { return false }
+                return calendar.isDate(sessionTime, inSameDayAs: date)
+            }
+            
+            let questionsCompleted = daysSessions.reduce(0) { sum, session in
+                sum + (session.questions?.count ?? 0)
+            }
+            
+            let correctAnswers = daysSessions.reduce(0) { sum, session in
+                sum + ((session.questions?.allObjects as? [CDQuestion])?.filter { $0.isCorrect }.count ?? 0)
+            }
+            
+            let totalTime = daysSessions.reduce(0.0) { sum, session in
+                guard let start = session.startTime,
+                      let end = session.endTime else { return sum }
+                return sum + end.timeIntervalSince(start)
+            }
+            
+            progress.append(DailyProgress(
+                date: date,
+                questionsCompleted: questionsCompleted,
+                correctAnswers: correctAnswers,
+                totalTime: totalTime
+            ))
+            
+            // Log daily statistics
+            print("""
+            📊 Daily Stats for \(date):
+            • Sessions: \(daysSessions.count)
+            • Questions: \(questionsCompleted)
+            • Correct: \(correctAnswers)
+            """)
+        }
+        
+        weeklyProgress = progress
+    }
+    
 
     private func calculateStats(from sessions: [CDStudySession]) {
-        totalQuestions = sessions.reduce(0) { total, session in
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        let todaySessions = sessions.filter { session in
+            guard let sessionTime = session.startTime else { return false }
+            return calendar.isDate(sessionTime, inSameDayAs: today)
+        }
+        
+        // 이전 세션 통계에 새로운 세션 통계 추가
+        let newCompletedQuestions = todaySessions.reduce(0) { total, session in
+            total + (session.questions?.count ?? 0)
+        }
+        let newCorrectAnswers = todaySessions.reduce(0) { total, session in
+            total + ((session.questions?.allObjects as? [CDQuestion])?.filter { $0.isCorrect }.count ?? 0)
+        }
+        
+        // Calculate today's statistics
+        let totalCompletedQuestions = todaySessions.reduce(0) { total, session in
             total + (session.questions?.count ?? 0)
         }
         
-        let totalCorrect = sessions.reduce(0) { total, session in
-            total + (session.questions?.filter { ($0 as? CDQuestion)?.isCorrect == true }.count ?? 0)
+        let totalCorrectAnswers = todaySessions.reduce(0) { total, session in
+            total + ((session.questions?.allObjects as? [CDQuestion])?.filter { $0.isCorrect }.count ?? 0)
         }
         
-        averageScore = totalQuestions > 0 ? (Double(totalCorrect) / Double(totalQuestions)) * 100 : 0
-        correctAnswers = totalCorrect
-        completedQuestions = totalQuestions
-        totalPoints = completedQuestions * 10
-        accuracyRate = completedQuestions > 0 ? (Double(correctAnswers) / Double(completedQuestions)) * 100 : 0
-        streak = calculateStreak(from: sessions)
+        // Calculate accuracy rate
+        let calculatedAccuracyRate = totalCompletedQuestions > 0 ?
+            (Double(totalCorrectAnswers) / Double(totalCompletedQuestions)) * 100 : 0
+        
+        // 값 업데이트 후 명시적으로 UI 업데이트
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.objectWillChange.send()
+            self.completedQuestions = newCompletedQuestions
+            self.correctAnswers = newCorrectAnswers
+            self.accuracyRate = self.completedQuestions > 0 ?
+                (Double(self.correctAnswers) / Double(self.completedQuestions)) * 100 : 0
+        }
+        
+        print("""
+        📊 Today's Stats Calculated:
+        • Previous Questions: \(todaysSessionStats.questions)
+        • New Total Questions: \(completedQuestions)
+        • Correct Answers: \(correctAnswers)
+        • Accuracy Rate: \(accuracyRate)%
+        """)
     }
-
     private func calculateStreak(from sessions: [CDStudySession]) -> Int {
         let sortedSessions = sessions.compactMap { $0.endTime }.sorted(by: { $0 > $1 })
         
@@ -942,51 +1135,50 @@ class StatViewModel: ObservableObject {
     }
     
     func resetProgress() {
-            print("🔄 Starting resetProgress...")
-            correctAnswers = 0
-            completedQuestions = 0
-            accuracyRate = 0
-            totalPoints = 0  // 점수 초기화
+        print("🔄 Starting resetProgress...")
+        
+        // 현재까지의 통계를 저장
+        let previousStats = (
+            questions: completedQuestions,
+            correct: correctAnswers
+        )
+        
+        guard let homeVM = homeViewModel,
+              let studyVM = homeVM.studyViewModel,
+              let currentProblemSet = homeVM.selectedProblemSet else {
+            print("❌ Required view models not found")
+            return
+        }
+        
+        Task {
+            print("🔄 Resetting study state...")
+            await studyVM.resetState()
             
-            // HomeViewModel을 통해 StudyViewModel에 접근
-            guard let homeVM = homeViewModel else {
-                print("❌ homeViewModel is nil in resetProgress")
-                return
-            }
+            // 통계를 누적하여 업데이트
+            updateStats(
+                correctAnswers: previousStats.correct,
+                totalQuestions: previousStats.questions,
+                isNewSession: true  // 새로운 세션임을 표시
+            )
             
-            guard let studyVM = homeVM.studyViewModel else {
-                print("❌ studyViewModel is nil in resetProgress")
-                return
-            }
-            
-            guard let currentProblemSet = homeVM.selectedProblemSet else {
-                print("❌ No selected problem set found")
-                return
-            }
-            guard let homeVM = homeViewModel,
-                  let studyVM = homeVM.studyViewModel,
-                  let currentProblemSet = homeVM.selectedProblemSet else {
-                print("❌ Required view models not found")
-                return
-                }
-
-                Task {
-                    print("🔄 Resetting study state...")
-                    await studyVM.resetState()
-                    
-                    await MainActor.run {
-                        print("🔄 Loading questions...")
-                        studyVM.loadQuestions(currentProblemSet.questions)
-                        
-                        print("""
-                        ✅ Reset complete:
-
-                        • Total Questions: \(currentProblemSet.questions.count)
-                        """)
-                    }
-                }
+            await MainActor.run {
+                studyVM.loadQuestions(currentProblemSet.questions)
+                
+                print("""
+                ✅ Reset complete:
+                • Previous Questions: \(previousStats.questions)
+                • Previous Correct: \(previousStats.correct)
+                • Total Questions: \(completedQuestions)
+                • New Session Questions: \(currentProblemSet.questions.count)
+                """)
             }
         }
+    }
+}
+
+extension Notification.Name {
+    static let studyProgressDidUpdate = Notification.Name("studyProgressDidUpdate")
+}
 
 
 // ./AISnapStudy/ViewModels/HomeViewModel.swift
@@ -1567,6 +1759,7 @@ class StudyViewModel: ObservableObject {
     
     func setStatViewModel(_ viewModel: StatViewModel) {
         self.statViewModel = viewModel
+        print("StatViewModel connected: \(viewModel)")  // 연결 확인 로그
     }
 
     func updateGeneratedQuestions(_ question: Question) {
@@ -1692,57 +1885,40 @@ class StudyViewModel: ObservableObject {
         print("✅ Questions loaded: \(currentQuestion?.question ?? "No question loaded")")
     }
    
-   private func setupCurrentSession() {
-       let session = CDStudySession(context: context)
-       session.startTime = Date()
-       currentSession = session
-       saveContext()
-   }
+    private func setupCurrentSession() {
+        let session = CDStudySession(context: context)
+        session.startTime = Date()
+        session.questions = NSSet() // Initialize empty questions set
+        currentSession = session
+        saveContext()
+        print("📝 New study session created at: \(session.startTime?.description ?? "unknown")")
+    }
    
     func submitAnswer() {
         guard let currentQuestion = currentQuestion else { return }
         
-        print("Debug True/False Detailed:")
-        print("Selected Answer (raw): \(selectedAnswer ?? "nil")")
-        print("Selected Answer (lowercased): \(selectedAnswer?.lowercased() ?? "nil")")
-        print("Correct Answer (raw): \(currentQuestion.correctAnswer)")
-        print("Correct Answer (lowercased): \(currentQuestion.correctAnswer.lowercased())")
-        print("Are they equal? \(currentQuestion.correctAnswer.lowercased() == selectedAnswer?.lowercased())")
-        print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
-        print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
-        
-        // Trim whitespace and convert to lowercase for comparison
         let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
         let isCorrect = trimmedSelected == trimmedCorrect
         
         if isCorrect {
             correctAnswers += 1
-            // Update score in StatViewModel
-            DispatchQueue.main.async {
-                self.statViewModel?.correctAnswers = self.correctAnswers
-                // Debug log for score update
-                print("✅ Correct answer! Total correct: \(self.correctAnswers)")
-            }
         }
-
-        print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
-        print("Trimmed Correct: '\(trimmedCorrect)'")
-        print("Final comparison result: \(isCorrect)")
         
-
-        if let session = currentSession {
-            let question = CDQuestion(context: context)
-            question.isCorrect = isCorrect
-            question.question = currentQuestion.question
-            question.session = session
-            saveContext()
-        }
+        // StatViewModel 업데이트
+        NotificationCenter.default.post(
+            name: .studyProgressDidUpdate,
+            object: nil,
+            userInfo: [
+                "currentIndex": currentIndex + 1,
+                "correctAnswers": correctAnswers
+            ]
+        )
         
         showExplanation = true
     }
-
+    
+    
    func nextQuestion() {
        guard currentIndex < questions.count - 1 else { return }
        currentIndex += 1
@@ -1755,13 +1931,16 @@ class StudyViewModel: ObservableObject {
        saveContext()
    }
    
-   private func saveContext() {
-       do {
-           try context.save()
-       } catch {
-           print("Failed to save context: \(error)")
-       }
-   }
+    private func saveContext() {
+        do {
+            if context.hasChanges {
+                try context.save()
+                print("✅ Context saved successfully")
+            }
+        } catch {
+            print("❌ Failed to save context: \(error)")
+        }
+    }
    
    var hasQuestions: Bool {
        return !questions.isEmpty
@@ -2165,9 +2344,8 @@ import Foundation
 struct DailyProgress: Identifiable {
     let id = UUID()
     let date: Date
-    let day: String          // "Mon", "Tue", etc.
-    let questionsCompleted: Int
-    let correctAnswers: Int
+    var questionsCompleted: Int  // let -> var
+    var correctAnswers: Int      // let -> var
     let totalTime: TimeInterval
     
     var accuracy: Double {
@@ -2175,13 +2353,16 @@ struct DailyProgress: Identifiable {
         return Double(correctAnswers) / Double(questionsCompleted) * 100
     }
     
-    init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {
-        self.date = date
-        self.day = date.formatted(.dateTime.weekday(.abbreviated))
-        self.questionsCompleted = questionsCompleted
-        self.correctAnswers = correctAnswers
-        self.totalTime = totalTime
+    var day: String {
+        date.formatted(.dateTime.weekday(.abbreviated))
     }
+    
+    init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {
+           self.date = date
+           self.questionsCompleted = questionsCompleted
+           self.correctAnswers = correctAnswers
+           self.totalTime = totalTime
+       }
 }
 
 
@@ -8359,6 +8540,37 @@ struct DailyStatsView: View {
         case year = "Year"
     }
     
+    var dailyProgressBinding: Binding<[DailyProgress]> {
+        Binding(
+            get: { viewModel.weeklyProgress },
+            set: { viewModel.weeklyProgress = $0 }
+        )
+    }
+    
+    // weeklyProgress에서 오늘의 데이터만 정확하게 가져오기
+    private var todayStats: DailyProgress? {
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // 디버그: 현재 weeklyProgress 상태 출력
+        print("DailyStatsView: Getting today's stats")
+        viewModel.weeklyProgress.forEach { progress in
+            print("Date: \(progress.date), Questions: \(progress.questionsCompleted)")
+        }
+        
+        let stats = viewModel.weeklyProgress
+            .first { calendar.isDate($0.date, inSameDayAs: today) }
+        
+        if let stats = stats {
+            print("Found today's stats: Questions=\(stats.questionsCompleted)")
+        } else {
+            print("No stats found for today")
+        }
+        
+        return stats
+    }
+    
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -8378,15 +8590,13 @@ struct DailyStatsView: View {
                     
                     Chart {
                         ForEach(viewModel.weeklyProgress) { progress in
-                            // Total Questions Bar
                             BarMark(
                                 x: .value("Date", progress.date, unit: .day),
                                 y: .value("Questions", progress.questionsCompleted)
                             )
                             .position(by: .value("Type", "Total"))
                             .foregroundStyle(.blue.opacity(0.3))
-
-                            // Correct Answers Bar
+                            
                             BarMark(
                                 x: .value("Date", progress.date, unit: .day),
                                 y: .value("Questions", progress.correctAnswers)
@@ -8394,6 +8604,10 @@ struct DailyStatsView: View {
                             .position(by: .value("Type", "Correct"))
                             .foregroundStyle(.green)
                         }
+                    }
+                    .onChange(of: viewModel.completedQuestions) { _ in
+                        viewModel.updateStats(correctAnswers: viewModel.correctAnswers,
+                                            totalQuestions: viewModel.completedQuestions)
                     }
                     .frame(height: 200)
                     .chartLegend(position: .top)
@@ -8414,31 +8628,19 @@ struct DailyStatsView: View {
                 ], spacing: 16) {
                     DailyStatCard(
                         title: "Today's Questions",
-                        value: "\(viewModel.completedQuestions)",
-                        trend: "+5",
+                        value: "\(todayStats?.questionsCompleted ?? 0)",  // 수정된 부분
+                        trend: "",  // trend는 일단 빈 문자열로
                         trendUp: true
                     )
                     
                     DailyStatCard(
                         title: "Accuracy",
-                        value: String(format: "%.1f%%", viewModel.accuracyRate),
-                        trend: "+2.3%",
-                        trendUp: true
-                    )
-                    
-                    DailyStatCard(
-                        title: "Study Time",
-                        value: "45min",
-                        trend: "+10min",
-                        trendUp: true
-                    )
-                    
-                    DailyStatCard(
-                        title: "Current Streak",
-                        value: "\(viewModel.streak) days",
+                        value: String(format: "%.1f%%", todayStats?.accuracy ?? 0),  // 수정된 부분
                         trend: "",
                         trendUp: true
                     )
+
+                    
                 }
                 .padding()
                 

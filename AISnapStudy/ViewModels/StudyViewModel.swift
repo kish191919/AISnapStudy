@@ -31,6 +31,7 @@ class StudyViewModel: ObservableObject {
     
     func setStatViewModel(_ viewModel: StatViewModel) {
         self.statViewModel = viewModel
+        print("StatViewModel connected: \(viewModel)")  // 연결 확인 로그
     }
 
     func updateGeneratedQuestions(_ question: Question) {
@@ -156,57 +157,40 @@ class StudyViewModel: ObservableObject {
         print("✅ Questions loaded: \(currentQuestion?.question ?? "No question loaded")")
     }
    
-   private func setupCurrentSession() {
-       let session = CDStudySession(context: context)
-       session.startTime = Date()
-       currentSession = session
-       saveContext()
-   }
+    private func setupCurrentSession() {
+        let session = CDStudySession(context: context)
+        session.startTime = Date()
+        session.questions = NSSet() // Initialize empty questions set
+        currentSession = session
+        saveContext()
+        print("📝 New study session created at: \(session.startTime?.description ?? "unknown")")
+    }
    
     func submitAnswer() {
         guard let currentQuestion = currentQuestion else { return }
         
-        print("Debug True/False Detailed:")
-        print("Selected Answer (raw): \(selectedAnswer ?? "nil")")
-        print("Selected Answer (lowercased): \(selectedAnswer?.lowercased() ?? "nil")")
-        print("Correct Answer (raw): \(currentQuestion.correctAnswer)")
-        print("Correct Answer (lowercased): \(currentQuestion.correctAnswer.lowercased())")
-        print("Are they equal? \(currentQuestion.correctAnswer.lowercased() == selectedAnswer?.lowercased())")
-        print("Length of selected answer: \(selectedAnswer?.count ?? 0)")
-        print("Length of correct answer: \(currentQuestion.correctAnswer.count)")
-        
-        // Trim whitespace and convert to lowercase for comparison
         let trimmedSelected = selectedAnswer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        
         let isCorrect = trimmedSelected == trimmedCorrect
         
         if isCorrect {
             correctAnswers += 1
-            // Update score in StatViewModel
-            DispatchQueue.main.async {
-                self.statViewModel?.correctAnswers = self.correctAnswers
-                // Debug log for score update
-                print("✅ Correct answer! Total correct: \(self.correctAnswers)")
-            }
         }
-
-        print("Trimmed Selected: '\(trimmedSelected ?? "nil")'")
-        print("Trimmed Correct: '\(trimmedCorrect)'")
-        print("Final comparison result: \(isCorrect)")
         
-
-        if let session = currentSession {
-            let question = CDQuestion(context: context)
-            question.isCorrect = isCorrect
-            question.question = currentQuestion.question
-            question.session = session
-            saveContext()
-        }
+        // StatViewModel 업데이트
+        NotificationCenter.default.post(
+            name: .studyProgressDidUpdate,
+            object: nil,
+            userInfo: [
+                "currentIndex": currentIndex + 1,
+                "correctAnswers": correctAnswers
+            ]
+        )
         
         showExplanation = true
     }
-
+    
+    
    func nextQuestion() {
        guard currentIndex < questions.count - 1 else { return }
        currentIndex += 1
@@ -219,13 +203,16 @@ class StudyViewModel: ObservableObject {
        saveContext()
    }
    
-   private func saveContext() {
-       do {
-           try context.save()
-       } catch {
-           print("Failed to save context: \(error)")
-       }
-   }
+    private func saveContext() {
+        do {
+            if context.hasChanges {
+                try context.save()
+                print("✅ Context saved successfully")
+            }
+        } catch {
+            print("❌ Failed to save context: \(error)")
+        }
+    }
    
    var hasQuestions: Bool {
        return !questions.isEmpty
