@@ -99,14 +99,14 @@ struct MainTabView: View {
                 totalQuestions: studyViewModel.totalQuestions
             )
             .tabItem {
-                Label("Stats", systemImage: "chart.bar.fill")
+                Label("Result", systemImage: "checkmark.circle.fill")
             }
             .tag(3)
             
             // 새로 추가된 DailyStatsView 탭
             DailyStatsView(viewModel: statViewModel)
                 .tabItem {
-                    Label("Daily", systemImage: "calendar")
+                    Label("Stats", systemImage: "chart.bar.fill")
                 }
                 .tag(4)
         }

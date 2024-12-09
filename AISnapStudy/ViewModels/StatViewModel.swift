@@ -11,6 +11,7 @@ class StatViewModel: ObservableObject {
             print("📊 StatViewModel score updated: \(correctAnswers * 10) points")
         }
     }
+    private var isResetting: Bool = false
     @Published var completedQuestions: Int = 0
     @Published var accuracyRate: Double = 0.0
     @Published var isLoading = false
@@ -147,6 +148,9 @@ class StatViewModel: ObservableObject {
     }
     
     func updateStats(correctAnswers: Int, totalQuestions: Int, isNewSession: Bool = false) {
+        // 리셋 중이면 통계 업데이트 건너뛰기
+        guard !isResetting else { return }
+        
         let today = Date()
         
         do {
@@ -431,6 +435,8 @@ class StatViewModel: ObservableObject {
     
     func resetProgress() {
         print("🔄 Starting resetProgress...")
+        isResetting = true  // 리셋 시작
+    
         
         // 현재까지의 통계를 저장
         let previousStats = (
@@ -467,6 +473,8 @@ class StatViewModel: ObservableObject {
                 • New Session Questions: \(currentProblemSet.questions.count)
                 """)
             }
+            
+            isResetting = false  // 리셋 완료
         }
     }
 }

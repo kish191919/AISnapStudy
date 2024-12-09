@@ -1,17 +1,17 @@
 import SwiftUI
 import Charts
 
+enum TimeRange: String, CaseIterable {
+    case week = "Week"
+    case month = "Month"
+}
+
 struct DailyStatsView: View {
     @State private var currentMonthDate = Date()  // 추가된 상태 변수
     @ObservedObject var viewModel: StatViewModel
     @State private var selectedTimeRange: TimeRange = .week
     @State private var selectedDate = Date()
     @State private var showingDatePicker = false
-    
-    enum TimeRange: String, CaseIterable {
-        case week = "Week"
-        case month = "Month"
-    }
     
     private var todayStats: DailyProgress? {
         let calendar = Calendar.current
@@ -57,7 +57,10 @@ struct DailyStatsView: View {
                 
                 StatsCircleContainer(
                     todayStats: todayStats,
-                    weeklyStats: viewModel.weeklyProgress
+                    weeklyStats: viewModel.weeklyProgress,
+                    monthlyProgress: viewModel.monthlyProgress,  // 추가
+                    selectedTimeRange: selectedTimeRange,        // 추가
+                    currentMonthDate: currentMonthDate
                 )
             }
             .padding()
@@ -232,25 +235,27 @@ struct CalendarDay: Identifiable, Hashable {
 }
 
 struct MonthCalendarView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let month: Date
     let monthlyData: [DailyProgress]
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     
     var body: some View {
-        VStack(spacing: 10) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
+        VStack(spacing: 15) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
                 // 요일 헤더
                 ForEach(daysInWeek, id: \.self) { day in
                     Text(day)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
                 }
                 
-                // 빈 셀 채우기 (월 시작 전)
+                // 빈 셀 채우기
                 ForEach(0..<firstWeekdayOfMonth, id: \.self) { _ in
                     Color.clear
-                        .frame(height: 35)
+                        .frame(height: 40)
                 }
                 
                 // 날짜 그리드
@@ -260,20 +265,24 @@ struct MonthCalendarView: View {
                         DayCellView(date: calendarDay.date, progress: progress)
                     } else {
                         Text(String(calendar.component(.day, from: calendarDay.date)))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(height: 35)
-                            .background(Color.white)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .primary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6))
+                            )
                     }
                 }
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(radius: 2)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color(.systemGray5) : Color(.systemBackground))
+        .cornerRadius(16)
     }
-    
+
     // 월의 첫 번째 날의 요일 (0 = 일요일, 6 = 토요일)
     private var firstWeekdayOfMonth: Int {
         guard let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) else {
@@ -323,6 +332,25 @@ struct MonthCalendarView: View {
 struct StatsCircleContainer: View {
     let todayStats: DailyProgress?
     let weeklyStats: [DailyProgress]
+    let monthlyProgress: [DailyProgress]  // 추가
+    let selectedTimeRange: TimeRange      // 추가
+    let currentMonthDate: Date           // 추가
+    
+    private var monthlyStats: (total: Int, correct: Int, incorrect: Int) {
+        let calendar = Calendar.current
+        let currentMonth = calendar.component(.month, from: currentMonthDate)
+        let currentYear = calendar.component(.year, from: currentMonthDate)
+        
+        let thisMonthProgress = monthlyProgress.filter { progress in
+            let progressMonth = calendar.component(.month, from: progress.date)
+            let progressYear = calendar.component(.year, from: progress.date)
+            return progressMonth == currentMonth && progressYear == currentYear
+        }
+        
+        let total = thisMonthProgress.reduce(0) { $0 + $1.questionsCompleted }
+        let correct = thisMonthProgress.reduce(0) { $0 + $1.correctAnswers }
+        return (total, correct, total - correct)
+    }
     
     var body: some View {
         HStack {
@@ -336,13 +364,25 @@ struct StatsCircleContainer: View {
             
             Spacer(minLength: 30)
             
-            CircleProgressView(
-                progress: calculateWeeklyProgress(),
-                title: "Weekly Accuracy",
-                total: calculateWeeklyTotal(),
-                correct: calculateWeeklyCorrect(),
-                incorrect: calculateWeeklyIncorrect()
-            )
+            if selectedTimeRange == .month {
+                // 월별 통계
+                CircleProgressView(
+                    progress: monthlyStats.total > 0 ? Double(monthlyStats.correct) / Double(monthlyStats.total) : 0,
+                    title: "Monthly Accuracy",
+                    total: monthlyStats.total,
+                    correct: monthlyStats.correct,
+                    incorrect: monthlyStats.incorrect
+                )
+            } else {
+                // 주간 통계
+                CircleProgressView(
+                    progress: calculateWeeklyProgress(),
+                    title: "Weekly Accuracy",
+                    total: calculateWeeklyTotal(),
+                    correct: calculateWeeklyCorrect(),
+                    incorrect: calculateWeeklyIncorrect()
+                )
+            }
         }
         .padding(.top)
     }
@@ -483,36 +523,36 @@ struct DailyStatCard: View {
     }
 }
 struct DayCellView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let date: Date
     let progress: DailyProgress
     
     private var activityColor: Color {
         let questionCount = progress.questionsCompleted
-        guard questionCount > 0 else { return .white }
-        let intensity = min(1.0, Double(questionCount) / 10.0)
-        return Color.green.opacity(0.2 + (intensity * 0.8))
+        guard questionCount > 0 else { return colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6) }
+        return Color.green
+    }
+    
+    private var textColor: Color {
+        colorScheme == .dark ? .white : .primary
     }
     
     var body: some View {
         ZStack {
-            Circle()
+            RoundedRectangle(cornerRadius: 8)
                 .fill(activityColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
             
-            if progress.questionsCompleted > 0 {
-                VStack(spacing: 2) {
-                    Text("\(Calendar.current.component(.day, from: date))")
-                        .font(.caption2)
-                    Text("\(progress.questionsCompleted)")
-                        .font(.system(size: 8))
-                        .foregroundColor(.primary)
-                }
-            } else {
+            VStack(spacing: 2) {
                 Text("\(Calendar.current.component(.day, from: date))")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                Text("\(progress.questionsCompleted)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
             }
         }
-        .frame(height: 35)
     }
 }
 
