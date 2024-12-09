@@ -4,8 +4,8 @@ import Foundation
 struct DailyProgress: Identifiable {
     let id = UUID()
     let date: Date
-    var questionsCompleted: Int  // let -> var로 변경
-    var correctAnswers: Int      // let -> var로 변경
+    var questionsCompleted: Int
+    var correctAnswers: Int
     let totalTime: TimeInterval
     
     var accuracy: Double {
@@ -13,8 +13,10 @@ struct DailyProgress: Identifiable {
         return Double(correctAnswers) / Double(questionsCompleted) * 100
     }
     
-    var day: String {
-        date.formatted(.dateTime.weekday(.abbreviated))
+    var week: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM/dd" // 월/일 형식
+        return formatter.string(from: date)
     }
     
     init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {

@@ -14,6 +14,9 @@ class StatViewModel: ObservableObject {
     @Published var completedQuestions: Int = 0
     @Published var accuracyRate: Double = 0.0
     @Published var isLoading = false
+    @Published var monthlyProgress: [DailyProgress] = []
+    @Published var yearlyProgress: [DailyProgress] = []
+    
     private var todaysSessionStats: (questions: Int, correct: Int) = (0, 0)
     private var existingStats: (questions: Int, correct: Int) = (0, 0)
     
@@ -66,6 +69,41 @@ class StatViewModel: ObservableObject {
             name: .studyProgressDidUpdate,
             object: nil
         )
+    }
+    
+    @MainActor
+    func loadStatsByPeriod(_ period: StatsPeriod) async {
+        isLoading = true
+        
+        do {
+            let stats = try await CoreDataService.shared.fetchStatsByPeriod(period)
+            await MainActor.run {
+                switch period {
+                case .day:
+                    weeklyProgress = processStats(stats)
+                case .month:
+                    monthlyProgress = processStats(stats)
+                case .year:
+                    yearlyProgress = processStats(stats)
+                }
+                objectWillChange.send()
+            }
+        } catch {
+            print("❌ Failed to load \(period) stats: \(error)")
+        }
+        
+        isLoading = false
+    }
+    
+    private func processStats(_ stats: [DailyStats]) -> [DailyProgress] {
+        return stats.map { stat in
+            DailyProgress(
+                date: stat.date,
+                questionsCompleted: stat.totalQuestions,
+                correctAnswers: stat.correctAnswers,
+                totalTime: 0
+            )
+        }
     }
     
     @objc private func handleStudyProgressUpdate(_ notification: Notification) {
@@ -435,4 +473,9 @@ class StatViewModel: ObservableObject {
 
 extension Notification.Name {
     static let studyProgressDidUpdate = Notification.Name("studyProgressDidUpdate")
+}
+
+
+enum StatsPeriod {
+   case day, month, year
 }

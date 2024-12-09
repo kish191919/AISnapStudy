@@ -7,3 +7,5 @@ import CoreData
 public class CDDailyStats: NSManagedObject {
 
 }
+
+

@@ -166,6 +166,58 @@ class CoreDataService {
         }
     }
     
+    func fetchStatsByPeriod(_ period: StatsPeriod) async throws -> [DailyStats] {
+       let context = persistentContainer.viewContext
+       let calendar = Calendar.current
+       let now = Date()
+       
+       let startDate: Date = switch period {
+           case .day:
+               calendar.date(byAdding: .day, value: -6, to: now)!
+           case .month:
+               calendar.date(byAdding: .month, value: -1, to: now)!
+           case .year:
+               calendar.date(byAdding: .year, value: -1, to: now)!
+       }
+       
+       // 시작일부터 현재까지의 모든 날짜 생성
+       var dates: [Date] = []
+       var date = startDate
+       while date <= now {
+           dates.append(date)
+           date = calendar.date(byAdding: .day, value: 1, to: date)!
+       }
+       
+       let request: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
+       request.predicate = NSPredicate(format: "date >= %@", startDate as NSDate)
+       request.sortDescriptors = [NSSortDescriptor(key: "date", ascending: true)]
+       
+       let existingStats = try context.fetch(request)
+       
+       // 각 날짜에 대해 통계 생성 (없으면 0으로 설정)
+       return dates.map { date in
+           if let existing = existingStats.first(where: { calendar.isDate($0.date ?? Date(), inSameDayAs: date) }) {
+               return DailyStats(
+                   id: UUID(),
+                   date: date,
+                   totalQuestions: Int(existing.totalQuestions),
+                   correctAnswers: Int(existing.correctAnswers),
+                   wrongAnswers: Int(existing.totalQuestions - existing.correctAnswers),
+                   timeSpent: 0
+               )
+           } else {
+               return DailyStats(
+                   id: UUID(),
+                   date: date,
+                   totalQuestions: 0,
+                   correctAnswers: 0,
+                   wrongAnswers: 0,
+                   timeSpent: 0
+               )
+           }
+       }
+    }
+    
     // viewContext에 대한 public 접근자 추가
     public var viewContext: NSManagedObjectContext {
         persistentContainer.viewContext
