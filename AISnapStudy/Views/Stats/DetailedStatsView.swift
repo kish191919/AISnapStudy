@@ -13,10 +13,7 @@ struct DetailedStatsView: View {
                     .padding()
                 
                 // Calendar View
-                CalendarStatsView(
-                    selectedMonth: $selectedMonth,
-                    monthlyData: viewModel.monthlyData
-                )
+                CalendarStatsView(monthlyData: viewModel.monthlyData)
                 .padding()
                 
                 // Stats Summary

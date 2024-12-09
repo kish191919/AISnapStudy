@@ -2,154 +2,452 @@ import SwiftUI
 import Charts
 
 struct DailyStatsView: View {
-   @ObservedObject var viewModel: StatViewModel
-   @State private var selectedTimeRange: TimeRange = .week
+    @State private var currentMonthDate = Date()  // 추가된 상태 변수
+    @ObservedObject var viewModel: StatViewModel
+    @State private var selectedTimeRange: TimeRange = .week
     @State private var selectedDate = Date()
     @State private var showingDatePicker = false
-   
-
-
-   
-   // Stats 카드를 별도 View로 분리
-   private var statsCards: some View {
-       LazyVGrid(columns: [
-           GridItem(.flexible()),
-           GridItem(.flexible())
-       ], spacing: 16) {
-           DailyStatCard(
-               title: "Today's Questions",
-               value: "\(todayStats?.questionsCompleted ?? 0)",
-               trend: "",
-               trendUp: true
-           )
-           
-           DailyStatCard(
-               title: "Accuracy",
-               value: String(format: "%.1f%%", todayStats?.accuracy ?? 0),
-               trend: "",
-               trendUp: true
-           )
-       }
-   }
-   
-   // Activity Summary를 별도 View로 분리
-   private var activitySummary: some View {
-       VStack(alignment: .leading, spacing: 12) {
-           Text("Activity Summary")
-               .font(.headline)
-           
-           VStack(spacing: 16) {
-               ActivityRow(title: "Most Active Day", value: "Wednesday", icon: "calendar", color: .blue)
-               ActivityRow(title: "Best Subject", value: "Mathematics", icon: "function", color: .green)
-               ActivityRow(title: "Study Streak", value: "\(viewModel.streak) days", icon: "flame.fill", color: .orange)
-           }
-       }
-   }
-
+    
+    enum TimeRange: String, CaseIterable {
+        case week = "Week"
+        case month = "Month"
+    }
+    
+    private var todayStats: DailyProgress? {
+        let calendar = Calendar.current
+        return viewModel.weeklyProgress.first {
+            calendar.isDate($0.date, inSameDayAs: Date())
+        }
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 timePicker
-                weeklyProgressChart
-                statsCards.padding()
-                activitySummary
-                    .padding()
-                    .background(Color(.systemBackground))
-                    .cornerRadius(12)
-                    .shadow(radius: 2)
+                
+                switch selectedTimeRange {
+                case .week:
+                    weeklyProgressChart
+                case .month:
+                    VStack(spacing: 10) {
+                        // 월 이동 컨트롤
+                        HStack {
+                            Button(action: previousMonth) {
+                                Image(systemName: "chevron.left")
+                                    .font(.title3)
+                            }
+                            
+                            Text(monthYearString)
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                            
+                            Button(action: nextMonth) {
+                                Image(systemName: "chevron.right")
+                                    .font(.title3)
+                            }
+                        }
+                        .padding(.horizontal)
+                        
+                        MonthCalendarView(
+                            month: currentMonthDate,
+                            monthlyData: viewModel.monthlyProgress
+                        )
+                    }
+                }
+                
+                StatsCircleContainer(
+                    todayStats: todayStats,
+                    weeklyStats: viewModel.weeklyProgress
+                )
             }
             .padding()
         }
         .navigationTitle("Daily Statistics")
     }
     
-    private var weeklyProgressChart: some View {
-           VStack(alignment: .leading, spacing: 16) {
-               Text("Weekly Progress")
-                   .font(.headline)
-               
-               Chart {
-                   ForEach(viewModel.weeklyProgress) { progress in
-                       BarMark(
-                           x: .value("Day", progress.week),
-                           y: .value("Questions", progress.questionsCompleted)
-                       )
-                       .position(by: .value("Type", "Total"))
-                       .foregroundStyle(.blue.opacity(0.3))
-                       
-                       BarMark(
-                           x: .value("Day", progress.week),
-                           y: .value("Questions", progress.correctAnswers)
-                       )
-                       .position(by: .value("Type", "Correct"))
-                       .foregroundStyle(.green)
-                   }
-               }
-               .frame(height: 200)
-               .chartLegend(position: .top)
-               .chartForegroundStyleScale([
-                   "Total": .blue.opacity(0.3),
-                   "Correct": .green
-               ])
-           }
-           .padding()
-           .background(Color(.systemBackground))
-           .cornerRadius(12)
-           .shadow(radius: 2)
-       }
-
-   private var timePicker: some View {
-       Picker("Time Range", selection: $selectedTimeRange) {
-           ForEach(TimeRange.allCases, id: \.self) { range in
-               Text(range.rawValue).tag(range)
-           }
-       }
-       .pickerStyle(.segmented)
-       .padding()
-       .onChange(of: selectedTimeRange) { newRange in
-           let period: StatsPeriod = switch newRange {
-               case .week: .day
-               case .month: .month
-               case .year: .year
-           }
-           Task {
-               await viewModel.loadStatsByPeriod(period)
-           }
-       }
-   }
+    private var monthYearString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: currentMonthDate)
+    }
     
+    private func previousMonth() {
+        if let newDate = Calendar.current.date(byAdding: .month, value: -1, to: currentMonthDate) {
+            currentMonthDate = newDate
+        }
+    }
+    
+    private func nextMonth() {
+        if let newDate = Calendar.current.date(byAdding: .month, value: 1, to: currentMonthDate) {
+            currentMonthDate = newDate
+        }
+    }
 
+    
+    
+    private var weeklyProgressChart: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Weekly Progress")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            Chart {
+                ForEach(viewModel.weeklyProgress) { progress in
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.questionsCompleted)
+                    )
+                    .position(by: .value("Type", "Total"))
+                    .foregroundStyle(.blue.opacity(0.3))
+                    
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.correctAnswers)
+                    )
+                    .position(by: .value("Type", "Correct"))
+                    .foregroundStyle(.green)
+                }
+            }
+            .frame(height: 200)
+            .padding(.horizontal, 20)
+            .chartLegend(position: .top)
+            .chartForegroundStyleScale([
+                "Total": .blue.opacity(0.3),
+                "Correct": .green
+            ])
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var monthlyProgressChart: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Monthly Progress")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            Chart {
+                ForEach(viewModel.monthlyProgress) { progress in
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.questionsCompleted)
+                    )
+                    .position(by: .value("Type", "Total"))
+                    .foregroundStyle(.blue.opacity(0.3))
+                    
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.correctAnswers)
+                    )
+                    .position(by: .value("Type", "Correct"))
+                    .foregroundStyle(.green)
+                }
+            }
+            .frame(height: 200)
+            .padding(.horizontal, 20)
+            .chartLegend(position: .top)
+            .chartForegroundStyleScale([
+                "Total": .blue.opacity(0.3),
+                "Correct": .green
+            ])
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var yearlyProgressChart: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Yearly Progress")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            Chart {
+                ForEach(viewModel.yearlyProgress) { progress in
+                    BarMark(
+                        x: .value("Month", progress.week),
+                        y: .value("Questions", progress.questionsCompleted)
+                    )
+                    .position(by: .value("Type", "Total"))
+                    .foregroundStyle(.blue.opacity(0.3))
+                    
+                    BarMark(
+                        x: .value("Month", progress.week),
+                        y: .value("Questions", progress.correctAnswers)
+                    )
+                    .position(by: .value("Type", "Correct"))
+                    .foregroundStyle(.green)
+                }
+            }
+            .frame(height: 200)
+            .padding(.horizontal, 20)
+            .chartLegend(position: .top)
+            .chartForegroundStyleScale([
+                "Total": .blue.opacity(0.3),
+                "Correct": .green
+            ])
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var timePicker: some View {
+        Picker("Time Range", selection: $selectedTimeRange) {
+            ForEach(TimeRange.allCases, id: \.self) { range in
+                Text(range.rawValue).tag(range)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding()
+        .onChange(of: selectedTimeRange) { _ in
+            let period: StatsPeriod = switch selectedTimeRange {
+                case .week: .day
+                case .month: .month
+            }
+            Task {
+                await viewModel.loadStatsByPeriod(period)
+            }
+        }
+    }
+}
 
+struct CalendarDay: Identifiable, Hashable {
+    let id: Int
+    let date: Date
+    
+    // Hashable 구현
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(date)
+    }
+    
+    static func == (lhs: CalendarDay, rhs: CalendarDay) -> Bool {
+        return lhs.id == rhs.id && lhs.date == rhs.date
+    }
+}
+
+struct MonthCalendarView: View {
+    let month: Date
+    let monthlyData: [DailyProgress]
+    private let calendar = Calendar.current
+    private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    var body: some View {
+        VStack(spacing: 10) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
+                // 요일 헤더
+                ForEach(daysInWeek, id: \.self) { day in
+                    Text(day)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                // 빈 셀 채우기 (월 시작 전)
+                ForEach(0..<firstWeekdayOfMonth, id: \.self) { _ in
+                    Color.clear
+                        .frame(height: 35)
+                }
+                
+                // 날짜 그리드
+                ForEach(calendarDays, id: \.id) { calendarDay in
+                    if let progress = progressForDate(calendarDay.date),
+                       progress.questionsCompleted > 0 {
+                        DayCellView(date: calendarDay.date, progress: progress)
+                    } else {
+                        Text(String(calendar.component(.day, from: calendarDay.date)))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(height: 35)
+                            .background(Color.white)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    // 월의 첫 번째 날의 요일 (0 = 일요일, 6 = 토요일)
+    private var firstWeekdayOfMonth: Int {
+        guard let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) else {
+            return 0
+        }
+        return calendar.component(.weekday, from: firstDay) - 1
+    }
+    
+    private var calendarDays: [CalendarDay] {
+        guard let range = calendar.range(of: .day, in: .month, for: month) else {
+            return []
+        }
+        
+        return (1...range.count).map { day -> CalendarDay in
+            let components = calendar.dateComponents([.year, .month], from: month)
+            var newComponents = DateComponents()
+            newComponents.year = components.year
+            newComponents.month = components.month
+            newComponents.day = day
+            let date = calendar.date(from: newComponents) ?? month
+            return CalendarDay(id: day, date: date)
+        }
+    }
+    
+    private func progressForDate(_ date: Date) -> DailyProgress? {
+        monthlyData.first { calendar.isDate($0.date, inSameDayAs: date) }
+    }
+    
+    private var monthString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: month)
+    }
+    
+    private var daysInMonth: [Date] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: month),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let monthLastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end) else {
+            return []
+        }
+        
+        let dateInterval = DateInterval(start: monthFirstWeek.start, end: monthLastWeek.end)
+        return calendar.generateDates(for: dateInterval, matching: DateComponents(hour: 0))
+    }
+}
+
+struct StatsCircleContainer: View {
+    let todayStats: DailyProgress?
+    let weeklyStats: [DailyProgress]
+    
+    var body: some View {
+        HStack {
+            CircleProgressView(
+                progress: Double(todayStats?.correctAnswers ?? 0) / Double(max(1, todayStats?.questionsCompleted ?? 1)),
+                title: "Today's Accuracy",
+                total: todayStats?.questionsCompleted ?? 0,
+                correct: todayStats?.correctAnswers ?? 0,
+                incorrect: (todayStats?.questionsCompleted ?? 0) - (todayStats?.correctAnswers ?? 0)
+            )
+            
+            Spacer(minLength: 30)
+            
+            CircleProgressView(
+                progress: calculateWeeklyProgress(),
+                title: "Weekly Accuracy",
+                total: calculateWeeklyTotal(),
+                correct: calculateWeeklyCorrect(),
+                incorrect: calculateWeeklyIncorrect()
+            )
+        }
+        .padding(.top)
+    }
+    
+    private func calculateWeeklyProgress() -> Double {
+        let total = weeklyStats.reduce(0) { $0 + $1.questionsCompleted }
+        let correct = weeklyStats.reduce(0) { $0 + $1.correctAnswers }
+        return total > 0 ? Double(correct) / Double(total) : 0
+    }
+    
+    private func calculateWeeklyTotal() -> Int {
+        weeklyStats.reduce(0) { $0 + $1.questionsCompleted }
+    }
+    
+    private func calculateWeeklyCorrect() -> Int {
+        weeklyStats.reduce(0) { $0 + $1.correctAnswers }
+    }
+    
+    private func calculateWeeklyIncorrect() -> Int {
+        let total = calculateWeeklyTotal()
+        let correct = calculateWeeklyCorrect()
+        return total - correct
+    }
+}
+
+struct CircleProgressView: View {
+    let progress: Double
+    let title: String
+    let total: Int
+    let correct: Int
+    let incorrect: Int
+    
+    var body: some View {
+        VStack {
+            ZStack {
+                Circle()
+                    .stroke(lineWidth: 20)
+                    .opacity(0.3)
+                    .foregroundColor(.blue)
+                
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(style: StrokeStyle(lineWidth: 25, lineCap: .round))
+                    .foregroundColor(.green)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear, value: progress)
+                
+                VStack {
+                    Text("\(Int(progress * 100))%")
+                        .font(.headline)
+                        .bold()
+                    Text(title)
+                        .font(.caption2)
+                }
+            }
+            .frame(width: 150, height: 150)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                VStack {
+                    Text("Correct: \(correct)")
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                }
+                
+                VStack {
+                    Text("Incorrect: \(incorrect)")
+                        .font(.subheadline)
+                        .foregroundColor(.red)
+                }
+                
+                VStack {
+                    Text("Total: \(total)")
+                        .font(.subheadline)
+                }
+            }
+            .padding(.top)
+        }
+        .padding()
+    }
+}
+
+struct ActivityRow: View {
+   let title: String
+   let value: String
+   let icon: String
+   let color: Color
    
-   enum TimeRange: String, CaseIterable {
-       case week = "Week"
-       case month = "Month"
-       case year = "Year"
-   }
-   
-   var dailyProgressBinding: Binding<[DailyProgress]> {
-       Binding(
-           get: { viewModel.weeklyProgress },
-           set: { viewModel.weeklyProgress = $0 }
-       )
-   }
-   
-   private var todayStats: DailyProgress? {
-       let calendar = Calendar.current
-       let today = Date()
-       
-       let stats = viewModel.weeklyProgress
-           .first { calendar.isDate($0.date, inSameDayAs: today) }
-       
-       if let stats = stats {
-           print("Found today's stats: Questions=\(stats.questionsCompleted)")
-       } else {
-           print("No stats found for today")
-       }
-       
-       return stats
-   }
-   
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .font(.title2)
+                .frame(width: 30)
+            
+            VStack(alignment: .leading) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.headline)
+            }
+            
+            Spacer()
+        }
+    }
 }
 
 struct DailyStatCard: View {
@@ -184,28 +482,57 @@ struct DailyStatCard: View {
         .shadow(radius: 2)
     }
 }
-
-struct ActivityRow: View {
-    let title: String
-    let value: String
-    let icon: String
-    let color: Color
+struct DayCellView: View {
+    let date: Date
+    let progress: DailyProgress
+    
+    private var activityColor: Color {
+        let questionCount = progress.questionsCompleted
+        guard questionCount > 0 else { return .white }
+        let intensity = min(1.0, Double(questionCount) / 10.0)
+        return Color.green.opacity(0.2 + (intensity * 0.8))
+    }
     
     var body: some View {
-        HStack {
-            Image(systemName: icon)
-                .foregroundColor(color)
-                .frame(width: 30)
+        ZStack {
+            Circle()
+                .fill(activityColor)
             
-            Text(title)
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Text(value)
-                .bold()
+            if progress.questionsCompleted > 0 {
+                VStack(spacing: 2) {
+                    Text("\(Calendar.current.component(.day, from: date))")
+                        .font(.caption2)
+                    Text("\(progress.questionsCompleted)")
+                        .font(.system(size: 8))
+                        .foregroundColor(.primary)
+                }
+            } else {
+                Text("\(Calendar.current.component(.day, from: date))")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
         }
+        .frame(height: 35)
     }
 }
 
+extension Calendar {
+    func generateDates(
+        for dateInterval: DateInterval,
+        matching components: DateComponents
+    ) -> [Date] {
+        var dates: [Date] = []
+        dates.reserveCapacity(40)
 
+        var date = dateInterval.start
+        repeat {
+            dates.append(date)
+            guard let nextDate = self.nextDate(after: date, matching: components, matchingPolicy: .nextTime) else {
+                break
+            }
+            date = nextDate
+        } while date <= dateInterval.end
+
+        return dates
+    }
+}

@@ -1,27 +1,6 @@
 import Foundation
 
 extension Calendar {
-    func generateDates(
-        for dateInterval: DateInterval,
-        matching components: DateComponents
-    ) -> [Date] {
-        var dates: [Date] = []
-        dates.reserveCapacity(40)
-        
-        var date = dateInterval.start
-        
-        while date <= dateInterval.end {
-            dates.append(date)
-            guard let nextDate = self.date(
-                byAdding: .day,
-                value: 1,
-                to: date
-            ) else { break }
-            date = nextDate
-        }
-        
-        return dates
-    }
     
     func monthDateRange(for date: Date) -> (start: Date, end: Date) {
         let components = dateComponents([.year, .month], from: date)

@@ -1,10 +1,34 @@
 import SwiftUI
 
+
+
 struct CalendarStatsView: View {
-    @Binding var selectedMonth: Date
+    @State private var selectedMonth = Date()  // 내부에서 상태 관리
     let monthlyData: [Date: [DailyStats]]
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    private var calendarDays: [CalendarDay] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: selectedMonth),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let monthLastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end) else {
+            return []
+        }
+        
+        let dateInterval = DateInterval(start: monthFirstWeek.start, end: monthLastWeek.end)
+        let dates = calendar.generateDates(for: dateInterval, matching: DateComponents(hour: 0))
+        
+        return dates.enumerated().map { CalendarDay(id: $0, date: $1) }
+    }
+    
+    private func convertToDailyProgress(_ stats: DailyStats) -> DailyProgress {
+        return DailyProgress(
+            date: stats.date,
+            questionsCompleted: stats.totalQuestions,
+            correctAnswers: stats.correctAnswers,
+            totalTime: 0  // 시간 데이터가 없다면 0으로 설정
+        )
+    }
     
     var body: some View {
         VStack {
@@ -24,18 +48,25 @@ struct CalendarStatsView: View {
             .padding(.bottom)
             
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
-                ForEach(daysInWeek, id: \.self) { day in
-                    Text(day)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                ForEach(days, id: \.self) { date in
-                    if let stats = statsFor(date: date) {
-                        DayCellView(stats: stats)
-                    } else {
-                        Color.clear
-                            .aspectRatio(1, contentMode: .fit)
+                 // 요일 헤더
+                 ForEach(daysInWeek, id: \.self) { day in
+                     Text(day)
+                         .font(.caption)
+                         .foregroundColor(.secondary)
+                 }
+                 
+                 // 날짜 그리드
+                 ForEach(calendarDays, id: \.id) { calendarDay in
+                     if let stats = statsFor(date: calendarDay.date) {
+                         DayCellView(
+                             date: calendarDay.date,
+                             progress: convertToDailyProgress(stats)
+                         )
+                     } else {
+                         Text(String(calendar.component(.day, from: calendarDay.date)))
+                             .font(.caption)
+                             .foregroundColor(.secondary)
+                             .frame(height: 35)
                     }
                 }
             }
@@ -69,7 +100,6 @@ struct CalendarStatsView: View {
         return stats.first { calendar.isDate($0.date, inSameDayAs: date) }
     }
     
-    
     private func previousMonth() {
         selectedMonth = calendar.date(byAdding: .month, value: -1, to: selectedMonth) ?? selectedMonth
     }
@@ -79,32 +109,4 @@ struct CalendarStatsView: View {
     }
 }
 
-struct DayCellView: View {
-    let stats: DailyStats
-    
-    private var accuracyColor: Color {
-        let accuracy = stats.accuracy
-        switch accuracy {
-        case 90...100: return .green
-        case 70..<90: return .blue
-        case 50..<70: return .orange
-        default: return .red
-        }
-    }
-    
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(accuracyColor.opacity(0.2))
-            
-            VStack(spacing: 2) {
-                Text("\(Calendar.current.component(.day, from: stats.date))")
-                    .font(.caption2)
-                Text("\(Int(stats.accuracy))%")
-                    .font(.system(size: 8))
-                    .foregroundColor(accuracyColor)
-            }
-        }
-        .aspectRatio(1, contentMode: .fit)
-    }
-}
+
