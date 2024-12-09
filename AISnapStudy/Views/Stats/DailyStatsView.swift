@@ -25,12 +25,6 @@ struct DailyStatsView: View {
         let calendar = Calendar.current
         let today = Date()
         
-        // 디버그: 현재 weeklyProgress 상태 출력
-        print("DailyStatsView: Getting today's stats")
-        viewModel.weeklyProgress.forEach { progress in
-            print("Date: \(progress.date), Questions: \(progress.questionsCompleted)")
-        }
-        
         let stats = viewModel.weeklyProgress
             .first { calendar.isDate($0.date, inSameDayAs: today) }
         

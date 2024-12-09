@@ -1,10 +1,5 @@
-
-
-
 import CoreData
 import Foundation
-
-
 
 class CoreDataService {
     static let shared = CoreDataService()
@@ -421,6 +416,84 @@ extension CoreDataService {
         if let cdProblemSet = try context.fetch(request).first {
             context.delete(cdProblemSet)
             try context.save()
+        }
+    }
+}
+
+extension CoreDataService {
+    func saveDailyStats(_ stats: DailyStats) throws {
+        let context = viewContext
+        let today = Calendar.current.startOfDay(for: Date())
+        
+        let fetchRequest: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "date >= %@ AND date < %@",
+            today as NSDate,
+            Calendar.current.date(byAdding: .day, value: 1, to: today)! as NSDate
+        )
+        
+        do {
+            let existingStats = try context.fetch(fetchRequest)
+            let dailyStats: CDDailyStats
+            
+            if let existing = existingStats.first {
+                print("📊 Found existing stats - Questions: \(existing.totalQuestions), Correct: \(existing.correctAnswers)")
+                dailyStats = existing
+                // 누적 처리
+                dailyStats.totalQuestions += 1  // 항상 1씩 증가
+                if stats.correctAnswers > existing.correctAnswers {
+                    dailyStats.correctAnswers += 1
+                }
+            } else {
+                print("📊 Creating new daily stats")
+                dailyStats = CDDailyStats(context: context)
+                dailyStats.date = today
+                dailyStats.totalQuestions = 1
+                dailyStats.correctAnswers = Int32(stats.correctAnswers)
+            }
+            
+            try context.save()
+            
+            print("""
+            ✅ Daily stats saved:
+            • Date: \(today)
+            • Previous Total: \(existingStats.first?.totalQuestions ?? 0)
+            • New Total: \(dailyStats.totalQuestions)
+            • Previous Correct: \(existingStats.first?.correctAnswers ?? 0)
+            • New Correct: \(dailyStats.correctAnswers)
+            """)
+            
+        } catch {
+            print("❌ Failed to save daily stats: \(error)")
+            throw error
+        }
+    }
+
+    func fetchDailyStats(for date: Date = Date()) throws -> DailyStats? {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let fetchRequest: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "date >= %@ AND date < %@",
+            startOfDay as NSDate,
+            endOfDay as NSDate
+        )
+        
+        do {
+            if let stats = try viewContext.fetch(fetchRequest).first {
+                return DailyStats(
+                    id: UUID(),
+                    date: startOfDay,
+                    totalQuestions: Int(stats.totalQuestions),
+                    correctAnswers: Int(stats.correctAnswers),
+                    wrongAnswers: Int(stats.totalQuestions - stats.correctAnswers),
+                    timeSpent: 0
+                )
+            }
+            return nil
+        } catch {
+            print("❌ Failed to fetch daily stats: \(error)")
+            throw error
         }
     }
 }

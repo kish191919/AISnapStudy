@@ -13,6 +13,8 @@
 		9856069C2CF22B4300D2BB60 /* CDQuestion+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9856069A2CF22B4300D2BB60 /* CDQuestion+CoreDataProperties.swift */; };
 		9858D8A72CE18737000A04C0 /* CDStudySession+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */; };
 		9858D8AA2CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */; };
+		98BCE82B2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98BCE82A2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift */; };
+		98BCE82C2D04936D000897D9 /* CDDailyStats+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98BCE8292D04936D000897D9 /* CDDailyStats+CoreDataClass.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +25,8 @@
 		9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift"; sourceTree = "<group>"; };
 		9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		989CC9FD2CE135CA00E25D14 /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		98BCE8292D04936D000897D9 /* CDDailyStats+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDDailyStats+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDDailyStats+CoreDataClass.swift"; sourceTree = "<group>"; };
+		98BCE82A2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDDailyStats+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDDailyStats+CoreDataProperties.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -60,6 +64,8 @@
 		989CC9F42CE135CA00E25D14 = {
 			isa = PBXGroup;
 			children = (
+				98BCE8292D04936D000897D9 /* CDDailyStats+CoreDataClass.swift */,
+				98BCE82A2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift */,
 				985606992CF22B4300D2BB60 /* CDQuestion+CoreDataClass.swift */,
 				9856069A2CF22B4300D2BB60 /* CDQuestion+CoreDataProperties.swift */,
 				985606712CF21EA000D2BB60 /* CDProblemSet+CoreDataClass.swift */,
@@ -155,6 +161,8 @@
 			files = (
 				9856069B2CF22B4300D2BB60 /* CDQuestion+CoreDataClass.swift in Sources */,
 				9856069C2CF22B4300D2BB60 /* CDQuestion+CoreDataProperties.swift in Sources */,
+				98BCE82B2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift in Sources */,
+				98BCE82C2D04936D000897D9 /* CDDailyStats+CoreDataClass.swift in Sources */,
 				985606772CF21EA000D2BB60 /* CDProblemSet+CoreDataProperties.swift in Sources */,
 				985606782CF21EA000D2BB60 /* CDProblemSet+CoreDataClass.swift in Sources */,
 				9858D8A72CE18737000A04C0 /* CDStudySession+CoreDataClass.swift in Sources */,
@@ -217,7 +225,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -274,7 +282,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.1;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;

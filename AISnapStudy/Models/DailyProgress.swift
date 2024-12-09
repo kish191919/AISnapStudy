@@ -4,8 +4,8 @@ import Foundation
 struct DailyProgress: Identifiable {
     let id = UUID()
     let date: Date
-    var questionsCompleted: Int  // let -> var
-    var correctAnswers: Int      // let -> var
+    var questionsCompleted: Int  // let -> var로 변경
+    var correctAnswers: Int      // let -> var로 변경
     let totalTime: TimeInterval
     
     var accuracy: Double {
@@ -18,9 +18,9 @@ struct DailyProgress: Identifiable {
     }
     
     init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {
-           self.date = date
-           self.questionsCompleted = questionsCompleted
-           self.correctAnswers = correctAnswers
-           self.totalTime = totalTime
-       }
+        self.date = date
+        self.questionsCompleted = questionsCompleted
+        self.correctAnswers = correctAnswers
+        self.totalTime = totalTime
+    }
 }

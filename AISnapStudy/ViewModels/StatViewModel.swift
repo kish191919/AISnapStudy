@@ -57,6 +57,9 @@ class StatViewModel: ObservableObject {
         setupObservers()
     }
     private func setupObservers() {
+        // 기존 observer 제거
+        NotificationCenter.default.removeObserver(self)
+        
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleStudyProgressUpdate),
@@ -71,19 +74,19 @@ class StatViewModel: ObservableObject {
             return
         }
         
-        // 새로운 문제가 완료될 때마다 통계 업데이트
-        let addedQuestions = 1  // 한 문제씩 추가
-        let addedCorrect = correctAnswers - self.correctAnswers  // 새로운 정답만큼만 추가
-        
-        updateStats(
-            correctAnswers: addedCorrect,
-            totalQuestions: addedQuestions,
-            isNewSession: false
-        )
-        
-        self.correctAnswers = correctAnswers
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let addedCorrect = correctAnswers - self.correctAnswers
+            
+            self.updateStats(
+                correctAnswers: addedCorrect,
+                totalQuestions: 1,
+                isNewSession: false
+            )
+            
+            self.correctAnswers = correctAnswers
+        }
     }
-    
     var currentSessionScore: Int {
         return correctAnswers * 10  // 계산 속성으로 변경
     }
@@ -106,45 +109,61 @@ class StatViewModel: ObservableObject {
     }
     
     func updateStats(correctAnswers: Int, totalQuestions: Int, isNewSession: Bool = false) {
-         let today = Date()
-         
-         // 기존 통계를 찾거나 새로 생성
-         if let existingIndex = weeklyProgress.firstIndex(where: {
-             Calendar.current.isDate($0.date, inSameDayAs: today)
-         }) {
-             let existingProgress = weeklyProgress[existingIndex]
-             let updatedQuestions = isNewSession ?
-                 existingProgress.questionsCompleted :
-                 existingProgress.questionsCompleted + totalQuestions
-             let updatedCorrect = isNewSession ?
-                 existingProgress.correctAnswers :
-                 existingProgress.correctAnswers + correctAnswers
-                 
-             weeklyProgress[existingIndex] = DailyProgress(
-                 date: today,
-                 questionsCompleted: updatedQuestions,
-                 correctAnswers: updatedCorrect,
-                 totalTime: existingProgress.totalTime
-             )
-         } else {
-             weeklyProgress.append(DailyProgress(
-                 date: today,
-                 questionsCompleted: totalQuestions,
-                 correctAnswers: correctAnswers,
-                 totalTime: 0.0
-             ))
-         }
-         
-         print("""
-         📊 Stats updated:
-         • Added Questions: \(totalQuestions)
-         • Added Correct: \(correctAnswers)
-         • Total Questions: \(weeklyProgress.last?.questionsCompleted ?? 0)
-         • New Session: \(isNewSession)
-         """)
-         
-         objectWillChange.send()
-     }
+        let today = Date()
+        
+        do {
+            // 1. 현재 저장된 통계 가져오기
+            let currentStats = try CoreDataService.shared.fetchDailyStats() ?? DailyStats(
+                id: UUID(),
+                date: today,
+                totalQuestions: 0,
+                correctAnswers: 0,
+                wrongAnswers: 0,
+                timeSpent: 0
+            )
+            
+            // 2. 단일 문제에 대한 통계 누적
+            let updatedStats = DailyStats(
+                id: currentStats.id,
+                date: today,
+                totalQuestions: currentStats.totalQuestions + 1,  // 현재 통계에 1 추가
+                correctAnswers: currentStats.correctAnswers + (correctAnswers > 0 ? 1 : 0),
+                wrongAnswers: currentStats.wrongAnswers + (correctAnswers > 0 ? 0 : 1),
+                timeSpent: currentStats.timeSpent
+            )
+            
+            // 3. 통계 저장
+            try CoreDataService.shared.saveDailyStats(updatedStats)
+            
+            print("""
+            📊 Stats updated:
+            • Previous Total: \(currentStats.totalQuestions)
+            • Added Questions: 1
+            • New Total: \(updatedStats.totalQuestions)
+            • Previous Correct: \(currentStats.correctAnswers)
+            • Added Correct: \(correctAnswers > 0 ? 1 : 0)
+            • New Correct: \(updatedStats.correctAnswers)
+            """)
+            
+            // 4. UI 업데이트
+            weeklyProgress = weeklyProgress.map { progress in
+                if Calendar.current.isDate(progress.date, inSameDayAs: today) {
+                    return DailyProgress(
+                        date: today,
+                        questionsCompleted: updatedStats.totalQuestions,
+                        correctAnswers: updatedStats.correctAnswers,
+                        totalTime: progress.totalTime
+                    )
+                }
+                return progress
+            }
+            
+            objectWillChange.send()
+            
+        } catch {
+            print("❌ Failed to update stats: \(error)")
+        }
+    }
     
     private func updateWeeklyProgress() {
         let today = Date()
@@ -182,33 +201,67 @@ class StatViewModel: ObservableObject {
     }
 
 
-    func loadStats() {
+    private func loadStats() {
         print("📊 Starting stats loading...")
         isLoading = true
-        let request: NSFetchRequest<CDStudySession> = CDStudySession.fetchRequest()
         
         do {
-            let sessions = try context.fetch(request)
-            calculateStats(from: sessions)
-            calculateWeeklyProgress(from: sessions)
-            
-            if let todayStats = weeklyProgress.last {
-                existingStats = (todayStats.questionsCompleted, todayStats.correctAnswers)
+            // 1. CoreData에서 오늘의 통계 불러오기
+            if let todayStats = try CoreDataService.shared.fetchDailyStats(for: Date()) {
+                existingStats = (todayStats.totalQuestions, todayStats.correctAnswers)
                 
                 DispatchQueue.main.async { [weak self] in
-                    self?.completedQuestions = todayStats.questionsCompleted
+                    self?.completedQuestions = todayStats.totalQuestions
                     self?.correctAnswers = todayStats.correctAnswers
                     self?.accuracyRate = todayStats.accuracy
                     print("""
-                    📊 Stats updated from weekly progress:
-                    • Questions: \(todayStats.questionsCompleted)
+                    📊 Stats loaded from CoreData:
+                    • Questions: \(todayStats.totalQuestions)
                     • Correct: \(todayStats.correctAnswers)
                     • Accuracy: \(todayStats.accuracy)%
                     """)
                 }
             }
+            
+            // 2. 주간 진행 상황 계산
+            let calendar = Calendar.current
+            let today = Date()
+            let weekAgo = calendar.date(byAdding: .day, value: -6, to: today)!
+            
+            var weekProgress: [DailyProgress] = []
+            
+            // 지난 7일간의 통계 불러오기
+            for dayOffset in 0...6 {
+                let date = calendar.date(byAdding: .day, value: dayOffset, to: weekAgo)!
+                if let stats = try CoreDataService.shared.fetchDailyStats(for: date) {
+                    weekProgress.append(DailyProgress(
+                        date: date,
+                        questionsCompleted: stats.totalQuestions,
+                        correctAnswers: stats.correctAnswers,
+                        totalTime: 0.0  // 시간 tracking이 필요하다면 나중에 추가
+                    ))
+                } else {
+                    // 해당 날짜의 데이터가 없으면 0으로 초기화
+                    weekProgress.append(DailyProgress(
+                        date: date,
+                        questionsCompleted: 0,
+                        correctAnswers: 0,
+                        totalTime: 0.0
+                    ))
+                }
+            }
+            
+            weeklyProgress = weekProgress
+            
+            print("""
+            📊 Weekly progress loaded:
+            • Total days: \(weekProgress.count)
+            • Total questions: \(weekProgress.reduce(0) { $0 + $1.questionsCompleted })
+            • Total correct: \(weekProgress.reduce(0) { $0 + $1.correctAnswers })
+            """)
+            
         } catch {
-            print("❌ Failed to fetch study sessions: \(error)")
+            print("❌ Failed to load stats: \(error)")
         }
         
         isLoading = false

@@ -177,7 +177,7 @@ class StudyViewModel: ObservableObject {
             correctAnswers += 1
         }
         
-        // StatViewModel 업데이트
+        // StatViewModel 업데이트 및 CoreData 저장
         NotificationCenter.default.post(
             name: .studyProgressDidUpdate,
             object: nil,
