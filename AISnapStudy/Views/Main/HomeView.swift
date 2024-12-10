@@ -7,6 +7,7 @@ import CoreData
 
 struct HomeView: View {
     @ObservedObject var viewModel: HomeViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.managedObjectContext) private var context
     @Binding var selectedTab: Int
     @State private var showQuestionSettings = false
@@ -16,52 +17,20 @@ struct HomeView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 24) {
-                    // Create New Questions Button
-                    MainActionButton(
-                        title: "Create New Questions",
-                        icon: "plus.circle.fill"
-                    ) {
+                VStack(spacing: 32) {
+                    // 상단 웰컴 카드
+                    WelcomeCard()
+                    
+                    // 메인 액션 버튼 (그라데이션 효과 적용)
+                    CreateQuestionsButton(action: {
                         selectedSubject = .math
                         showQuestionSettings = true
-                    }
-                    
-                    // Review Questions Button
-                    MainActionButton(
-                        title: "Review Questions",
-                        icon: "book.fill"
-                    ) {
-                        if let problemSet = viewModel.selectedProblemSet {
-                            viewModel.setSelectedProblemSet(problemSet)
-                            selectedTab = 1
-                        }
-                    }
-                    .disabled(viewModel.selectedProblemSet == nil)
-                    .opacity(viewModel.selectedProblemSet == nil ? 0.5 : 1)
-                    
-                    // 사용자 정의 과목 리스트 (옵션)
-                    if !subjectManager.customSubjects.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Custom Subjects")
-                                .font(.headline)
-                                .padding(.horizontal)
-                            
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(subjectManager.customSubjects.filter { $0.isActive }) { subject in
-                                        CustomSubjectButton(subject: subject) {
-                                            showQuestionSettings = true
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-                    }
+                    })
+                
                 }
                 .padding(.vertical, 32)
             }
-            .navigationTitle("Home")
+            .navigationTitle("AI Study")
         }
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
@@ -73,24 +42,68 @@ struct HomeView: View {
     }
 }
 
-struct CustomSubjectButton: View {
-    let subject: CustomSubject  // SubjectManager.CustomSubject에서 CustomSubject로 변경
+// 웰컴 카드 컴포넌트
+struct WelcomeCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Welcome Back!")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Ready to learn something new?")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 40))
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color(.systemGray6) : Color.white)
+                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+        )
+        .padding(.horizontal)
+    }
+}
+
+// 메인 액션 버튼 컴포넌트
+struct CreateQuestionsButton: View {
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: subject.icon)
-                    .font(.system(size: 24))
-                    .foregroundColor(subject.color)
-                Text(subject.displayName)
-                    .font(.caption)
-                    .foregroundColor(.primary)
+            HStack(spacing: 15) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24, weight: .medium))
+                
+                Text("Create New Questions")
+                    .font(.title3)
+                    .fontWeight(.semibold)
             }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(10)
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 60)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .cornerRadius(30)
+            .shadow(color: Color.blue.opacity(0.3), radius: 10, x: 0, y: 5)
         }
+        .padding(.horizontal)
     }
 }
 
