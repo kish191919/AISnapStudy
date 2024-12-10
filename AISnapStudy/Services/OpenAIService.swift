@@ -278,15 +278,15 @@ class OpenAIService {
         let languageInstructionText = language == .auto ?
             "Generate questions in the exact same language as the input text." :
             """
-            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.displayName) language.
-            DO NOT use the input text's language. Even if the input is in another language, the output must be in \(language.displayName) only.
+            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.codeName).
+            DO NOT use the input text's language. Even if the input is in another language, the output must be in \(language.codeName) only.
             """
         
         let languageInstructionImage = language == .auto ?
             "Generate questions in the same language as any visible text in the image." :
             """
-            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.displayName) (\(language.rawValue)).
-            DO NOT use the language of visible text in the image. All output must be in \(language.displayName) only.
+            IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.codeName).
+            DO NOT use the language of visible text in the image. All output must be in \(language.codeName) only.
             """
 
         // 순수 이미지 기반 입력
@@ -296,18 +296,16 @@ class OpenAIService {
                     You are an expert in creating self-contained, image-based questions.
                     
                     STRICT LANGUAGE REQUIREMENTS:
-                    - Output language: \(language == .auto ? "same as visible text in the image" : language.displayName)
+                    - Output language: \(language == .auto ? "same as visible text in the image" : language.codeName)
                     - Ensure consistent language usage throughout all content.
                     - Translate concepts accurately without losing meaning.
                     
                     FORMATTING REQUIREMENTS:
                     - Each question must be self-contained with all necessary context provided.
                     - Avoid ambiguous or overly broad questions.
-                    - Ensure True/False answers are always lowercase ("true" or "false").
-                    - Do not translate True/False answers into other languages.
+                    - True/False answers must be "true" or "false" (lowercase).
 
                     ERROR PREVENTION:
-                    - Avoid using "Yes", "No", or "That's correct" for True/False questions.
                     - Check the consistency of technical terms and proper nouns.
                     """,
                 userPromptTemplate: """
@@ -332,7 +330,7 @@ class OpenAIService {
                     You are an expert in creating self-contained questions based on extracted text from images.
                     
                     STRICT LANGUAGE REQUIREMENTS:
-                    - Output language: \(language == .auto ? "same as the extracted text" : language.displayName)
+                    - Output language: \(language == .auto ? "same as the extracted text" : language.codeName)
                     - Maintain consistent language usage across all questions, answers, and explanations.
                     - Preserve technical terms and proper nouns during translation.
 
@@ -342,8 +340,7 @@ class OpenAIService {
                     - Avoid "wh-" questions like "what", "who", or "how".
 
                     ERROR PREVENTION:
-                    - Do not use variations like "Yes", "No", or "That's correct" for True/False questions.
-                    - Avoid ambiguity in technical or academic concepts.
+                    - Check the consistency of technical terms and proper nouns.
                     """,
                 userPromptTemplate: """
                     Generate accurate and context-aware questions from the extracted text in the image.
@@ -367,18 +364,17 @@ class OpenAIService {
                     You are an expert in creating questions for \(educationLevel.displayName) students.
                     
                     STRICT LANGUAGE REQUIREMENTS:
-                    - Output language: \(language == .auto ? "same as input text" : language.displayName)
-                    - Maintain consistent language usage in all content.
-                    - Translate concepts accurately and preserve their original meaning.
-
+                    - Output language: \(language == .auto ? "same as input text" : language.codeName)
+                    - Maintain consistent language usage across all questions, answers, and explanations.
+                    - Preserve technical terms and proper nouns during translation.
+                    
                     FORMATTING REQUIREMENTS:
                     - Include all necessary context within the questions.
                     - Avoid overly broad or simplistic questions.
-                    - True/False answers must be "true" or "false" (lowercase) and must not be translated.
+                    - True/False answers must be "true" or "false" (lowercase).
 
                     ERROR PREVENTION:
-                    - Do not use "Yes", "No", or "That's correct" for True/False answers.
-                    - Ensure clarity and precision in question phrasing.
+                    - Check the consistency of technical terms and proper nouns.
                     """,
                 userPromptTemplate: """
                     Create thoughtful and context-rich questions based on the input text.

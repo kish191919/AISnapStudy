@@ -230,6 +230,20 @@ extension Language {
         case .italian: return "🇮🇹"
         }
     }
+    var codeName: String {
+        switch self {
+        case .auto: return "automatic"
+        case .english: return "english"
+        case .korean: return "korean"
+        case .japanese: return "japanese"
+        case .chinese: return "chinese"
+        case .spanish: return "spanish"
+        case .french: return "french"
+        case .german: return "german"
+        case .russian: return "russian"
+        case .italian: return "italian"
+        }
+    }
 }
 
 extension Language {
