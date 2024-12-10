@@ -9,11 +9,14 @@ struct ReviewProblemSetCard: View {
     let isEditMode: Bool
     let onDelete: () -> Void
     let onRename: (String) -> Void
+    let onFavoriteToggle: () -> Void
     
     @State private var isShowingRenameAlert = false
     @State private var isShowingSubjectPicker = false
     @State private var newName = ""
-    let onFavoriteToggle: () -> Void
+    @State private var isShowingMergeAlert = false
+    @State private var isTargeted = false
+    @State private var mergingProblemSets: (source: ProblemSet, target: ProblemSet)?
     
     var body: some View {
         HStack {
@@ -27,7 +30,6 @@ struct ReviewProblemSetCard: View {
                     
                     Button(action: {
                         Task {
-                            // Toggle favorite status
                             await homeViewModel.toggleFavorite(problemSet)
                         }
                     }) {
@@ -80,6 +82,7 @@ struct ReviewProblemSetCard: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(UIColor.systemBackground))
                 .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                .background(isTargeted ? Color.blue.opacity(0.1) : Color.clear)
         )
         .sheet(isPresented: $isShowingSubjectPicker) {
             SubjectPickerView(
@@ -93,7 +96,6 @@ struct ReviewProblemSetCard: View {
                 newName = ""
             }
             Button("Save") {
-                // 공백 제거 후 빈 문자열 체크
                 let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedName.isEmpty else { return }
                 
@@ -106,6 +108,63 @@ struct ReviewProblemSetCard: View {
         } message: {
             Text("Enter a new name for this problem set")
         }
+        // 드래그 앤 드롭 기능
+        .draggable(problemSet) {
+            DragPreviewView(problemSet: problemSet)
+        }
+        .dropDestination(for: ProblemSet.self) { droppedItems, location in
+            guard let droppedSet = droppedItems.first,
+                  droppedSet.id != problemSet.id else { return false }
+            
+            mergingProblemSets = (droppedSet, problemSet)
+            newName = "\(droppedSet.name) + \(problemSet.name)"
+            isShowingMergeAlert = true
+            HapticManager.shared.impact(style: .medium)
+            return true
+        } isTargeted: { inDropArea in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isTargeted = inDropArea
+            }
+        }
+        .alert("Create Combined Set", isPresented: $isShowingMergeAlert) {
+            TextField("New set name", text: $newName)
+            Button("Cancel", role: .cancel) {
+                mergingProblemSets = nil
+                newName = ""
+            }
+            Button("Create") {
+                if let (source, target) = mergingProblemSets {
+                    let mergedSet = ProblemSet.merge([source, target], name: newName)
+                    Task {
+                        // 새로운 병합된 세트만 저장하고 원본은 유지
+                        await homeViewModel.saveProblemSet(mergedSet)
+                        mergingProblemSets = nil
+                        HapticManager.shared.notification(type: .success)  // 여기를 수정
+                    }
+                }
+                newName = ""
+            }
+        } message: {
+            if let sets = mergingProblemSets {
+                Text("Create a new set by combining '\(sets.source.name)' with '\(sets.target.name)'\nOriginal sets will be preserved.")
+            }
+        }
+    }
+}
 
+struct DragPreviewView: View {
+    let problemSet: ProblemSet
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(problemSet.name)
+                .font(.headline)
+            Text("\(problemSet.questions.count) questions")
+                .font(.caption)
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(8)
+        .shadow(radius: 3)
     }
 }
