@@ -13,6 +13,7 @@ struct ReviewProblemSetCard: View {
     @State private var isShowingRenameAlert = false
     @State private var isShowingSubjectPicker = false
     @State private var newName = ""
+    let onFavoriteToggle: () -> Void
     
     var body: some View {
         HStack {
@@ -22,12 +23,18 @@ struct ReviewProblemSetCard: View {
                         .font(.headline)
                         .foregroundColor(.primary)
                     
-                    if problemSet.isFavorite {
-                        Image(systemName: "star.fill")
-                            .foregroundColor(.yellow)
-                    }
-                    
                     Spacer()
+                    
+                    Button(action: {
+                        Task {
+                            // Toggle favorite status
+                            await homeViewModel.toggleFavorite(problemSet)
+                        }
+                    }) {
+                        Image(systemName: problemSet.isFavorite ? "star.fill" : "star")
+                            .foregroundColor(.yellow)
+                            .imageScale(.large)
+                    }
                 }
                 
                 Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")

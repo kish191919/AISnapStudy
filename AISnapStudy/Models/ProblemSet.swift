@@ -2,10 +2,11 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-public struct ProblemSet: Identifiable, Codable, Hashable {
+public final class ProblemSet: Identifiable, Codable, Equatable {
     // Core properties
+    public var isFavorite: Bool
     public let id: String
-    public let subject: SubjectType  // 필수 프로퍼티로 유지
+    public let subject: SubjectType
     public let subjectType: String
     public let subjectId: String
     public let subjectName: String
@@ -16,10 +17,20 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
     public var name: String
     public var tags: [String]
     public var problemSetDescription: String?
-    public var isFavorite: Bool
 
     public var questionCount: Int {
         questions.count
+    }
+    
+    // Equatable 프로토콜 구현
+    public static func == (lhs: ProblemSet, rhs: ProblemSet) -> Bool {
+        lhs.id == rhs.id && lhs.createdAt == rhs.createdAt
+    }
+    
+    // Hashable 프로토콜 구현
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(createdAt)
     }
 
     public var resolvedSubject: SubjectType {
@@ -41,7 +52,8 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         questions: [Question],
         createdAt: Date = Date(),
         educationLevel: EducationLevel,
-        name: String
+        name: String,
+        isFavorite: Bool = false  // 기본값 false로 설정
     ) {
         self.id = id
         self.subject = subject
@@ -54,8 +66,25 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         self.name = name
         self.tags = []
         self.problemSetDescription = nil
-        self.isFavorite = false
+        self.isFavorite = isFavorite
     }
+    
+    // toggleFavorite 메서드 추가
+    public func toggleFavorite() -> ProblemSet {
+        return ProblemSet(
+            id: self.id,
+            subject: self.subject,
+            subjectType: self.subjectType,
+            subjectId: self.subjectId,
+            subjectName: self.subjectName,
+            questions: self.questions,
+            createdAt: self.createdAt,
+            educationLevel: self.educationLevel,
+            name: self.name,
+            isFavorite: !self.isFavorite  // toggle the favorite status
+        )
+    }
+    
 
     private enum CodingKeys: String, CodingKey {
         case id, subject, subjectType, subjectId, subjectName
@@ -64,8 +93,7 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         case problemSetDescription, isFavorite
     }
 
-    public init(from decoder: Decoder) throws {
-        
+    public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         
@@ -124,16 +152,6 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         )
     }
     
-    
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
-
-    public static func == (lhs: ProblemSet, rhs: ProblemSet) -> Bool {
-        lhs.id == rhs.id
-    }
-    
     static func merge(problemSets: [ProblemSet], name: String) -> ProblemSet {
         let mergedQuestions = problemSets.flatMap { $0.questions }
         let firstSet = problemSets[0]
@@ -181,7 +199,8 @@ extension ProblemSet {
             questions: allQuestions,
             createdAt: Date(),
             educationLevel: firstSet.educationLevel,
-            name: name
+            name: name,
+            isFavorite: firstSet.isFavorite  // 즐겨찾기 상태 유지
         )
     }
 }

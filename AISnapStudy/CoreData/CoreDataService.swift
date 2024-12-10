@@ -244,8 +244,88 @@ class CoreDataService {
         return context
     }
     
-    // MARK: - ProblemSet Operations
-    // File: ./AISnapStudy/CoreData/CoreDataService.swift
+    public func saveProblemSet(_ problemSet: ProblemSet) throws {
+        print("📝 Starting to save ProblemSet: \(problemSet.id)")
+        
+        let context = persistentContainer.viewContext
+        
+        // 기존 ProblemSet 찾기
+        let request = NSFetchRequest<CDProblemSet>(entityName: "CDProblemSet")
+        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
+        
+        let cdProblemSet: CDProblemSet
+        
+        // 기존 ProblemSet이 있으면 업데이트, 없으면 새로 생성
+        if let existingSet = try context.fetch(request).first {
+            cdProblemSet = existingSet
+            print("📝 Updating existing ProblemSet")
+        } else {
+            cdProblemSet = CDProblemSet(context: context)
+            print("📝 Creating new ProblemSet")
+        }
+        
+        cdProblemSet.id = problemSet.id
+        cdProblemSet.isFavorite = problemSet.isFavorite
+        
+        // subject 저장 로직
+        if let defaultSubject = problemSet.subject as? DefaultSubject {
+            cdProblemSet.subject = defaultSubject.rawValue
+        } else if let customSubject = problemSet.subject as? CustomSubject {
+            cdProblemSet.subject = customSubject.id
+            cdProblemSet.subjectType = "custom"
+            cdProblemSet.subjectName = customSubject.name
+        } else {
+            cdProblemSet.subject = DefaultSubject.generalKnowledge.rawValue
+        }
+        
+        cdProblemSet.subjectType = problemSet.subjectType
+        cdProblemSet.subjectId = problemSet.subjectId
+        cdProblemSet.subjectName = problemSet.subjectName
+        cdProblemSet.name = problemSet.name
+        cdProblemSet.createdAt = problemSet.createdAt
+        cdProblemSet.lastAttempted = problemSet.lastAttempted
+        
+        // 기존 questions 제거
+        if let existingQuestions = cdProblemSet.questions {
+            existingQuestions.forEach { question in
+                if let cdQuestion = question as? CDQuestion {
+                    context.delete(cdQuestion)
+                }
+            }
+        }
+        
+        // 새로운 questions 추가
+        print("💾 Preparing to save \(problemSet.questions.count) questions")
+        let questionSet = NSMutableSet()
+        
+        for question in problemSet.questions {
+            let cdQuestion = CDQuestion(context: viewContext)
+            cdQuestion.id = question.id
+            cdQuestion.type = question.type.rawValue
+            cdQuestion.question = question.question
+            cdQuestion.options = NSArray(array: question.options)
+            cdQuestion.correctAnswer = question.correctAnswer
+            cdQuestion.explanation = question.explanation
+            cdQuestion.hint = question.hint
+            cdQuestion.isSaved = question.isSaved
+            cdQuestion.createdAt = question.createdAt
+            cdQuestion.problemSet = cdProblemSet
+            
+            questionSet.add(cdQuestion)
+            print("✏️ Prepared question: \(question.id)")
+        }
+        
+        cdProblemSet.questions = questionSet
+        
+        do {
+            try viewContext.save()
+            print("✅ Successfully saved ProblemSet with \(questionSet.count) questions, isFavorite: \(problemSet.isFavorite)")
+        } catch {
+            print("❌ Failed to save ProblemSet: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
 
     public func fetchProblemSets() throws -> [ProblemSet] {
         print("📊 Fetching ProblemSets from CoreData")
@@ -295,81 +375,12 @@ class CoreDataService {
                     questions: questions,
                     createdAt: cdProblemSet.createdAt ?? Date(),
                     educationLevel: EducationLevel(rawValue: cdProblemSet.educationLevel ?? "") ?? .elementary,
-                    name: cdProblemSet.name ?? "Default Name"
+                    name: cdProblemSet.name ?? "Default Name",
+                    isFavorite: cdProblemSet.isFavorite  // isFavorite 추가
                 )
             }
         } catch {
             print("❌ Failed to fetch ProblemSets: \(error)")
-            throw error
-        }
-    }
-    public func saveProblemSet(_ problemSet: ProblemSet) throws {
-        print("📝 Starting to save ProblemSet: \(problemSet.id)")
-        
-        let context = persistentContainer.viewContext
-        let cdProblemSet = CDProblemSet(context: context)
-        
-        cdProblemSet.id = problemSet.id
-        
-        // subject 저장 로직 수정
-        if let defaultSubject = problemSet.subject as? DefaultSubject {
-            cdProblemSet.subject = defaultSubject.rawValue
-        } else if let customSubject = problemSet.subject as? CustomSubject {
-            cdProblemSet.subject = customSubject.id  // CustomSubject의 경우 id 사용
-            cdProblemSet.subjectType = "custom"
-            cdProblemSet.subjectName = customSubject.name
-        } else {
-            cdProblemSet.subject = DefaultSubject.generalKnowledge.rawValue
-        }
-        
-        cdProblemSet.subjectType = problemSet.subjectType
-        cdProblemSet.subjectId = problemSet.subjectId
-        cdProblemSet.subjectName = problemSet.subjectName
-        cdProblemSet.name = problemSet.name  // Ensure name is saved
-        
-        cdProblemSet.createdAt = problemSet.createdAt
-        cdProblemSet.lastAttempted = problemSet.lastAttempted
-        
-        // 문제 저장 전 로그
-        print("💾 Preparing to save \(problemSet.questions.count) questions")
-        
-        // questions 관계 설정
-        let questionSet = NSMutableSet()
-        
-        for question in problemSet.questions {
-            let cdQuestion = CDQuestion(context: viewContext)
-            cdQuestion.id = question.id
-            cdQuestion.type = question.type.rawValue
-            cdQuestion.question = question.question
-            
-            // options 배열 변환 및 저장
-            cdQuestion.options = NSArray(array: question.options)
-            
-            cdQuestion.correctAnswer = question.correctAnswer
-            cdQuestion.explanation = question.explanation
-            cdQuestion.hint = question.hint
-            cdQuestion.isSaved = question.isSaved
-            cdQuestion.createdAt = question.createdAt
-            cdQuestion.problemSet = cdProblemSet
-            
-            questionSet.add(cdQuestion)
-            
-            print("✏️ Prepared question: \(question.id)")
-        }
-        
-        cdProblemSet.questions = questionSet
-        
-        do {
-            try viewContext.save()
-            print("✅ Successfully saved ProblemSet with \(questionSet.count) questions")
-            
-            // 저장 후 확인
-            if let savedQuestions = cdProblemSet.questions {
-                print("📚 Verified \(savedQuestions.count) questions in CoreData")
-            }
-        } catch {
-            print("❌ Failed to save ProblemSet: \(error)")
-            viewContext.rollback()
             throw error
         }
     }
@@ -546,6 +557,22 @@ extension CoreDataService {
         } catch {
             print("❌ Failed to fetch daily stats: \(error)")
             throw error
+        }
+    }
+}
+
+extension CoreDataService {
+    func updateProblemSetFavorite(problemSetId: String, isFavorite: Bool) async throws {
+        let context = viewContext
+        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", problemSetId)
+        
+        if let problemSet = try context.fetch(request).first {
+            problemSet.isFavorite = isFavorite
+            try context.save()
+            print("💾 CoreData: Updated favorite status for problem set: \(problemSetId)")
+        } else {
+            print("⚠️ CoreData: Problem set not found with ID: \(problemSetId)")
         }
     }
 }

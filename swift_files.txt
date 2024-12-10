@@ -807,9 +807,13 @@ class StatViewModel: ObservableObject {
             print("📊 StatViewModel score updated: \(correctAnswers * 10) points")
         }
     }
+    private var isResetting: Bool = false
     @Published var completedQuestions: Int = 0
     @Published var accuracyRate: Double = 0.0
     @Published var isLoading = false
+    @Published var monthlyProgress: [DailyProgress] = []
+    @Published var yearlyProgress: [DailyProgress] = []
+    
     private var todaysSessionStats: (questions: Int, correct: Int) = (0, 0)
     private var existingStats: (questions: Int, correct: Int) = (0, 0)
     
@@ -853,6 +857,9 @@ class StatViewModel: ObservableObject {
         setupObservers()
     }
     private func setupObservers() {
+        // 기존 observer 제거
+        NotificationCenter.default.removeObserver(self)
+        
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleStudyProgressUpdate),
@@ -861,25 +868,60 @@ class StatViewModel: ObservableObject {
         )
     }
     
+    @MainActor
+    func loadStatsByPeriod(_ period: StatsPeriod) async {
+        isLoading = true
+        
+        do {
+            let stats = try await CoreDataService.shared.fetchStatsByPeriod(period)
+            await MainActor.run {
+                switch period {
+                case .day:
+                    weeklyProgress = processStats(stats)
+                case .month:
+                    monthlyProgress = processStats(stats)
+                case .year:
+                    yearlyProgress = processStats(stats)
+                }
+                objectWillChange.send()
+            }
+        } catch {
+            print("❌ Failed to load \(period) stats: \(error)")
+        }
+        
+        isLoading = false
+    }
+    
+    private func processStats(_ stats: [DailyStats]) -> [DailyProgress] {
+        return stats.map { stat in
+            DailyProgress(
+                date: stat.date,
+                questionsCompleted: stat.totalQuestions,
+                correctAnswers: stat.correctAnswers,
+                totalTime: 0
+            )
+        }
+    }
+    
     @objc private func handleStudyProgressUpdate(_ notification: Notification) {
         guard let currentIndex = notification.userInfo?["currentIndex"] as? Int,
               let correctAnswers = notification.userInfo?["correctAnswers"] as? Int else {
             return
         }
         
-        // 새로운 문제가 완료될 때마다 통계 업데이트
-        let addedQuestions = 1  // 한 문제씩 추가
-        let addedCorrect = correctAnswers - self.correctAnswers  // 새로운 정답만큼만 추가
-        
-        updateStats(
-            correctAnswers: addedCorrect,
-            totalQuestions: addedQuestions,
-            isNewSession: false
-        )
-        
-        self.correctAnswers = correctAnswers
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let addedCorrect = correctAnswers - self.correctAnswers
+            
+            self.updateStats(
+                correctAnswers: addedCorrect,
+                totalQuestions: 1,
+                isNewSession: false
+            )
+            
+            self.correctAnswers = correctAnswers
+        }
     }
-    
     var currentSessionScore: Int {
         return correctAnswers * 10  // 계산 속성으로 변경
     }
@@ -902,45 +944,64 @@ class StatViewModel: ObservableObject {
     }
     
     func updateStats(correctAnswers: Int, totalQuestions: Int, isNewSession: Bool = false) {
-         let today = Date()
-         
-         // 기존 통계를 찾거나 새로 생성
-         if let existingIndex = weeklyProgress.firstIndex(where: {
-             Calendar.current.isDate($0.date, inSameDayAs: today)
-         }) {
-             let existingProgress = weeklyProgress[existingIndex]
-             let updatedQuestions = isNewSession ?
-                 existingProgress.questionsCompleted :
-                 existingProgress.questionsCompleted + totalQuestions
-             let updatedCorrect = isNewSession ?
-                 existingProgress.correctAnswers :
-                 existingProgress.correctAnswers + correctAnswers
-                 
-             weeklyProgress[existingIndex] = DailyProgress(
-                 date: today,
-                 questionsCompleted: updatedQuestions,
-                 correctAnswers: updatedCorrect,
-                 totalTime: existingProgress.totalTime
-             )
-         } else {
-             weeklyProgress.append(DailyProgress(
-                 date: today,
-                 questionsCompleted: totalQuestions,
-                 correctAnswers: correctAnswers,
-                 totalTime: 0.0
-             ))
-         }
-         
-         print("""
-         📊 Stats updated:
-         • Added Questions: \(totalQuestions)
-         • Added Correct: \(correctAnswers)
-         • Total Questions: \(weeklyProgress.last?.questionsCompleted ?? 0)
-         • New Session: \(isNewSession)
-         """)
-         
-         objectWillChange.send()
-     }
+        // 리셋 중이면 통계 업데이트 건너뛰기
+        guard !isResetting else { return }
+        
+        let today = Date()
+        
+        do {
+            // 1. 현재 저장된 통계 가져오기
+            let currentStats = try CoreDataService.shared.fetchDailyStats() ?? DailyStats(
+                id: UUID(),
+                date: today,
+                totalQuestions: 0,
+                correctAnswers: 0,
+                wrongAnswers: 0,
+                timeSpent: 0
+            )
+            
+            // 2. 단일 문제에 대한 통계 누적
+            let updatedStats = DailyStats(
+                id: currentStats.id,
+                date: today,
+                totalQuestions: currentStats.totalQuestions + 1,  // 현재 통계에 1 추가
+                correctAnswers: currentStats.correctAnswers + (correctAnswers > 0 ? 1 : 0),
+                wrongAnswers: currentStats.wrongAnswers + (correctAnswers > 0 ? 0 : 1),
+                timeSpent: currentStats.timeSpent
+            )
+            
+            // 3. 통계 저장
+            try CoreDataService.shared.saveDailyStats(updatedStats)
+            
+            print("""
+            📊 Stats updated:
+            • Previous Total: \(currentStats.totalQuestions)
+            • Added Questions: 1
+            • New Total: \(updatedStats.totalQuestions)
+            • Previous Correct: \(currentStats.correctAnswers)
+            • Added Correct: \(correctAnswers > 0 ? 1 : 0)
+            • New Correct: \(updatedStats.correctAnswers)
+            """)
+            
+            // 4. UI 업데이트
+            weeklyProgress = weeklyProgress.map { progress in
+                if Calendar.current.isDate(progress.date, inSameDayAs: today) {
+                    return DailyProgress(
+                        date: today,
+                        questionsCompleted: updatedStats.totalQuestions,
+                        correctAnswers: updatedStats.correctAnswers,
+                        totalTime: progress.totalTime
+                    )
+                }
+                return progress
+            }
+            
+            objectWillChange.send()
+            
+        } catch {
+            print("❌ Failed to update stats: \(error)")
+        }
+    }
     
     private func updateWeeklyProgress() {
         let today = Date()
@@ -978,33 +1039,67 @@ class StatViewModel: ObservableObject {
     }
 
 
-    func loadStats() {
+    private func loadStats() {
         print("📊 Starting stats loading...")
         isLoading = true
-        let request: NSFetchRequest<CDStudySession> = CDStudySession.fetchRequest()
         
         do {
-            let sessions = try context.fetch(request)
-            calculateStats(from: sessions)
-            calculateWeeklyProgress(from: sessions)
-            
-            if let todayStats = weeklyProgress.last {
-                existingStats = (todayStats.questionsCompleted, todayStats.correctAnswers)
+            // 1. CoreData에서 오늘의 통계 불러오기
+            if let todayStats = try CoreDataService.shared.fetchDailyStats(for: Date()) {
+                existingStats = (todayStats.totalQuestions, todayStats.correctAnswers)
                 
                 DispatchQueue.main.async { [weak self] in
-                    self?.completedQuestions = todayStats.questionsCompleted
+                    self?.completedQuestions = todayStats.totalQuestions
                     self?.correctAnswers = todayStats.correctAnswers
                     self?.accuracyRate = todayStats.accuracy
                     print("""
-                    📊 Stats updated from weekly progress:
-                    • Questions: \(todayStats.questionsCompleted)
+                    📊 Stats loaded from CoreData:
+                    • Questions: \(todayStats.totalQuestions)
                     • Correct: \(todayStats.correctAnswers)
                     • Accuracy: \(todayStats.accuracy)%
                     """)
                 }
             }
+            
+            // 2. 주간 진행 상황 계산
+            let calendar = Calendar.current
+            let today = Date()
+            let weekAgo = calendar.date(byAdding: .day, value: -6, to: today)!
+            
+            var weekProgress: [DailyProgress] = []
+            
+            // 지난 7일간의 통계 불러오기
+            for dayOffset in 0...6 {
+                let date = calendar.date(byAdding: .day, value: dayOffset, to: weekAgo)!
+                if let stats = try CoreDataService.shared.fetchDailyStats(for: date) {
+                    weekProgress.append(DailyProgress(
+                        date: date,
+                        questionsCompleted: stats.totalQuestions,
+                        correctAnswers: stats.correctAnswers,
+                        totalTime: 0.0  // 시간 tracking이 필요하다면 나중에 추가
+                    ))
+                } else {
+                    // 해당 날짜의 데이터가 없으면 0으로 초기화
+                    weekProgress.append(DailyProgress(
+                        date: date,
+                        questionsCompleted: 0,
+                        correctAnswers: 0,
+                        totalTime: 0.0
+                    ))
+                }
+            }
+            
+            weeklyProgress = weekProgress
+            
+            print("""
+            📊 Weekly progress loaded:
+            • Total days: \(weekProgress.count)
+            • Total questions: \(weekProgress.reduce(0) { $0 + $1.questionsCompleted })
+            • Total correct: \(weekProgress.reduce(0) { $0 + $1.correctAnswers })
+            """)
+            
         } catch {
-            print("❌ Failed to fetch study sessions: \(error)")
+            print("❌ Failed to load stats: \(error)")
         }
         
         isLoading = false
@@ -1136,6 +1231,8 @@ class StatViewModel: ObservableObject {
     
     func resetProgress() {
         print("🔄 Starting resetProgress...")
+        isResetting = true  // 리셋 시작
+    
         
         // 현재까지의 통계를 저장
         let previousStats = (
@@ -1172,12 +1269,19 @@ class StatViewModel: ObservableObject {
                 • New Session Questions: \(currentProblemSet.questions.count)
                 """)
             }
+            
+            isResetting = false  // 리셋 완료
         }
     }
 }
 
 extension Notification.Name {
     static let studyProgressDidUpdate = Notification.Name("studyProgressDidUpdate")
+}
+
+
+enum StatsPeriod {
+   case day, month, year
 }
 
 
@@ -1207,13 +1311,52 @@ class HomeViewModel: ObservableObject {
     
     // Singleton instance
     static let shared = HomeViewModel()
-
+//    @Published private(set) var favoriteProblemSets: [ProblemSet] = []
     
     init() {
         Task {
             await loadInitialData()
         }
     }
+    
+    @MainActor
+    func toggleFavorite(_ problemSet: ProblemSet) async {
+        do {
+            // 1. CoreData에서 업데이트
+            try await coreDataService.updateProblemSetFavorite(
+                problemSetId: problemSet.id,
+                isFavorite: !problemSet.isFavorite
+            )
+            
+            // 2. 메모리의 problemSets 배열 업데이트
+            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+                var updatedSet = problemSets[index]
+                updatedSet.isFavorite.toggle()
+                problemSets[index] = updatedSet
+                
+                // 3. 선택된 ProblemSet도 업데이트
+                if selectedProblemSet?.id == problemSet.id {
+                    selectedProblemSet = updatedSet
+                }
+                
+                // 4. 변경 알림
+                objectWillChange.send()
+            }
+            
+            print("⭐️ Problem Set favorite toggled: \(problemSet.id) - \(problemSet.name)")
+        } catch {
+            print("❌ Failed to toggle favorite: \(error)")
+        }
+    }
+
+    
+    // 즐겨찾기된 문제 세트 가져오기
+    var favoriteProblemSets: [ProblemSet] {
+        problemSets.filter { $0.isFavorite }
+    }
+
+    
+
     // 현재 세션의 점수 관련 속성 추가
     var currentSessionScore: Int {
         return studyViewModel?.correctAnswers ?? 0
@@ -1905,7 +2048,7 @@ class StudyViewModel: ObservableObject {
             correctAnswers += 1
         }
         
-        // StatViewModel 업데이트
+        // StatViewModel 업데이트 및 CoreData 저장
         NotificationCenter.default.post(
             name: .studyProgressDidUpdate,
             object: nil,
@@ -2295,6 +2438,58 @@ class CoreDataService {
         }
     }
     
+    func fetchStatsByPeriod(_ period: StatsPeriod) async throws -> [DailyStats] {
+       let context = persistentContainer.viewContext
+       let calendar = Calendar.current
+       let now = Date()
+       
+       let startDate: Date = switch period {
+           case .day:
+               calendar.date(byAdding: .day, value: -6, to: now)!
+           case .month:
+               calendar.date(byAdding: .month, value: -1, to: now)!
+           case .year:
+               calendar.date(byAdding: .year, value: -1, to: now)!
+       }
+       
+       // 시작일부터 현재까지의 모든 날짜 생성
+       var dates: [Date] = []
+       var date = startDate
+       while date <= now {
+           dates.append(date)
+           date = calendar.date(byAdding: .day, value: 1, to: date)!
+       }
+       
+       let request: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
+       request.predicate = NSPredicate(format: "date >= %@", startDate as NSDate)
+       request.sortDescriptors = [NSSortDescriptor(key: "date", ascending: true)]
+       
+       let existingStats = try context.fetch(request)
+       
+       // 각 날짜에 대해 통계 생성 (없으면 0으로 설정)
+       return dates.map { date in
+           if let existing = existingStats.first(where: { calendar.isDate($0.date ?? Date(), inSameDayAs: date) }) {
+               return DailyStats(
+                   id: UUID(),
+                   date: date,
+                   totalQuestions: Int(existing.totalQuestions),
+                   correctAnswers: Int(existing.correctAnswers),
+                   wrongAnswers: Int(existing.totalQuestions - existing.correctAnswers),
+                   timeSpent: 0
+               )
+           } else {
+               return DailyStats(
+                   id: UUID(),
+                   date: date,
+                   totalQuestions: 0,
+                   correctAnswers: 0,
+                   wrongAnswers: 0,
+                   timeSpent: 0
+               )
+           }
+       }
+    }
+    
     // viewContext에 대한 public 접근자 추가
     public var viewContext: NSManagedObjectContext {
         persistentContainer.viewContext
@@ -2552,52 +2747,43 @@ extension CoreDataService {
 extension CoreDataService {
     func saveDailyStats(_ stats: DailyStats) throws {
         let context = viewContext
+        let today = Calendar.current.startOfDay(for: Date())
         
-        print("💾 Saving daily stats:")
-        print("• Total Questions: \(stats.totalQuestions)")
-        print("• Correct Answers: \(stats.correctAnswers)")
-
-        // 시간대를 고려한 날짜 범위 설정
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        
-        // 당일 데이터 검색
         let fetchRequest: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "date >= %@ AND date < %@",
             today as NSDate,
-            calendar.date(byAdding: .day, value: 1, to: today)! as NSDate
+            Calendar.current.date(byAdding: .day, value: 1, to: today)! as NSDate
         )
-        
-        try context.fetch(fetchRequest).forEach { stats in
-            print("• Existing stats - Questions: \(stats.totalQuestions), Correct: \(stats.correctAnswers)")
-        }
         
         do {
             let existingStats = try context.fetch(fetchRequest)
             let dailyStats: CDDailyStats
             
             if let existing = existingStats.first {
-                print("📝 Updating existing stats:")
-                print("• Previous Questions: \(existing.totalQuestions)")
-                print("• Previous Correct: \(existing.correctAnswers)")
+                print("📊 Found existing stats - Questions: \(existing.totalQuestions), Correct: \(existing.correctAnswers)")
                 dailyStats = existing
+                // 누적 처리
+                dailyStats.totalQuestions += 1  // 항상 1씩 증가
+                if stats.correctAnswers > existing.correctAnswers {
+                    dailyStats.correctAnswers += 1
+                }
             } else {
-                print("📝 Creating new stats")
+                print("📊 Creating new daily stats")
                 dailyStats = CDDailyStats(context: context)
-                dailyStats.date = today // 항상 자정 기준으로 저장
+                dailyStats.date = today
+                dailyStats.totalQuestions = 1
+                dailyStats.correctAnswers = Int32(stats.correctAnswers)
             }
-            
-            // 누적 값 업데이트
-            dailyStats.totalQuestions = Int32(stats.totalQuestions)
-            dailyStats.correctAnswers = Int32(stats.correctAnswers)
             
             try context.save()
             
             print("""
-            ✅ Daily stats saved successfully:
-            • Date: \(dailyStats.date?.description ?? "unknown")
-            • Total Questions: \(dailyStats.totalQuestions)
-            • Correct Answers: \(dailyStats.correctAnswers)
+            ✅ Daily stats saved:
+            • Date: \(today)
+            • Previous Total: \(existingStats.first?.totalQuestions ?? 0)
+            • New Total: \(dailyStats.totalQuestions)
+            • Previous Correct: \(existingStats.first?.correctAnswers ?? 0)
+            • New Correct: \(dailyStats.correctAnswers)
             """)
             
         } catch {
@@ -2632,6 +2818,22 @@ extension CoreDataService {
         } catch {
             print("❌ Failed to fetch daily stats: \(error)")
             throw error
+        }
+    }
+}
+
+extension CoreDataService {
+    func updateProblemSetFavorite(problemSetId: String, isFavorite: Bool) async throws {
+        let context = viewContext
+        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", problemSetId)
+        
+        if let problemSet = try context.fetch(request).first {
+            problemSet.isFavorite = isFavorite
+            try context.save()
+            print("💾 CoreData: Updated favorite status for problem set: \(problemSetId)")
+        } else {
+            print("⚠️ CoreData: Problem set not found with ID: \(problemSetId)")
         }
     }
 }
@@ -2737,6 +2939,8 @@ import CoreData
 public class CDDailyStats: NSManagedObject {
 
 }
+
+
 
 
 // ./AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift
@@ -2956,27 +3160,6 @@ class HapticManager {
 import Foundation
 
 extension Calendar {
-    func generateDates(
-        for dateInterval: DateInterval,
-        matching components: DateComponents
-    ) -> [Date] {
-        var dates: [Date] = []
-        dates.reserveCapacity(40)
-        
-        var date = dateInterval.start
-        
-        while date <= dateInterval.end {
-            dates.append(date)
-            guard let nextDate = self.date(
-                byAdding: .day,
-                value: 1,
-                to: date
-            ) else { break }
-            date = nextDate
-        }
-        
-        return dates
-    }
     
     func monthDateRange(for date: Date) -> (start: Date, end: Date) {
         let components = dateComponents([.year, .month], from: date)
@@ -3167,8 +3350,8 @@ import Foundation
 struct DailyProgress: Identifiable {
     let id = UUID()
     let date: Date
-    var questionsCompleted: Int  // let -> var
-    var correctAnswers: Int      // let -> var
+    var questionsCompleted: Int
+    var correctAnswers: Int
     let totalTime: TimeInterval
     
     var accuracy: Double {
@@ -3176,16 +3359,18 @@ struct DailyProgress: Identifiable {
         return Double(correctAnswers) / Double(questionsCompleted) * 100
     }
     
-    var day: String {
-        date.formatted(.dateTime.weekday(.abbreviated))
+    var week: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM/dd" // 월/일 형식
+        return formatter.string(from: date)
     }
     
     init(date: Date, questionsCompleted: Int, correctAnswers: Int, totalTime: TimeInterval) {
-           self.date = date
-           self.questionsCompleted = questionsCompleted
-           self.correctAnswers = correctAnswers
-           self.totalTime = totalTime
-       }
+        self.date = date
+        self.questionsCompleted = questionsCompleted
+        self.correctAnswers = correctAnswers
+        self.totalTime = totalTime
+    }
 }
 
 
@@ -3281,6 +3466,7 @@ import UniformTypeIdentifiers
 
 public struct ProblemSet: Identifiable, Codable, Hashable {
     // Core properties
+    public var isFavorite: Bool // 추가
     public let id: String
     public let subject: SubjectType  // 필수 프로퍼티로 유지
     public let subjectType: String
@@ -3293,10 +3479,19 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
     public var name: String
     public var tags: [String]
     public var problemSetDescription: String?
-    public var isFavorite: Bool
 
     public var questionCount: Int {
         questions.count
+    }
+    
+    // Hashable 프로토콜 구현 수정
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(createdAt)  // createdAt을 추가하여 더 unique한 해시값 생성
+    }
+    
+    public static func == (lhs: ProblemSet, rhs: ProblemSet) -> Bool {
+        lhs.id == rhs.id && lhs.createdAt == rhs.createdAt
     }
 
     public var resolvedSubject: SubjectType {
@@ -3318,7 +3513,8 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         questions: [Question],
         createdAt: Date = Date(),
         educationLevel: EducationLevel,
-        name: String
+        name: String,
+        isFavorite: Bool = false  // 기본값 false로 설정
     ) {
         self.id = id
         self.subject = subject
@@ -3331,7 +3527,7 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         self.name = name
         self.tags = []
         self.problemSetDescription = nil
-        self.isFavorite = false
+        self.isFavorite = isFavorite
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -3399,16 +3595,6 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
             educationLevel: self.educationLevel,
             name: self.name
         )
-    }
-    
-    
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
-
-    public static func == (lhs: ProblemSet, rhs: ProblemSet) -> Bool {
-        lhs.id == rhs.id
     }
     
     static func merge(problemSets: [ProblemSet], name: String) -> ProblemSet {
@@ -6717,6 +6903,7 @@ struct ReviewProblemSetCard: View {
     @State private var isShowingRenameAlert = false
     @State private var isShowingSubjectPicker = false
     @State private var newName = ""
+    let onFavoriteToggle: () -> Void
     
     var body: some View {
         HStack {
@@ -6726,12 +6913,12 @@ struct ReviewProblemSetCard: View {
                         .font(.headline)
                         .foregroundColor(.primary)
                     
-                    if problemSet.isFavorite {
-                        Image(systemName: "star.fill")
+                    Spacer()
+                    
+                    Button(action: onFavoriteToggle) {
+                        Image(systemName: problemSet.isFavorite ? "star.fill" : "star")
                             .foregroundColor(.yellow)
                     }
-                    
-                    Spacer()
                 }
                 
                 Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
@@ -7742,14 +7929,14 @@ struct MainTabView: View {
                 totalQuestions: studyViewModel.totalQuestions
             )
             .tabItem {
-                Label("Stats", systemImage: "chart.bar.fill")
+                Label("Result", systemImage: "checkmark.circle.fill")
             }
             .tag(3)
             
             // 새로 추가된 DailyStatsView 탭
             DailyStatsView(viewModel: statViewModel)
                 .tabItem {
-                    Label("Daily", systemImage: "calendar")
+                    Label("Stats", systemImage: "chart.bar.fill")
                 }
                 .tag(4)
         }
@@ -7896,6 +8083,7 @@ import CoreData
 
 struct HomeView: View {
     @ObservedObject var viewModel: HomeViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.managedObjectContext) private var context
     @Binding var selectedTab: Int
     @State private var showQuestionSettings = false
@@ -7905,52 +8093,54 @@ struct HomeView: View {
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 24) {
-                    // Create New Questions Button
-                    MainActionButton(
-                        title: "Create New Questions",
-                        icon: "plus.circle.fill"
-                    ) {
-                        selectedSubject = .math
-                        showQuestionSettings = true
-                    }
+                VStack(spacing: 32) {
+                    // 웰컴 카드
+                    WelcomeCard()
                     
-                    // Review Questions Button
-                    MainActionButton(
-                        title: "Review Questions",
-                        icon: "book.fill"
-                    ) {
-                        if let problemSet = viewModel.selectedProblemSet {
-                            viewModel.setSelectedProblemSet(problemSet)
-                            selectedTab = 1
-                        }
-                    }
-                    .disabled(viewModel.selectedProblemSet == nil)
-                    .opacity(viewModel.selectedProblemSet == nil ? 0.5 : 1)
-                    
-                    // 사용자 정의 과목 리스트 (옵션)
-                    if !subjectManager.customSubjects.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Custom Subjects")
-                                .font(.headline)
-                                .padding(.horizontal)
+                    // 즐겨찾기 섹션 추가
+                    if !viewModel.favoriteProblemSets.isEmpty {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack {
+                                Label("Favorites", systemImage: "star.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.yellow)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
                             
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 12) {
-                                    ForEach(subjectManager.customSubjects.filter { $0.isActive }) { subject in
-                                        CustomSubjectButton(subject: subject) {
-                                            showQuestionSettings = true
-                                        }
+                                    ForEach(viewModel.favoriteProblemSets) { problemSet in
+                                        FavoriteCard(
+                                            problemSet: problemSet,
+                                            onTap: {
+                                                Task {
+                                                    viewModel.setSelectedProblemSet(problemSet)
+                                                    if let studyViewModel = viewModel.studyViewModel {
+                                                        await studyViewModel.resetState()
+                                                        studyViewModel.loadQuestions(problemSet.questions)
+                                                        selectedTab = 1
+                                                    }
+                                                }
+                                            }
+                                        )
                                     }
                                 }
                                 .padding(.horizontal)
                             }
                         }
                     }
+                    
+                    // 메인 액션 버튼
+                    CreateQuestionsButton(action: {
+                        selectedSubject = .math
+                        showQuestionSettings = true
+                    })
                 }
                 .padding(.vertical, 32)
             }
-            .navigationTitle("Home")
+            .navigationTitle("AI Study")
+
         }
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
@@ -7962,24 +8152,68 @@ struct HomeView: View {
     }
 }
 
-struct CustomSubjectButton: View {
-    let subject: CustomSubject  // SubjectManager.CustomSubject에서 CustomSubject로 변경
+// 웰컴 카드 컴포넌트
+struct WelcomeCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Welcome Back!")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("Ready to learn something new?")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 40))
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(colorScheme == .dark ? Color(.systemGray6) : Color.white)
+                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
+        )
+        .padding(.horizontal)
+    }
+}
+
+// 메인 액션 버튼 컴포넌트
+struct CreateQuestionsButton: View {
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: subject.icon)
-                    .font(.system(size: 24))
-                    .foregroundColor(subject.color)
-                Text(subject.displayName)
-                    .font(.caption)
-                    .foregroundColor(.primary)
+            HStack(spacing: 15) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24, weight: .medium))
+                
+                Text("Create New Questions")
+                    .font(.title3)
+                    .fontWeight(.semibold)
             }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(10)
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 60)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .cornerRadius(30)
+            .shadow(color: Color.blue.opacity(0.3), radius: 10, x: 0, y: 5)
         }
+        .padding(.horizontal)
     }
 }
 
@@ -8012,12 +8246,53 @@ extension DefaultSubject {
     }
 }
 
+// 즐겨찾기 카드 컴포넌트
+struct FavoriteCard: View {
+    let problemSet: ProblemSet
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(problemSet.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.yellow)
+                }
+                
+                HStack {
+                    Text("\(problemSet.questions.count) Questions")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    Text(problemSet.subject.displayName)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+            }
+            .padding()
+            .frame(width: 200)
+            .background(
+                RoundedRectangle(cornerRadius: 15)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
 
 // ./AISnapStudy/Views/Main/ReviewView.swift
 
 import SwiftUI
-
-
 
 struct ReviewView: View {
     @EnvironmentObject var homeViewModel: HomeViewModel
@@ -8026,9 +8301,8 @@ struct ReviewView: View {
     @State private var showSubjectManagement = false
     @State private var searchText = ""
     @State private var selectedSubject: SubjectType?
-    @Binding var selectedTab: Int  // 새로 추가
+    @Binding var selectedTab: Int
    
-    // 초기화 구문 수정
     public init(viewModel: ReviewViewModel, selectedTab: Binding<Int>) {
         self.viewModel = viewModel
         self._selectedTab = selectedTab
@@ -8051,27 +8325,10 @@ struct ReviewView: View {
         return subjects
     }
    
-   private var allSubjects: [SubjectType] {
-       var subjects: [SubjectType] = []
-       
-       let activeDefaultSubjects = DefaultSubject.allCases.filter { !subjectManager.isDeleted($0) }
-       subjects.append(contentsOf: activeDefaultSubjects)
-       
-       let activeCustomSubjects = subjectManager.customSubjects.filter { $0.isActive }
-       subjects.append(contentsOf: activeCustomSubjects)
-       
-       print("📚 Review - Active Default Subjects: \(activeDefaultSubjects.map { $0.displayName })")
-       print("📚 Review - Active Custom Subjects: \(activeCustomSubjects.map { $0.displayName })")
-       print("🔒 Review - Hidden Subjects: \(subjectManager.hiddenDefaultSubjects)")
-       
-       return subjects
-   }
-   
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 5) {
-                    // 상단 여백 추가
                     Spacer()
                         .frame(height: 5)
                     
@@ -8128,7 +8385,8 @@ struct ReviewView: View {
                 }
             }
         }
-    }    // 필터링 함수 수정
+    }
+    
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
         return homeViewModel.problemSets.filter { problemSet in
             if let defaultSubject = subject as? DefaultSubject {
@@ -8144,584 +8402,225 @@ struct ReviewView: View {
 }
 
 struct SubjectCardView: View {
-   let subject: SubjectType
-   let problemSetCount: Int
-   
-   var body: some View {
-       VStack(spacing: 12) {
-           Image(systemName: subject.icon)
-               .font(.system(size: 32))
-               .foregroundColor(subject.color)
-           
-           Text(subject.displayName)
-               .font(.headline)
-               .foregroundColor(.primary)
-               .lineLimit(1)
-           
-           Text("\(problemSetCount) sets")
-               .font(.caption)
-               .foregroundColor(.secondary)
-       }
-       .frame(maxWidth: .infinity)
-       .padding(.vertical, 24)
-       .background(
-           RoundedRectangle(cornerRadius: 16)
-               .fill(subject.color.opacity(0.1))
-               .overlay(
-                   RoundedRectangle(cornerRadius: 16)
-                       .stroke(subject.color.opacity(0.2), lineWidth: 1)
-               )
-       )
-       .contentShape(Rectangle())
-   }
-}
-
-// SavedQuestionsRow 컴포넌트 분리
-struct SavedQuestionsRow: View {
-    let savedQuestions: [Question]
-    let homeViewModel: HomeViewModel
+    let subject: SubjectType
+    let problemSetCount: Int
     
     var body: some View {
-        NavigationLink(
-            destination: SavedQuestionsView(
-                questions: savedQuestions,
-                homeViewModel: homeViewModel
-            )
-        ) {
-            HStack {
-                Image(systemName: "bookmark.fill")
-                    .foregroundColor(.blue)
-                Text("Saved Questions")
-                    .font(.headline)
-                Spacer()
-                Text("\(savedQuestions.count)")
-                    .foregroundColor(.secondary)
-            }
+        VStack(spacing: 12) {
+            Image(systemName: subject.icon)
+                .font(.system(size: 32))
+                .foregroundColor(subject.color)
+            
+            Text(subject.displayName)
+                .font(.headline)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            
+            Text("\(problemSetCount) sets")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(subject.color.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(subject.color.opacity(0.2), lineWidth: 1)
+                )
+        )
+        .contentShape(Rectangle())
     }
 }
 
-// SubjectRow 컴포넌트 분리
-struct SubjectListRow: View {
+struct ProblemSetsListView: View {
     let subject: SubjectType
     let problemSets: [ProblemSet]
-    let subjectManager: SubjectManager  // SubjectManager 인스턴스 필요
-    @Binding var selectedTab: Int  // 추가
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @Binding var selectedTab: Int
+    @State private var isEditMode = false
+    @State private var showHelpAlert = false
+    @State private var localProblemSets: [ProblemSet] = []
+    
+    // 알림 관련 상태
+    @State private var isShowingDeleteAlert = false
+    @State private var problemSetToDelete: ProblemSet?
+    @State private var showingMergeAlert = false
+    @State private var mergingProblemSets: (source: ProblemSet, target: ProblemSet)?
+    @State private var mergeSetName = ""
     
     var body: some View {
-        if !subjectManager.isDeleted(subject.id) {
-            NavigationLink(
-                destination: ProblemSetsListView(
-                    subject: subject,
-                    problemSets: filterProblemSets(subject: subject, problemSets: problemSets),
-                    selectedTab: $selectedTab  // 추가
-                )
-            ) {
-                HStack {
-                    Image(systemName: subject.icon)
-                        .foregroundColor(subject.color)
-                    // 여기를 수정 - subject.displayName 대신 subjectManager.getDisplayName 사용
-                    if let defaultSubject = subject as? DefaultSubject {
-                        Text(subjectManager.getDisplayName(for: defaultSubject))
-                    } else {
-                        Text(subject.displayName)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(.gray)
-                        .font(.system(size: 14))
-                }
-            }
+        ProblemSetListContainer(
+            localProblemSets: localProblemSets,
+            isEditMode: isEditMode,
+            selectedTab: $selectedTab,
+            problemSetToDelete: $problemSetToDelete,
+            isShowingDeleteAlert: $isShowingDeleteAlert
+        )
+        .navigationTitle(subject.displayName)
+        .toolbar {
+            ProblemSetToolbar(
+                isEditMode: $isEditMode,
+                showHelpAlert: $showHelpAlert
+            )
+        }
+        .onAppear { localProblemSets = problemSets }
+        .onChange(of: homeViewModel.problemSets) { newProblemSets in
+            updateLocalProblemSets(newProblemSets)
+        }
+        .alert("Delete Problem Set", isPresented: $isShowingDeleteAlert) {
+            DeleteAlertButtons(
+                problemSetToDelete: problemSetToDelete,
+                homeViewModel: homeViewModel
+            )
         }
     }
     
-    private func filterProblemSets(subject: SubjectType, problemSets: [ProblemSet]) -> [ProblemSet] {
-        return problemSets.filter { problemSet in
+    private func updateLocalProblemSets(_ newProblemSets: [ProblemSet]) {
+        localProblemSets = newProblemSets.filter { set in
             if let defaultSubject = subject as? DefaultSubject {
-                return problemSet.subjectType == "default" &&
-                       problemSet.subject.rawValue == defaultSubject.rawValue
+                return set.subjectType == "default" && set.subject.rawValue == defaultSubject.rawValue
             } else if let customSubject = subject as? CustomSubject {
-                return problemSet.subjectType == "custom" &&
-                       problemSet.subjectId == customSubject.id
+                return set.subjectType == "custom" && set.subjectId == customSubject.id
             }
             return false
         }
     }
 }
-// ReviewView용 DefaultSubjectsSection 컴포넌트
-struct ReviewDefaultSubjectsSection: View {
-    @ObservedObject var subjectManager: SubjectManager
-    let problemSets: [ProblemSet]
-    @ObservedObject var homeViewModel: HomeViewModel
-    @Binding var selectedTab: Int  // 추가
-    
-    var body: some View {
-        Section(header: Text("Default Subjects")) {
-            ForEach(DefaultSubject.allCases, id: \.id) { subject in
-                let filteredSets = problemSets.filter {
-                    $0.subjectType == "default" &&
-                    $0.subject.rawValue == subject.rawValue
-                }.sorted(by: { $0.createdAt > $1.createdAt })
-                
-                NavigationLink(
-                    destination: ProblemSetsListView(
-                        subject: subject,
-                        problemSets: filteredSets,
-                        selectedTab: $selectedTab  // 추가
-                    )
-                ) {
-                    SubjectRow(subject: subject)
-                }
-            }
-        }
-    }
-}
 
-// ReviewView용 CustomSubjectsSection 컴포넌트
-struct ReviewCustomSubjectsSection: View {
-    @ObservedObject var subjectManager: SubjectManager
-    let problemSets: [ProblemSet]
-    @ObservedObject var homeViewModel: HomeViewModel
-    @Binding var selectedTab: Int  // 추가
-    
-    var body: some View {
-        Section(header: Text("Custom Subjects")) {
-            ForEach(subjectManager.customSubjects.filter { $0.isActive }) { subject in
-                let filteredSets = problemSets.filter { $0.subject.displayName == subject.displayName }
-                    .sorted(by: { $0.createdAt > $1.createdAt })
-                
-                NavigationLink(
-                    destination: ProblemSetsListView(
-                        subject: subject,
-                        problemSets: filteredSets,
-                        selectedTab: $selectedTab  // 추가
-                    )
-                ) {
-                    SubjectRow(subject: subject)
-                }
-            }
-        }
-    }
-}
-
-extension SubjectType {
-    func isDeleted(in subjectManager: SubjectManager) -> Bool {
-        if let defaultSubject = self as? DefaultSubject {
-            return subjectManager.isDeleted(defaultSubject)
-        }
-        return false
-    }
-}
-
-struct ProblemSetsListView: View {
-   let subject: SubjectType
-   let problemSets: [ProblemSet]
-   @EnvironmentObject var homeViewModel: HomeViewModel
-   @State private var isShowingStudyView = false
-   @State private var isShowingDeleteAlert = false
-   @State private var problemSetToDelete: ProblemSet?
-   @Binding var selectedTab: Int
-   @State private var isEditMode = false
-   @State private var showHelpAlert = false
-   
-   // Drag and drop state
-   @State private var draggedProblemSet: ProblemSet?
-   @State private var showingMergeAlert = false
-   @State private var mergingProblemSets: (source: ProblemSet, target: ProblemSet)?
-   @State private var mergeSetName = ""
-   @State private var isTargeted = false
-   
-   private var shouldShowMergeTip: Bool {
-       !UserDefaults.standard.bool(forKey: "hasSeenMergeTip") && problemSets.count >= 2
-   }
-   
-   var body: some View {
-       ScrollView {
-           VStack(spacing: 12) {
-               if shouldShowMergeTip {
-                   VStack {
-                       Text("💡 Tip: Drag one question set onto another to merge them!")
-                           .font(.callout)
-                           .padding()
-                           .background(Color.blue.opacity(0.1))
-                           .cornerRadius(8)
-                   }
-                   .padding(.horizontal)
-                   .onAppear {
-                       UserDefaults.standard.set(true, forKey: "hasSeenMergeTip")
-                   }
-               }
-               
-               LazyVStack(spacing: 12) {
-                   ForEach(problemSets) { problemSet in
-                       ReviewProblemSetCard(
-                           subject: problemSet.resolvedSubject,
-                           problemSet: problemSet,
-                           isEditMode: isEditMode,
-                           onDelete: {
-                               problemSetToDelete = problemSet
-                               isShowingDeleteAlert = true
-                           },
-                           onRename: { newName in
-                               Task {
-                                   await homeViewModel.renameProblemSet(problemSet, newName: newName)
-                               }
-                           }
-                       )
-                       .highPriorityGesture(
-                           DragGesture(minimumDistance: 10)
-                               .onChanged { _ in
-                                   print("🔄 Drag detected")
-                               }
-                       )
-                       .onTapGesture {
-                           Task {
-                               homeViewModel.setSelectedProblemSet(problemSet)
-                               if let studyViewModel = homeViewModel.studyViewModel {
-                                   await studyViewModel.resetState()
-                                   studyViewModel.loadQuestions(problemSet.questions)
-                                   await MainActor.run {
-                                       withAnimation {
-                                           selectedTab = 1
-                                           isShowingStudyView = true
-                                       }
-                                   }
-                               }
-                           }
-                       }
-                       .draggable(problemSet) {
-                           DragPreviewView(problemSet: problemSet)
-                       }
-                       .dropDestination(for: ProblemSet.self) { droppedItems, location in
-                           print("📥 Drop detected on: \(problemSet.name)")
-                           
-                           guard let droppedSet = droppedItems.first else {
-                               print("❌ No dropped set found")
-                               return false
-                           }
-                           
-                           if droppedSet.id != problemSet.id {
-                               print("✨ Preparing to merge: \(droppedSet.name) into \(problemSet.name)")
-                               mergingProblemSets = (droppedSet, problemSet)
-                               mergeSetName = "\(droppedSet.name) + \(problemSet.name)"
-                               showingMergeAlert = true
-                               HapticManager.shared.impact(style: .medium)
-                               return true
-                           }
-                           
-                           print("⚠️ Cannot merge set with itself")
-                           return false
-                       } isTargeted: { isTargeted in
-                           print("🎯 Target status for \(problemSet.name): \(isTargeted)")
-                           withAnimation(.easeInOut(duration: 0.2)) {
-                               self.isTargeted = isTargeted
-                           }
-                       }
-                       .padding(.horizontal)
-                       .background(
-                           RoundedRectangle(cornerRadius: 12)
-                               .fill(isTargeted ? Color.blue.opacity(0.1) : Color.clear)
-                       )
-                       .animation(.easeInOut(duration: 0.2), value: isTargeted)
-                   }
-               }
-           }
-           .padding(.vertical)
-       }
-       .navigationTitle("\(subject.displayName)")
-       .toolbar {
-           ToolbarItem(placement: .navigationBarTrailing) {
-               HStack(spacing: 16) {
-                   Button(action: {
-                       showHelpAlert = true
-                   }) {
-                       Image(systemName: "questionmark.circle")
-                           .imageScale(.large)
-                           .foregroundColor(.blue)
-                   }
-                   
-                   Button(action: {
-                       withAnimation {
-                           isEditMode.toggle()
-                       }
-                   }) {
-                       Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
-                           .imageScale(.large)
-                           .foregroundColor(isEditMode ? .green : .blue)
-                   }
-               }
-           }
-       }
-       .alert("How to Merge Question Sets", isPresented: $showHelpAlert) {
-           Button("Got it!", role: .cancel) {}
-       } message: {
-           Text("To merge question sets:\n\n1. Touch and hold a question set\n2. Drag it onto another question set\n3. Release to merge them\n\nThis is useful for combining related sets!")
-       }
-       .alert("Delete Problem Set", isPresented: $isShowingDeleteAlert) {
-           Button("Cancel", role: .cancel) { }
-           Button("Delete", role: .destructive) {
-               if let problemSet = problemSetToDelete {
-                   Task {
-                       await homeViewModel.deleteProblemSet(problemSet)
-                   }
-               }
-           }
-       }
-       .alert("Merge Problem Sets", isPresented: $showingMergeAlert) {
-           TextField("New Set Name", text: $mergeSetName)
-           Button("Cancel", role: .cancel) {
-               mergingProblemSets = nil
-               draggedProblemSet = nil
-           }
-           Button("Merge") {
-               if let (source, target) = mergingProblemSets {
-                   let mergedSet = ProblemSet.merge(
-                       problemSets: [source, target],
-                       name: mergeSetName
-                   )
-                   
-                   Task {
-                       print("💾 Saving merged set: \(mergedSet.name)")
-                       await homeViewModel.saveProblemSet(mergedSet)
-//                       await homeViewModel.deleteProblemSet(source)
-//                       await homeViewModel.deleteProblemSet(target)
-                       
-                       mergingProblemSets = nil
-                       draggedProblemSet = nil
-                       HapticManager.shared.impact(style: .medium)
-                   }
-               }
-           }
-       } message: {
-           if let sets = mergingProblemSets {
-               Text("Merge '\(sets.source.name)' with '\(sets.target.name)'")
-           }
-       }
-   }
-}
-
-
-private struct DragPreviewView: View {
-   let problemSet: ProblemSet
-   
-   var body: some View {
-       VStack(spacing: 4) {
-           Text(problemSet.name)
-               .font(.headline)
-           Text("\(problemSet.questions.count) questions")
-               .font(.caption)
-       }
-       .padding()
-       .background(Color(.systemBackground))
-       .cornerRadius(8)
-       .shadow(radius: 3)
-   }
-}
-
-
-
-// 별도의 row 컴포넌트로 분리
-struct ProblemSetRow: View {
-    let problemSet: ProblemSet
-    @Binding var isShowingStudyView: Bool
-    @Binding var isShowingDeleteAlert: Bool
-    @Binding var problemSetToDelete: ProblemSet?
-    @EnvironmentObject var homeViewModel: HomeViewModel
-    @StateObject private var refreshTrigger = RefreshTrigger()
+// MARK: - Supporting Views
+private struct ProblemSetListContainer: View {
+    let localProblemSets: [ProblemSet]
+    let isEditMode: Bool
     @Binding var selectedTab: Int
-    @State private var isTargeted = false
-    @Binding var isEditMode: Bool  // 추가
-    
-    // 이름 변경을 위한 상태 변수
-    @State private var displayName: String
-    
-    init(problemSet: ProblemSet,
-         isShowingStudyView: Binding<Bool>,
-         isShowingDeleteAlert: Binding<Bool>,
-         problemSetToDelete: Binding<ProblemSet?>,
-         selectedTab: Binding<Int>,
-         isEditMode: Binding<Bool>) {  // 추가
-        self.problemSet = problemSet
-        self._isShowingStudyView = isShowingStudyView
-        self._isShowingDeleteAlert = isShowingDeleteAlert
-        self._problemSetToDelete = problemSetToDelete
-        self._selectedTab = selectedTab
-        self._isEditMode = isEditMode  // 추가
-        self._displayName = State(initialValue: problemSet.name)
-    }
+    @Binding var problemSetToDelete: ProblemSet?
+    @Binding var isShowingDeleteAlert: Bool
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @State private var refreshID = UUID() // 추가
     
     var body: some View {
-        Button(action: {
-            Task {
-                homeViewModel.setSelectedProblemSet(problemSet)
-                if let studyViewModel = homeViewModel.studyViewModel {
-                    await studyViewModel.resetState()
-                    studyViewModel.loadQuestions(problemSet.questions)
-                    await MainActor.run {
-                        withAnimation {
-                            selectedTab = 1
-                            isShowingStudyView = true
-                        }
+        ScrollView {
+            VStack(spacing: 12) {
+                LazyVStack(spacing: 12) {
+                    ForEach(localProblemSets) { problemSet in
+                        ProblemSetItem(
+                            problemSet: problemSet,
+                            isEditMode: isEditMode,
+                            selectedTab: $selectedTab,
+                            problemSetToDelete: $problemSetToDelete,
+                            isShowingDeleteAlert: $isShowingDeleteAlert,
+                            onFavoriteToggle: {
+                                Task {
+                                    await homeViewModel.toggleFavorite(problemSet)
+                                    // UI 강제 새로고침
+                                    await MainActor.run {
+                                        refreshID = UUID()
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }
-        }) {
-            ReviewProblemSetCard(
-                subject: problemSet.resolvedSubject,
-                problemSet: problemSet.copy(withName: displayName),
-                isEditMode: isEditMode,  // 추가
-                onDelete: {
-                    problemSetToDelete = problemSet
-                    isShowingDeleteAlert = true
-                },
-                onRename: { newName in
-                    Task {
-                        await homeViewModel.renameProblemSet(problemSet, newName: newName)
-                        await MainActor.run {
-                            displayName = newName
-                        }
-                    }
-                }
-            )
-        }
-        .draggable(problemSet) {
-            DragPreviewView(problemSet: problemSet)
-        }
-        .dropDestination(for: ProblemSet.self) { droppedItems, location in
-            guard let droppedSet = droppedItems.first,
-                  droppedSet.id != problemSet.id else {
-                print("⚠️ Invalid drop operation")
-                return false
-            }
-            
-            print("🎯 Drop detected: \(droppedSet.name) onto \(problemSet.name)")
-            
-            let mergedSet = ProblemSet.merge(
-                problemSets: [droppedSet, problemSet],
-                name: "Merged: \(droppedSet.name) + \(problemSet.name)"
-            )
-            
-            Task {
-                await homeViewModel.saveProblemSet(mergedSet)
-                HapticManager.shared.impact(style: .medium)
-            }
-            
-            return true
-        } isTargeted: { targeted in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isTargeted = targeted
-            }
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.blue, lineWidth: isTargeted ? 2 : 0)
-                .animation(.easeInOut(duration: 0.2), value: isTargeted)
-        )
-        .scaleEffect(isTargeted ? 1.02 : 1.0)
-        .animation(.easeInOut(duration: 0.2), value: isTargeted)
-        .onChange(of: problemSet.name) { newName in
-            displayName = newName
+            .padding(.vertical)
+            .id(refreshID) // 추가
         }
     }
 }
 
-extension ProblemSet {
-    func copy(withName newName: String) -> ProblemSet {
-        ProblemSet(
-            id: self.id,
-            subject: self.subject,
-            subjectType: self.subjectType,
-            subjectId: self.subjectId,
-            subjectName: self.subjectName,
-            questions: self.questions,
-            createdAt: self.createdAt,
-            educationLevel: self.educationLevel,
-            name: newName  // 새 이름 사용
-        )
-    }
-}
-
-
-// StudyView destination을 별도 컴포넌트로 분리
-// StudyDestinationView (기존과 동일)
-struct StudyDestinationView: View {
+private struct ProblemSetItem: View {
     let problemSet: ProblemSet
+    let isEditMode: Bool
+    @Binding var selectedTab: Int
+    @Binding var problemSetToDelete: ProblemSet?
+    @Binding var isShowingDeleteAlert: Bool
+    let onFavoriteToggle: () -> Void // 추가
     @EnvironmentObject var homeViewModel: HomeViewModel
+    
+    var body: some View {
+        ReviewProblemSetCard(
+            subject: problemSet.resolvedSubject,
+            problemSet: problemSet,
+            isEditMode: isEditMode,
+            onDelete: {
+                problemSetToDelete = problemSet
+                isShowingDeleteAlert = true
+            },
+            onRename: { newName in
+                Task {
+                    await homeViewModel.renameProblemSet(problemSet, newName: newName)
+                }
+            },
+            onFavoriteToggle: onFavoriteToggle // 수정
+        )
+        .onTapGesture {
+            handleTap()
+        }
+        .padding(.horizontal)
+    }
+    
+    private func handleTap() {
+        Task {
+            homeViewModel.setSelectedProblemSet(problemSet)
+            if let studyViewModel = homeViewModel.studyViewModel {
+                await studyViewModel.resetState()
+                studyViewModel.loadQuestions(problemSet.questions)
+                await MainActor.run {
+                    withAnimation {
+                        selectedTab = 1
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ProblemSetToolbar: ToolbarContent {
+    @Binding var isEditMode: Bool
+    @Binding var showHelpAlert: Bool
+    
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            HStack(spacing: 16) {
+                Button(action: { showHelpAlert = true }) {
+                    Image(systemName: "questionmark.circle")
+                        .imageScale(.large)
+                        .foregroundColor(.blue)
+                }
+                
+                Button(action: {
+                    withAnimation {
+                        isEditMode.toggle()
+                    }
+                }) {
+                    Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
+                        .imageScale(.large)
+                        .foregroundColor(isEditMode ? .green : .blue)
+                }
+            }
+        }
+    }
+}
+
+private struct DeleteAlertButtons: View {
+    let problemSetToDelete: ProblemSet?
+    let homeViewModel: HomeViewModel
     
     var body: some View {
         Group {
-            if let studyViewModel = homeViewModel.studyViewModel {
-                StudyView(
-                    questions: problemSet.questions,
-                    studyViewModel: studyViewModel,
-                    selectedTab: .constant(1)
-                )
-            } else {
-                Text("Study ViewModel not available")
-            }
-        }
-    }
-}
-
-
-class RefreshTrigger: ObservableObject {
-    @Published var id = UUID()
-    
-    func refresh() {
-        id = UUID()
-    }
-}
-
-
-// 과목 행 컴포넌트
-struct SubjectRow: View {
-    // Style enum to handle different display modes
-    enum Style {
-        case navigation
-        case management
-    }
-    
-    let subject: SubjectType
-    let style: Style
-    let isDefault: Bool
-    
-    // Default initializer for navigation style
-    init(subject: SubjectType) {
-        self.subject = subject
-        self.style = .navigation
-        self.isDefault = false
-    }
-    
-    // Management style initializer
-    init(subject: SubjectType, isDefault: Bool) {
-        self.subject = subject
-        self.style = .management
-        self.isDefault = isDefault
-    }
-    
-    var body: some View {
-        HStack {
-            Image(systemName: subject.icon)
-                .foregroundColor(subject.color)
-                .font(style == .management ? .title2 : .body)
-            
-            Text(subject.displayName)
-                .foregroundColor(.primary)
-                .font(style == .management ? .body : .headline)
-                .padding(.leading, style == .management ? 0 : 8)
-            
-            if style == .management {
-                if isDefault {
-                    Spacer()
-                    Text("Default")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let problemSet = problemSetToDelete {
+                    Task {
+                        await homeViewModel.deleteProblemSet(problemSet)
+                    }
                 }
             }
         }
-        .padding(.vertical, style == .management ? 8 : 0)
     }
 }
+
 
 
 // ./AISnapStudy/Views/Main/StudyView.swift
@@ -9236,11 +9135,35 @@ struct GeneratedQuestionPreviewCard: View {
 
 import SwiftUI
 
+
+
 struct CalendarStatsView: View {
-    @Binding var selectedMonth: Date
+    @State private var selectedMonth = Date()  // 내부에서 상태 관리
     let monthlyData: [Date: [DailyStats]]
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    private var calendarDays: [CalendarDay] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: selectedMonth),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let monthLastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end) else {
+            return []
+        }
+        
+        let dateInterval = DateInterval(start: monthFirstWeek.start, end: monthLastWeek.end)
+        let dates = calendar.generateDates(for: dateInterval, matching: DateComponents(hour: 0))
+        
+        return dates.enumerated().map { CalendarDay(id: $0, date: $1) }
+    }
+    
+    private func convertToDailyProgress(_ stats: DailyStats) -> DailyProgress {
+        return DailyProgress(
+            date: stats.date,
+            questionsCompleted: stats.totalQuestions,
+            correctAnswers: stats.correctAnswers,
+            totalTime: 0  // 시간 데이터가 없다면 0으로 설정
+        )
+    }
     
     var body: some View {
         VStack {
@@ -9260,18 +9183,25 @@ struct CalendarStatsView: View {
             .padding(.bottom)
             
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
-                ForEach(daysInWeek, id: \.self) { day in
-                    Text(day)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                ForEach(days, id: \.self) { date in
-                    if let stats = statsFor(date: date) {
-                        DayCellView(stats: stats)
-                    } else {
-                        Color.clear
-                            .aspectRatio(1, contentMode: .fit)
+                 // 요일 헤더
+                 ForEach(daysInWeek, id: \.self) { day in
+                     Text(day)
+                         .font(.caption)
+                         .foregroundColor(.secondary)
+                 }
+                 
+                 // 날짜 그리드
+                 ForEach(calendarDays, id: \.id) { calendarDay in
+                     if let stats = statsFor(date: calendarDay.date) {
+                         DayCellView(
+                             date: calendarDay.date,
+                             progress: convertToDailyProgress(stats)
+                         )
+                     } else {
+                         Text(String(calendar.component(.day, from: calendarDay.date)))
+                             .font(.caption)
+                             .foregroundColor(.secondary)
+                             .frame(height: 35)
                     }
                 }
             }
@@ -9305,7 +9235,6 @@ struct CalendarStatsView: View {
         return stats.first { calendar.isDate($0.date, inSameDayAs: date) }
     }
     
-    
     private func previousMonth() {
         selectedMonth = calendar.date(byAdding: .month, value: -1, to: selectedMonth) ?? selectedMonth
     }
@@ -9315,35 +9244,7 @@ struct CalendarStatsView: View {
     }
 }
 
-struct DayCellView: View {
-    let stats: DailyStats
-    
-    private var accuracyColor: Color {
-        let accuracy = stats.accuracy
-        switch accuracy {
-        case 90...100: return .green
-        case 70..<90: return .blue
-        case 50..<70: return .orange
-        default: return .red
-        }
-    }
-    
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(accuracyColor.opacity(0.2))
-            
-            VStack(spacing: 2) {
-                Text("\(Calendar.current.component(.day, from: stats.date))")
-                    .font(.caption2)
-                Text("\(Int(stats.accuracy))%")
-                    .font(.system(size: 8))
-                    .foregroundColor(accuracyColor)
-            }
-        }
-        .aspectRatio(1, contentMode: .fit)
-    }
-}
+
 
 
 // ./AISnapStudy/Views/Stats/DailyStatsView.swift
@@ -9351,158 +9252,492 @@ struct DayCellView: View {
 import SwiftUI
 import Charts
 
+enum TimeRange: String, CaseIterable {
+    case week = "Week"
+    case month = "Month"
+}
+
 struct DailyStatsView: View {
+    @State private var currentMonthDate = Date()  // 추가된 상태 변수
     @ObservedObject var viewModel: StatViewModel
     @State private var selectedTimeRange: TimeRange = .week
-    @State private var showingDatePicker = false
     @State private var selectedDate = Date()
+    @State private var showingDatePicker = false
     
-    enum TimeRange: String, CaseIterable {
-        case week = "Week"
-        case month = "Month"
-        case year = "Year"
-    }
-    
-    var dailyProgressBinding: Binding<[DailyProgress]> {
-        Binding(
-            get: { viewModel.weeklyProgress },
-            set: { viewModel.weeklyProgress = $0 }
-        )
-    }
-    
-    // weeklyProgress에서 오늘의 데이터만 정확하게 가져오기
     private var todayStats: DailyProgress? {
         let calendar = Calendar.current
-        let today = Date()
-        
-        // 디버그: 현재 weeklyProgress 상태 출력
-        print("DailyStatsView: Getting today's stats")
-        viewModel.weeklyProgress.forEach { progress in
-            print("Date: \(progress.date), Questions: \(progress.questionsCompleted)")
+        return viewModel.weeklyProgress.first {
+            calendar.isDate($0.date, inSameDayAs: Date())
         }
-        
-        let stats = viewModel.weeklyProgress
-            .first { calendar.isDate($0.date, inSameDayAs: today) }
-        
-        if let stats = stats {
-            print("Found today's stats: Questions=\(stats.questionsCompleted)")
-        } else {
-            print("No stats found for today")
-        }
-        
-        return stats
     }
-    
     
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Time Range Picker
-                Picker("Time Range", selection: $selectedTimeRange) {
-                    ForEach(TimeRange.allCases, id: \.self) { range in
-                        Text(range.rawValue).tag(range)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding()
+                timePicker
                 
-                // Daily Progress
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Daily Progress")
-                        .font(.headline)
-                    
-                    Chart {
-                        ForEach(viewModel.weeklyProgress) { progress in
-                            BarMark(
-                                x: .value("Date", progress.date, unit: .day),
-                                y: .value("Questions", progress.questionsCompleted)
-                            )
-                            .position(by: .value("Type", "Total"))
-                            .foregroundStyle(.blue.opacity(0.3))
+                switch selectedTimeRange {
+                case .week:
+                    weeklyProgressChart
+                case .month:
+                    VStack(spacing: 10) {
+                        // 월 이동 컨트롤
+                        HStack {
+                            Button(action: previousMonth) {
+                                Image(systemName: "chevron.left")
+                                    .font(.title3)
+                            }
                             
-                            BarMark(
-                                x: .value("Date", progress.date, unit: .day),
-                                y: .value("Questions", progress.correctAnswers)
-                            )
-                            .position(by: .value("Type", "Correct"))
-                            .foregroundStyle(.green)
+                            Text(monthYearString)
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                            
+                            Button(action: nextMonth) {
+                                Image(systemName: "chevron.right")
+                                    .font(.title3)
+                            }
                         }
-                    }
-                    .onChange(of: viewModel.completedQuestions) { _ in
-                        viewModel.updateStats(correctAnswers: viewModel.correctAnswers,
-                                            totalQuestions: viewModel.completedQuestions)
-                    }
-                    .frame(height: 200)
-                    .chartLegend(position: .top)
-                    .chartForegroundStyleScale([
-                        "Total": .blue.opacity(0.3),
-                        "Correct": .green
-                    ])
-                }
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(12)
-                .shadow(radius: 2)
-                
-                // Daily Stats Summary
-                LazyVGrid(columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ], spacing: 16) {
-                    DailyStatCard(
-                        title: "Today's Questions",
-                        value: "\(todayStats?.questionsCompleted ?? 0)",  // 수정된 부분
-                        trend: "",  // trend는 일단 빈 문자열로
-                        trendUp: true
-                    )
-                    
-                    DailyStatCard(
-                        title: "Accuracy",
-                        value: String(format: "%.1f%%", todayStats?.accuracy ?? 0),  // 수정된 부분
-                        trend: "",
-                        trendUp: true
-                    )
-
-                    
-                }
-                .padding()
-                
-                // Activity Summary
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Activity Summary")
-                        .font(.headline)
-                    
-                    VStack(spacing: 16) {
-                        ActivityRow(
-                            title: "Most Active Day",
-                            value: "Wednesday",
-                            icon: "calendar",
-                            color: .blue
-                        )
+                        .padding(.horizontal)
                         
-                        ActivityRow(
-                            title: "Best Subject",
-                            value: "Mathematics",
-                            icon: "function",
-                            color: .green
-                        )
-                        
-                        ActivityRow(
-                            title: "Study Streak",
-                            value: "\(viewModel.streak) days",
-                            icon: "flame.fill",
-                            color: .orange
+                        MonthCalendarView(
+                            month: currentMonthDate,
+                            monthlyData: viewModel.monthlyProgress
                         )
                     }
                 }
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(12)
-                .shadow(radius: 2)
+                
+                StatsCircleContainer(
+                    todayStats: todayStats,
+                    weeklyStats: viewModel.weeklyProgress,
+                    monthlyProgress: viewModel.monthlyProgress,  // 추가
+                    selectedTimeRange: selectedTimeRange,        // 추가
+                    currentMonthDate: currentMonthDate
+                )
             }
             .padding()
         }
         .navigationTitle("Daily Statistics")
+    }
+    
+    private var monthYearString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: currentMonthDate)
+    }
+    
+    private func previousMonth() {
+        if let newDate = Calendar.current.date(byAdding: .month, value: -1, to: currentMonthDate) {
+            currentMonthDate = newDate
+        }
+    }
+    
+    private func nextMonth() {
+        if let newDate = Calendar.current.date(byAdding: .month, value: 1, to: currentMonthDate) {
+            currentMonthDate = newDate
+        }
+    }
+
+    
+    
+    private var weeklyProgressChart: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Weekly Progress")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            Chart {
+                ForEach(viewModel.weeklyProgress) { progress in
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.questionsCompleted)
+                    )
+                    .position(by: .value("Type", "Total"))
+                    .foregroundStyle(.blue.opacity(0.3))
+                    
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.correctAnswers)
+                    )
+                    .position(by: .value("Type", "Correct"))
+                    .foregroundStyle(.green)
+                }
+            }
+            .frame(height: 200)
+            .padding(.horizontal, 20)
+            .chartLegend(position: .top)
+            .chartForegroundStyleScale([
+                "Total": .blue.opacity(0.3),
+                "Correct": .green
+            ])
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var monthlyProgressChart: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Monthly Progress")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            Chart {
+                ForEach(viewModel.monthlyProgress) { progress in
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.questionsCompleted)
+                    )
+                    .position(by: .value("Type", "Total"))
+                    .foregroundStyle(.blue.opacity(0.3))
+                    
+                    BarMark(
+                        x: .value("Day", progress.week),
+                        y: .value("Questions", progress.correctAnswers)
+                    )
+                    .position(by: .value("Type", "Correct"))
+                    .foregroundStyle(.green)
+                }
+            }
+            .frame(height: 200)
+            .padding(.horizontal, 20)
+            .chartLegend(position: .top)
+            .chartForegroundStyleScale([
+                "Total": .blue.opacity(0.3),
+                "Correct": .green
+            ])
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var yearlyProgressChart: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Yearly Progress")
+                .font(.headline)
+                .padding(.horizontal)
+            
+            Chart {
+                ForEach(viewModel.yearlyProgress) { progress in
+                    BarMark(
+                        x: .value("Month", progress.week),
+                        y: .value("Questions", progress.questionsCompleted)
+                    )
+                    .position(by: .value("Type", "Total"))
+                    .foregroundStyle(.blue.opacity(0.3))
+                    
+                    BarMark(
+                        x: .value("Month", progress.week),
+                        y: .value("Questions", progress.correctAnswers)
+                    )
+                    .position(by: .value("Type", "Correct"))
+                    .foregroundStyle(.green)
+                }
+            }
+            .frame(height: 200)
+            .padding(.horizontal, 20)
+            .chartLegend(position: .top)
+            .chartForegroundStyleScale([
+                "Total": .blue.opacity(0.3),
+                "Correct": .green
+            ])
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+    
+    private var timePicker: some View {
+        Picker("Time Range", selection: $selectedTimeRange) {
+            ForEach(TimeRange.allCases, id: \.self) { range in
+                Text(range.rawValue).tag(range)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding()
+        .onChange(of: selectedTimeRange) { _ in
+            let period: StatsPeriod = switch selectedTimeRange {
+                case .week: .day
+                case .month: .month
+            }
+            Task {
+                await viewModel.loadStatsByPeriod(period)
+            }
+        }
+    }
+}
+
+struct CalendarDay: Identifiable, Hashable {
+    let id: Int
+    let date: Date
+    
+    // Hashable 구현
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(date)
+    }
+    
+    static func == (lhs: CalendarDay, rhs: CalendarDay) -> Bool {
+        return lhs.id == rhs.id && lhs.date == rhs.date
+    }
+}
+
+struct MonthCalendarView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let month: Date
+    let monthlyData: [DailyProgress]
+    private let calendar = Calendar.current
+    private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    var body: some View {
+        VStack(spacing: 15) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
+                // 요일 헤더
+                ForEach(daysInWeek, id: \.self) { day in
+                    Text(day)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                }
+                
+                // 빈 셀 채우기
+                ForEach(0..<firstWeekdayOfMonth, id: \.self) { _ in
+                    Color.clear
+                        .frame(height: 40)
+                }
+                
+                // 날짜 그리드
+                ForEach(calendarDays, id: \.id) { calendarDay in
+                    if let progress = progressForDate(calendarDay.date),
+                       progress.questionsCompleted > 0 {
+                        DayCellView(date: calendarDay.date, progress: progress)
+                    } else {
+                        Text(String(calendar.component(.day, from: calendarDay.date)))
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? .white : .primary)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6))
+                            )
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
+        .background(colorScheme == .dark ? Color(.systemGray5) : Color(.systemBackground))
+        .cornerRadius(16)
+    }
+
+    // 월의 첫 번째 날의 요일 (0 = 일요일, 6 = 토요일)
+    private var firstWeekdayOfMonth: Int {
+        guard let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) else {
+            return 0
+        }
+        return calendar.component(.weekday, from: firstDay) - 1
+    }
+    
+    private var calendarDays: [CalendarDay] {
+        guard let range = calendar.range(of: .day, in: .month, for: month) else {
+            return []
+        }
+        
+        return (1...range.count).map { day -> CalendarDay in
+            let components = calendar.dateComponents([.year, .month], from: month)
+            var newComponents = DateComponents()
+            newComponents.year = components.year
+            newComponents.month = components.month
+            newComponents.day = day
+            let date = calendar.date(from: newComponents) ?? month
+            return CalendarDay(id: day, date: date)
+        }
+    }
+    
+    private func progressForDate(_ date: Date) -> DailyProgress? {
+        monthlyData.first { calendar.isDate($0.date, inSameDayAs: date) }
+    }
+    
+    private var monthString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: month)
+    }
+    
+    private var daysInMonth: [Date] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: month),
+              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+              let monthLastWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.end) else {
+            return []
+        }
+        
+        let dateInterval = DateInterval(start: monthFirstWeek.start, end: monthLastWeek.end)
+        return calendar.generateDates(for: dateInterval, matching: DateComponents(hour: 0))
+    }
+}
+
+struct StatsCircleContainer: View {
+    let todayStats: DailyProgress?
+    let weeklyStats: [DailyProgress]
+    let monthlyProgress: [DailyProgress]  // 추가
+    let selectedTimeRange: TimeRange      // 추가
+    let currentMonthDate: Date           // 추가
+    
+    private var monthlyStats: (total: Int, correct: Int, incorrect: Int) {
+        let calendar = Calendar.current
+        let currentMonth = calendar.component(.month, from: currentMonthDate)
+        let currentYear = calendar.component(.year, from: currentMonthDate)
+        
+        let thisMonthProgress = monthlyProgress.filter { progress in
+            let progressMonth = calendar.component(.month, from: progress.date)
+            let progressYear = calendar.component(.year, from: progress.date)
+            return progressMonth == currentMonth && progressYear == currentYear
+        }
+        
+        let total = thisMonthProgress.reduce(0) { $0 + $1.questionsCompleted }
+        let correct = thisMonthProgress.reduce(0) { $0 + $1.correctAnswers }
+        return (total, correct, total - correct)
+    }
+    
+    var body: some View {
+        HStack {
+            CircleProgressView(
+                progress: Double(todayStats?.correctAnswers ?? 0) / Double(max(1, todayStats?.questionsCompleted ?? 1)),
+                title: "Today's Accuracy",
+                total: todayStats?.questionsCompleted ?? 0,
+                correct: todayStats?.correctAnswers ?? 0,
+                incorrect: (todayStats?.questionsCompleted ?? 0) - (todayStats?.correctAnswers ?? 0)
+            )
+            
+            Spacer(minLength: 30)
+            
+            if selectedTimeRange == .month {
+                // 월별 통계
+                CircleProgressView(
+                    progress: monthlyStats.total > 0 ? Double(monthlyStats.correct) / Double(monthlyStats.total) : 0,
+                    title: "Monthly Accuracy",
+                    total: monthlyStats.total,
+                    correct: monthlyStats.correct,
+                    incorrect: monthlyStats.incorrect
+                )
+            } else {
+                // 주간 통계
+                CircleProgressView(
+                    progress: calculateWeeklyProgress(),
+                    title: "Weekly Accuracy",
+                    total: calculateWeeklyTotal(),
+                    correct: calculateWeeklyCorrect(),
+                    incorrect: calculateWeeklyIncorrect()
+                )
+            }
+        }
+        .padding(.top)
+    }
+    
+    private func calculateWeeklyProgress() -> Double {
+        let total = weeklyStats.reduce(0) { $0 + $1.questionsCompleted }
+        let correct = weeklyStats.reduce(0) { $0 + $1.correctAnswers }
+        return total > 0 ? Double(correct) / Double(total) : 0
+    }
+    
+    private func calculateWeeklyTotal() -> Int {
+        weeklyStats.reduce(0) { $0 + $1.questionsCompleted }
+    }
+    
+    private func calculateWeeklyCorrect() -> Int {
+        weeklyStats.reduce(0) { $0 + $1.correctAnswers }
+    }
+    
+    private func calculateWeeklyIncorrect() -> Int {
+        let total = calculateWeeklyTotal()
+        let correct = calculateWeeklyCorrect()
+        return total - correct
+    }
+}
+
+struct CircleProgressView: View {
+    let progress: Double
+    let title: String
+    let total: Int
+    let correct: Int
+    let incorrect: Int
+    
+    var body: some View {
+        VStack {
+            ZStack {
+                Circle()
+                    .stroke(lineWidth: 20)
+                    .opacity(0.3)
+                    .foregroundColor(.blue)
+                
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(style: StrokeStyle(lineWidth: 25, lineCap: .round))
+                    .foregroundColor(.green)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.linear, value: progress)
+                
+                VStack {
+                    Text("\(Int(progress * 100))%")
+                        .font(.headline)
+                        .bold()
+                    Text(title)
+                        .font(.caption2)
+                }
+            }
+            .frame(width: 150, height: 150)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                VStack {
+                    Text("Correct: \(correct)")
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                }
+                
+                VStack {
+                    Text("Incorrect: \(incorrect)")
+                        .font(.subheadline)
+                        .foregroundColor(.red)
+                }
+                
+                VStack {
+                    Text("Total: \(total)")
+                        .font(.subheadline)
+                }
+            }
+            .padding(.top)
+        }
+        .padding()
+    }
+}
+
+struct ActivityRow: View {
+   let title: String
+   let value: String
+   let icon: String
+   let color: Color
+   
+    var body: some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .font(.title2)
+                .frame(width: 30)
+            
+            VStack(alignment: .leading) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text(value)
+                    .font(.headline)
+            }
+            
+            Spacer()
+        }
     }
 }
 
@@ -9538,27 +9773,58 @@ struct DailyStatCard: View {
         .shadow(radius: 2)
     }
 }
-
-struct ActivityRow: View {
-    let title: String
-    let value: String
-    let icon: String
-    let color: Color
+struct DayCellView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let date: Date
+    let progress: DailyProgress
+    
+    private var activityColor: Color {
+        let questionCount = progress.questionsCompleted
+        guard questionCount > 0 else { return colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6) }
+        return Color.green
+    }
+    
+    private var textColor: Color {
+        colorScheme == .dark ? .white : .primary
+    }
     
     var body: some View {
-        HStack {
-            Image(systemName: icon)
-                .foregroundColor(color)
-                .frame(width: 30)
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(activityColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
             
-            Text(title)
-                .foregroundColor(.secondary)
-            
-            Spacer()
-            
-            Text(value)
-                .bold()
+            VStack(spacing: 2) {
+                Text("\(Calendar.current.component(.day, from: date))")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                Text("\(progress.questionsCompleted)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+            }
         }
+    }
+}
+
+extension Calendar {
+    func generateDates(
+        for dateInterval: DateInterval,
+        matching components: DateComponents
+    ) -> [Date] {
+        var dates: [Date] = []
+        dates.reserveCapacity(40)
+
+        var date = dateInterval.start
+        repeat {
+            dates.append(date)
+            guard let nextDate = self.nextDate(after: date, matching: components, matchingPolicy: .nextTime) else {
+                break
+            }
+            date = nextDate
+        } while date <= dateInterval.end
+
+        return dates
     }
 }
 
@@ -9634,10 +9900,7 @@ struct DetailedStatsView: View {
                     .padding()
                 
                 // Calendar View
-                CalendarStatsView(
-                    selectedMonth: $selectedMonth,
-                    monthlyData: viewModel.monthlyData
-                )
+                CalendarStatsView(monthlyData: viewModel.monthlyData)
                 .padding()
                 
                 // Stats Summary

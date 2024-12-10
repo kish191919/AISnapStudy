@@ -18,19 +18,53 @@ struct HomeView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 32) {
-                    // 상단 웰컴 카드
+                    // 웰컴 카드
                     WelcomeCard()
                     
-                    // 메인 액션 버튼 (그라데이션 효과 적용)
+                    // 즐겨찾기 섹션 추가
+                    if !viewModel.favoriteProblemSets.isEmpty {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack {
+                                Label("Favorites", systemImage: "star.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.yellow)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                            
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(viewModel.favoriteProblemSets) { problemSet in
+                                        FavoriteCard(
+                                            problemSet: problemSet,
+                                            onTap: {
+                                                Task {
+                                                    viewModel.setSelectedProblemSet(problemSet)
+                                                    if let studyViewModel = viewModel.studyViewModel {
+                                                        await studyViewModel.resetState()
+                                                        studyViewModel.loadQuestions(problemSet.questions)
+                                                        selectedTab = 1
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal)
+                            }
+                        }
+                    }
+                    
+                    // 메인 액션 버튼
                     CreateQuestionsButton(action: {
                         selectedSubject = .math
                         showQuestionSettings = true
                     })
-                
                 }
                 .padding(.vertical, 32)
             }
             .navigationTitle("AI Study")
+
         }
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
@@ -133,5 +167,56 @@ extension DefaultSubject {
         case .generalKnowledge:
             return "General Knowledge"
         }
+    }
+}
+
+// 즐겨찾기 카드 컴포넌트
+struct FavoriteCard: View {
+    let problemSet: ProblemSet
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 16) {
+                // 문제 세트 이름
+                Text(problemSet.name)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                
+                // 구분선
+                Divider()
+                
+                // 문제 수
+                HStack {
+                    Image(systemName: "doc.text.fill")
+                        .foregroundColor(.blue)
+                        .font(.system(size: 14))
+                    
+                    Text("\(problemSet.questions.count) Questions")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(width: 250)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.systemBackground))
+                    .shadow(
+                        color: Color.black.opacity(0.08),
+                        radius: 8,
+                        x: 0,
+                        y: 4
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.blue.opacity(0.1), lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }

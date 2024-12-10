@@ -22,13 +22,41 @@ class HomeViewModel: ObservableObject {
     
     // Singleton instance
     static let shared = HomeViewModel()
-
+//    @Published private(set) var favoriteProblemSets: [ProblemSet] = []
     
     init() {
         Task {
             await loadInitialData()
         }
     }
+    
+    @MainActor
+    func toggleFavorite(_ problemSet: ProblemSet) async {
+        do {
+            problemSet.isFavorite.toggle()
+            
+            try await coreDataService.updateProblemSetFavorite(
+                problemSetId: problemSet.id,
+                isFavorite: problemSet.isFavorite
+            )
+            
+            // UI 업데이트
+            objectWillChange.send()
+            
+            print("⭐️ Problem Set favorite toggled: \(problemSet.id) - \(problemSet.name) - isFavorite: \(problemSet.isFavorite)")
+        } catch {
+            print("❌ Failed to toggle favorite: \(error)")
+        }
+    }
+
+    
+    // 즐겨찾기된 문제 세트 가져오기
+    var favoriteProblemSets: [ProblemSet] {
+        problemSets.filter { $0.isFavorite }
+    }
+
+    
+
     // 현재 세션의 점수 관련 속성 추가
     var currentSessionScore: Int {
         return studyViewModel?.correctAnswers ?? 0
