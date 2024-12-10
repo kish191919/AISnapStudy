@@ -440,19 +440,24 @@ class OpenAIService {
                         "properties": [
                             "type": ["type": "string", "enum": questionTypeEnums],
                             "question": ["type": "string"],
-                            "options": ["type": "array", "items": ["type": "string"]],
+                            "options": [
+                                "type": "array",
+                                "items": [
+                                    "type": "string"
+                                ],
+                                "description": "For true_false type, must be exactly ['true', 'false']"
+                            ],
                             "correctAnswer": ["type": "string"],
                             "explanation": ["type": "string"],
                             "hint": ["type": "string"]
                         ],
-                        "required": ["type", "question", "options", "correctAnswer", "explanation", "hint" ]
+                        "required": ["type", "question", "options", "correctAnswer", "explanation", "hint"]
                     ]
                 ]
             ],
             "required": ["questions"]
         ]
     }
-    
     private func performQuestionGeneration(
         input: Data?,
         textInput: String?,
