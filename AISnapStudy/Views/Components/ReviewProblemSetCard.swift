@@ -36,14 +36,15 @@ struct ReviewProblemSetCard: View {
                             .imageScale(.large)
                     }
                 }
-                
-                Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Text("Subject: \(subject.displayName)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack {
+                    Text("\(problemSet.questions.count) EA")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             
             if isEditMode {

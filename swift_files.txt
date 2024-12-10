@@ -1322,28 +1322,17 @@ class HomeViewModel: ObservableObject {
     @MainActor
     func toggleFavorite(_ problemSet: ProblemSet) async {
         do {
-            // 1. CoreData에서 업데이트
+            problemSet.isFavorite.toggle()
+            
             try await coreDataService.updateProblemSetFavorite(
                 problemSetId: problemSet.id,
-                isFavorite: !problemSet.isFavorite
+                isFavorite: problemSet.isFavorite
             )
             
-            // 2. 메모리의 problemSets 배열 업데이트
-            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
-                var updatedSet = problemSets[index]
-                updatedSet.isFavorite.toggle()
-                problemSets[index] = updatedSet
-                
-                // 3. 선택된 ProblemSet도 업데이트
-                if selectedProblemSet?.id == problemSet.id {
-                    selectedProblemSet = updatedSet
-                }
-                
-                // 4. 변경 알림
-                objectWillChange.send()
-            }
+            // UI 업데이트
+            objectWillChange.send()
             
-            print("⭐️ Problem Set favorite toggled: \(problemSet.id) - \(problemSet.name)")
+            print("⭐️ Problem Set favorite toggled: \(problemSet.id) - \(problemSet.name) - isFavorite: \(problemSet.isFavorite)")
         } catch {
             print("❌ Failed to toggle favorite: \(error)")
         }
@@ -2516,8 +2505,88 @@ class CoreDataService {
         return context
     }
     
-    // MARK: - ProblemSet Operations
-    // File: ./AISnapStudy/CoreData/CoreDataService.swift
+    public func saveProblemSet(_ problemSet: ProblemSet) throws {
+        print("📝 Starting to save ProblemSet: \(problemSet.id)")
+        
+        let context = persistentContainer.viewContext
+        
+        // 기존 ProblemSet 찾기
+        let request = NSFetchRequest<CDProblemSet>(entityName: "CDProblemSet")
+        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
+        
+        let cdProblemSet: CDProblemSet
+        
+        // 기존 ProblemSet이 있으면 업데이트, 없으면 새로 생성
+        if let existingSet = try context.fetch(request).first {
+            cdProblemSet = existingSet
+            print("📝 Updating existing ProblemSet")
+        } else {
+            cdProblemSet = CDProblemSet(context: context)
+            print("📝 Creating new ProblemSet")
+        }
+        
+        cdProblemSet.id = problemSet.id
+        cdProblemSet.isFavorite = problemSet.isFavorite
+        
+        // subject 저장 로직
+        if let defaultSubject = problemSet.subject as? DefaultSubject {
+            cdProblemSet.subject = defaultSubject.rawValue
+        } else if let customSubject = problemSet.subject as? CustomSubject {
+            cdProblemSet.subject = customSubject.id
+            cdProblemSet.subjectType = "custom"
+            cdProblemSet.subjectName = customSubject.name
+        } else {
+            cdProblemSet.subject = DefaultSubject.generalKnowledge.rawValue
+        }
+        
+        cdProblemSet.subjectType = problemSet.subjectType
+        cdProblemSet.subjectId = problemSet.subjectId
+        cdProblemSet.subjectName = problemSet.subjectName
+        cdProblemSet.name = problemSet.name
+        cdProblemSet.createdAt = problemSet.createdAt
+        cdProblemSet.lastAttempted = problemSet.lastAttempted
+        
+        // 기존 questions 제거
+        if let existingQuestions = cdProblemSet.questions {
+            existingQuestions.forEach { question in
+                if let cdQuestion = question as? CDQuestion {
+                    context.delete(cdQuestion)
+                }
+            }
+        }
+        
+        // 새로운 questions 추가
+        print("💾 Preparing to save \(problemSet.questions.count) questions")
+        let questionSet = NSMutableSet()
+        
+        for question in problemSet.questions {
+            let cdQuestion = CDQuestion(context: viewContext)
+            cdQuestion.id = question.id
+            cdQuestion.type = question.type.rawValue
+            cdQuestion.question = question.question
+            cdQuestion.options = NSArray(array: question.options)
+            cdQuestion.correctAnswer = question.correctAnswer
+            cdQuestion.explanation = question.explanation
+            cdQuestion.hint = question.hint
+            cdQuestion.isSaved = question.isSaved
+            cdQuestion.createdAt = question.createdAt
+            cdQuestion.problemSet = cdProblemSet
+            
+            questionSet.add(cdQuestion)
+            print("✏️ Prepared question: \(question.id)")
+        }
+        
+        cdProblemSet.questions = questionSet
+        
+        do {
+            try viewContext.save()
+            print("✅ Successfully saved ProblemSet with \(questionSet.count) questions, isFavorite: \(problemSet.isFavorite)")
+        } catch {
+            print("❌ Failed to save ProblemSet: \(error)")
+            viewContext.rollback()
+            throw error
+        }
+    }
 
     public func fetchProblemSets() throws -> [ProblemSet] {
         print("📊 Fetching ProblemSets from CoreData")
@@ -2567,81 +2636,12 @@ class CoreDataService {
                     questions: questions,
                     createdAt: cdProblemSet.createdAt ?? Date(),
                     educationLevel: EducationLevel(rawValue: cdProblemSet.educationLevel ?? "") ?? .elementary,
-                    name: cdProblemSet.name ?? "Default Name"
+                    name: cdProblemSet.name ?? "Default Name",
+                    isFavorite: cdProblemSet.isFavorite  // isFavorite 추가
                 )
             }
         } catch {
             print("❌ Failed to fetch ProblemSets: \(error)")
-            throw error
-        }
-    }
-    public func saveProblemSet(_ problemSet: ProblemSet) throws {
-        print("📝 Starting to save ProblemSet: \(problemSet.id)")
-        
-        let context = persistentContainer.viewContext
-        let cdProblemSet = CDProblemSet(context: context)
-        
-        cdProblemSet.id = problemSet.id
-        
-        // subject 저장 로직 수정
-        if let defaultSubject = problemSet.subject as? DefaultSubject {
-            cdProblemSet.subject = defaultSubject.rawValue
-        } else if let customSubject = problemSet.subject as? CustomSubject {
-            cdProblemSet.subject = customSubject.id  // CustomSubject의 경우 id 사용
-            cdProblemSet.subjectType = "custom"
-            cdProblemSet.subjectName = customSubject.name
-        } else {
-            cdProblemSet.subject = DefaultSubject.generalKnowledge.rawValue
-        }
-        
-        cdProblemSet.subjectType = problemSet.subjectType
-        cdProblemSet.subjectId = problemSet.subjectId
-        cdProblemSet.subjectName = problemSet.subjectName
-        cdProblemSet.name = problemSet.name  // Ensure name is saved
-        
-        cdProblemSet.createdAt = problemSet.createdAt
-        cdProblemSet.lastAttempted = problemSet.lastAttempted
-        
-        // 문제 저장 전 로그
-        print("💾 Preparing to save \(problemSet.questions.count) questions")
-        
-        // questions 관계 설정
-        let questionSet = NSMutableSet()
-        
-        for question in problemSet.questions {
-            let cdQuestion = CDQuestion(context: viewContext)
-            cdQuestion.id = question.id
-            cdQuestion.type = question.type.rawValue
-            cdQuestion.question = question.question
-            
-            // options 배열 변환 및 저장
-            cdQuestion.options = NSArray(array: question.options)
-            
-            cdQuestion.correctAnswer = question.correctAnswer
-            cdQuestion.explanation = question.explanation
-            cdQuestion.hint = question.hint
-            cdQuestion.isSaved = question.isSaved
-            cdQuestion.createdAt = question.createdAt
-            cdQuestion.problemSet = cdProblemSet
-            
-            questionSet.add(cdQuestion)
-            
-            print("✏️ Prepared question: \(question.id)")
-        }
-        
-        cdProblemSet.questions = questionSet
-        
-        do {
-            try viewContext.save()
-            print("✅ Successfully saved ProblemSet with \(questionSet.count) questions")
-            
-            // 저장 후 확인
-            if let savedQuestions = cdProblemSet.questions {
-                print("📚 Verified \(savedQuestions.count) questions in CoreData")
-            }
-        } catch {
-            print("❌ Failed to save ProblemSet: \(error)")
-            viewContext.rollback()
             throw error
         }
     }
@@ -3464,11 +3464,11 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-public struct ProblemSet: Identifiable, Codable, Hashable {
+public final class ProblemSet: Identifiable, Codable, Equatable {
     // Core properties
-    public var isFavorite: Bool // 추가
+    public var isFavorite: Bool
     public let id: String
-    public let subject: SubjectType  // 필수 프로퍼티로 유지
+    public let subject: SubjectType
     public let subjectType: String
     public let subjectId: String
     public let subjectName: String
@@ -3484,14 +3484,15 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         questions.count
     }
     
-    // Hashable 프로토콜 구현 수정
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-        hasher.combine(createdAt)  // createdAt을 추가하여 더 unique한 해시값 생성
-    }
-    
+    // Equatable 프로토콜 구현
     public static func == (lhs: ProblemSet, rhs: ProblemSet) -> Bool {
         lhs.id == rhs.id && lhs.createdAt == rhs.createdAt
+    }
+    
+    // Hashable 프로토콜 구현
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(createdAt)
     }
 
     public var resolvedSubject: SubjectType {
@@ -3529,6 +3530,23 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         self.problemSetDescription = nil
         self.isFavorite = isFavorite
     }
+    
+    // toggleFavorite 메서드 추가
+    public func toggleFavorite() -> ProblemSet {
+        return ProblemSet(
+            id: self.id,
+            subject: self.subject,
+            subjectType: self.subjectType,
+            subjectId: self.subjectId,
+            subjectName: self.subjectName,
+            questions: self.questions,
+            createdAt: self.createdAt,
+            educationLevel: self.educationLevel,
+            name: self.name,
+            isFavorite: !self.isFavorite  // toggle the favorite status
+        )
+    }
+    
 
     private enum CodingKeys: String, CodingKey {
         case id, subject, subjectType, subjectId, subjectName
@@ -3537,8 +3555,7 @@ public struct ProblemSet: Identifiable, Codable, Hashable {
         case problemSetDescription, isFavorite
     }
 
-    public init(from decoder: Decoder) throws {
-        
+    public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         
@@ -3644,7 +3661,8 @@ extension ProblemSet {
             questions: allQuestions,
             createdAt: Date(),
             educationLevel: firstSet.educationLevel,
-            name: name
+            name: name,
+            isFavorite: firstSet.isFavorite  // 즐겨찾기 상태 유지
         )
     }
 }
@@ -6915,9 +6933,15 @@ struct ReviewProblemSetCard: View {
                     
                     Spacer()
                     
-                    Button(action: onFavoriteToggle) {
+                    Button(action: {
+                        Task {
+                            // Toggle favorite status
+                            await homeViewModel.toggleFavorite(problemSet)
+                        }
+                    }) {
                         Image(systemName: problemSet.isFavorite ? "star.fill" : "star")
                             .foregroundColor(.yellow)
+                            .imageScale(.large)
                     }
                 }
                 
@@ -8253,36 +8277,44 @@ struct FavoriteCard: View {
     
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(problemSet.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                    
-                    Spacer()
-                    
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
-                }
+            VStack(alignment: .leading, spacing: 16) {
+                // 문제 세트 이름
+                Text(problemSet.name)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
                 
+                // 구분선
+                Divider()
+                
+                // 문제 수
                 HStack {
-                    Text("\(problemSet.questions.count) Questions")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    Spacer()
-                    
-                    Text(problemSet.subject.displayName)
-                        .font(.subheadline)
+                    Image(systemName: "doc.text.fill")
                         .foregroundColor(.blue)
+                        .font(.system(size: 14))
+                    
+                    Text("\(problemSet.questions.count) Questions")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.secondary)
                 }
             }
-            .padding()
-            .frame(width: 200)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(width: 250)
             .background(
-                RoundedRectangle(cornerRadius: 15)
+                RoundedRectangle(cornerRadius: 16)
                     .fill(Color(.systemBackground))
-                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                    .shadow(
+                        color: Color.black.opacity(0.08),
+                        radius: 8,
+                        x: 0,
+                        y: 4
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.blue.opacity(0.1), lineWidth: 1)
             )
         }
         .buttonStyle(PlainButtonStyle())

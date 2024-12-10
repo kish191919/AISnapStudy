@@ -6,6 +6,7 @@ import UIKit
 import AVFoundation
 
 struct QuestionSettingsView: View {
+    @FocusState private var isTextFieldFocused: Bool // 추가
     @StateObject private var viewModel: QuestionSettingsViewModel
     @Environment(\.dismiss) private var dismiss
     @Binding var selectedTab: Int
@@ -92,7 +93,6 @@ struct QuestionSettingsView: View {
                             .frame(maxWidth: .infinity)
                         }
                         
-                        
                         Group {
                             InputMethodCard(
                                 icon: "photo.fill",
@@ -121,6 +121,7 @@ struct QuestionSettingsView: View {
                                 isDisabled: !viewModel.canUseTextInput,
                                 action: {
                                     viewModel.toggleTextInput()
+                                    isTextFieldFocused = viewModel.isTextInputActive
                                 }
                             )
                             .frame(maxWidth: .infinity)
@@ -135,6 +136,7 @@ struct QuestionSettingsView: View {
                 if viewModel.isTextInputActive {
                     TextField("Enter your question here...", text: $viewModel.questionText)
                         .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .focused($isTextFieldFocused)
                         .padding(.horizontal)
                 }
 
@@ -189,7 +191,6 @@ struct QuestionSettingsView: View {
                         }
                     }.listRowSpacing(0)
                 }
-
                 
                 // Question Types Section
                 Section {
@@ -207,46 +208,44 @@ struct QuestionSettingsView: View {
                         }
                     }
                 }.listRowSpacing(0)
-                
-                if isTextInputSelected {
-                    // Education Level Section
-                    Section {
-                        DisclosureGroup(
-                            isExpanded: isExpandedBinding(for: .educationLevel)
-                        ) {
-                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
-                        } label: {
-                            HStack {
-                                Text("Education")
-                                    .font(.headline)
-                                Spacer()
-                                Text(viewModel.educationLevel.displayName)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }.listRowSpacing(0)
-                }
             }
             .listSectionSpacing(4)
             
-            // Generate Questions Button
+            // Generate Questions Button and Keyboard Dismiss Button
             VStack {
-                Button(action: {
-                    showNamePopup = true
-                    isGeneratingQuestions = true
-                    Task {
-                        await viewModel.sendAllImages()
+                HStack {
+                    Button(action: {
+                        showNamePopup = true
+                        isGeneratingQuestions = true
+                        isTextFieldFocused = false  // 키보드 내리기
+                        Task {
+                            await viewModel.sendAllImages()
+                        }
+                    }) {
+                        Text("Generate Questions")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
+                            .cornerRadius(10)
                     }
-                }) {
-                    Text("Generate Questions")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
-                        .cornerRadius(10)
+                    .disabled(!isGenerateButtonEnabled)
+                    
+                    // 텍스트 입력이 활성화되어 있을 때만 키보드 내리기 버튼 표시
+                    if viewModel.isTextInputActive {
+                        Button(action: {
+                            isTextFieldFocused = false  // 키보드 내리기
+                        }) {
+                            Image(systemName: "keyboard.chevron.compact.down")
+                                .font(.title2)
+                                .foregroundColor(.blue)
+                                .padding(12)
+                                .background(Color.gray.opacity(0.1))
+                                .cornerRadius(10)
+                        }
+                    }
                 }
-                .disabled(!isGenerateButtonEnabled)
                 .padding()
             }
             .background(Color(UIColor.systemGroupedBackground))
