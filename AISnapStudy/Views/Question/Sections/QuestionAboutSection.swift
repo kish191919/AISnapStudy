@@ -57,6 +57,8 @@ struct QuestionAboutSection: View {
             if viewModel.isTextInputActive {
                 TextField("Enter your question here...", text: $viewModel.questionText)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .frame(height: 50) // 원하는 높이를 지정
+                    .padding(.horizontal)
             }
 
             // 선택한 이미지 표시

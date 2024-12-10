@@ -46,284 +46,301 @@ struct QuestionSettingsView: View {
         ))
         self._selectedTab = selectedTab
     }
-
+    
     var body: some View {
-        VStack(spacing: 0) {
-            // Instructions Card
-            Form {
-                // Speed Up and Language Selection Section
-                Section {
-                    SpeedUpSection(useTextExtraction: $viewModel.useTextExtraction)
-                }
-                .listRowSpacing(0)
-
-                Section {
-                    LanguageSection(selectedLanguage: $viewModel.selectedLanguage)
-                }
-                .listRowSpacing(0)
-                
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("How to Generate Questions")
-                        .font(.headline)
-                        .padding(.bottom, 4)
-                    
-                    Text("Select one of these methods here and then choose Subject and Type to create questions:")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    // Input Methods with descriptions
-                    HStack(spacing: 12) {
-                        Group {
-                            InputMethodCard(
-                                icon: "camera.fill",
-                                title: "Camera",
-                                isUsed: viewModel.hasSelectedCamera,
-                                isDisabled: !viewModel.canUseImageInput,
-                                action: {
-                                    if viewModel.canUseImageInput {
-                                        viewModel.isTextInputActive = false
-                                        Task {
-                                            if await viewModel.checkCameraPermission() {
-                                                activeSheet = .camera
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
-                        
-                        Group {
-                            InputMethodCard(
-                                icon: "photo.fill",
-                                title: "Gallery",
-                                isUsed: viewModel.hasSelectedGallery,
-                                isDisabled: !viewModel.canUseImageInput,
-                                action: {
-                                    if viewModel.canUseImageInput {
-                                        viewModel.isTextInputActive = false
-                                        Task {
-                                            if await viewModel.checkGalleryPermission() {
-                                                activeSheet = .gallery
-                                            }
-                                        }
-                                    }
-                                }
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
-                        
-                        Group {
-                            InputMethodCard(
-                                icon: "text.bubble.fill",
-                                title: "Text",
-                                isUsed: viewModel.isTextInputActive,
-                                isDisabled: !viewModel.canUseTextInput,
-                                action: {
-                                    viewModel.toggleTextInput()
-                                    isTextFieldFocused = viewModel.isTextInputActive
-                                }
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                // Instructions Card
+                Form {
+                    // Speed Up and Language Selection Section
+                    Section {
+                        SpeedUpSection(useTextExtraction: $viewModel.useTextExtraction)
                     }
-                }
-                .padding()
-                .background(Color(.systemBackground))
-                .cornerRadius(12)
-                
-                // Text Input Field
-                if viewModel.isTextInputActive {
-                    TextField("Enter your question here...", text: $viewModel.questionText)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .focused($isTextFieldFocused)
-                        .padding(.horizontal)
-                }
-
-                // Selected Images Display
-                if !viewModel.selectedImages.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    .listRowSpacing(0)
+                    
+                    Section {
+                        LanguageSection(selectedLanguage: $viewModel.selectedLanguage)
+                    }
+                    .listRowSpacing(0)
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("How to Generate Questions")
+                            .font(.headline)
+                            .padding(.bottom, 4)
+                        
+                        Text("Select one of these methods here and then choose Subject and Type to create questions:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        // Input Methods with descriptions
                         HStack(spacing: 12) {
-                            ForEach(viewModel.selectedImages.indices, id: \.self) { index in
-                                SelectedImageCell(
-                                    image: viewModel.selectedImages[index],
-                                    onDelete: {
-                                        viewModel.removeImage(at: index)
+                            Group {
+                                InputMethodCard(
+                                    icon: "camera.fill",
+                                    title: "Camera",
+                                    isUsed: viewModel.hasSelectedCamera,
+                                    isDisabled: !viewModel.canUseImageInput,
+                                    action: {
+                                        if viewModel.canUseImageInput {
+                                            viewModel.isTextInputActive = false
+                                            Task {
+                                                if await viewModel.checkCameraPermission() {
+                                                    activeSheet = .camera
+                                                }
+                                            }
+                                        }
                                     }
                                 )
+                                .frame(maxWidth: .infinity)
+                            }
+                            
+                            Group {
+                                InputMethodCard(
+                                    icon: "photo.fill",
+                                    title: "Gallery",
+                                    isUsed: viewModel.hasSelectedGallery,
+                                    isDisabled: !viewModel.canUseImageInput,
+                                    action: {
+                                        if viewModel.canUseImageInput {
+                                            viewModel.isTextInputActive = false
+                                            Task {
+                                                if await viewModel.checkGalleryPermission() {
+                                                    activeSheet = .gallery
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                                .frame(maxWidth: .infinity)
+                            }
+                            
+                            Group {
+                                InputMethodCard(
+                                    icon: "text.bubble.fill",
+                                    title: "Text",
+                                    isUsed: viewModel.isTextInputActive,
+                                    isDisabled: !viewModel.canUseTextInput,
+                                    action: {
+                                        viewModel.toggleTextInput()
+                                        isTextFieldFocused = viewModel.isTextInputActive
+                                    }
+                                )
+                                .frame(maxWidth: .infinity)
                             }
                         }
-                        .padding(.vertical, 8)
                     }
-                }
-                
-                // Subject Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .learningSubject)
-                    ) {
-                        LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
-                    } label: {
-                        HStack {
-                            Text("Subject")
-                                .font(.headline)
-                            Spacer()
-                            Text(viewModel.selectedSubject.displayName)
-                                .foregroundColor(.gray)
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    
+                    // Text Input Field
+                    if viewModel.isTextInputActive {
+                        TextField("Enter your question here...", text: $viewModel.questionText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .focused($isTextFieldFocused)
+                            .padding(.horizontal)
+                    }
+                    
+                    // Selected Images Display
+                    if !viewModel.selectedImages.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 12) {
+                                ForEach(viewModel.selectedImages.indices, id: \.self) { index in
+                                    SelectedImageCell(
+                                        image: viewModel.selectedImages[index],
+                                        onDelete: {
+                                            viewModel.removeImage(at: index)
+                                        }
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 8)
                         }
                     }
-                }.listRowSpacing(0)
-                
-                if viewModel.isTextInputActive {
+                    
+                    // Subject Section
                     Section {
                         DisclosureGroup(
-                            isExpanded: isExpandedBinding(for: .educationLevel)
+                            isExpanded: isExpandedBinding(for: .learningSubject)
                         ) {
-                            EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                            LearningSubjectSection(selectedSubject: $viewModel.selectedSubject)
                         } label: {
                             HStack {
-                                Text("Education")
+                                Text("Subject")
                                     .font(.headline)
                                 Spacer()
-                                Text(viewModel.educationLevel.displayName)
+                                Text(viewModel.selectedSubject.displayName)
                                     .foregroundColor(.gray)
                             }
-                        }
+                        }.id(SectionType.learningSubject) // ID 추가
+                    }.listRowSpacing(0)
+                    
+                    if viewModel.isTextInputActive {
+                        Section {
+                            DisclosureGroup(
+                                isExpanded: isExpandedBinding(for: .educationLevel)
+                            ) {
+                                EducationLevelSelectionSection(selectedLevel: $viewModel.educationLevel)
+                            } label: {
+                                HStack {
+                                    Text("Education")
+                                        .font(.headline)
+                                    Spacer()
+                                    Text(viewModel.educationLevel.displayName)
+                                        .foregroundColor(.gray)
+                                }
+                            }.id(SectionType.educationLevel) // ID 추가
+                        }.listRowSpacing(0)
+                    }
+                    
+                    // Question Types Section
+                    Section {
+                        DisclosureGroup(
+                            isExpanded: isExpandedBinding(for: .questionTypes)
+                        ) {
+                            QuestionTypesSelectionSection(viewModel: viewModel)
+                        } label: {
+                            HStack {
+                                Text("Type")
+                                    .font(.headline)
+                                Spacer()
+                                Text("\(viewModel.totalQuestionCount) questions")
+                                    .foregroundColor(.gray)
+                            }
+                        }.id(SectionType.questionTypes)
                     }.listRowSpacing(0)
                 }
+                .listSectionSpacing(4)
                 
-                // Question Types Section
-                Section {
-                    DisclosureGroup(
-                        isExpanded: isExpandedBinding(for: .questionTypes)
-                    ) {
-                        QuestionTypesSelectionSection(viewModel: viewModel)
-                    } label: {
-                        HStack {
-                            Text("Type")
-                                .font(.headline)
-                            Spacer()
-                            Text("\(viewModel.totalQuestionCount) questions")
-                                .foregroundColor(.gray)
-                        }
-                    }
-                }.listRowSpacing(0)
-            }
-            .listSectionSpacing(4)
-            
-            // Generate Questions Button and Keyboard Dismiss Button
-            VStack {
-                HStack {
-                    Button(action: {
-                        showNamePopup = true
-                        isGeneratingQuestions = true
-                        isTextFieldFocused = false  // 키보드 내리기
-                        Task {
-                            await viewModel.sendAllImages()
-                        }
-                    }) {
-                        Text("Generate Questions")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
-                            .cornerRadius(10)
-                    }
-                    .disabled(!isGenerateButtonEnabled)
-                    
-                    // 텍스트 입력이 활성화되어 있을 때만 키보드 내리기 버튼 표시
-                    if viewModel.isTextInputActive {
+                // Generate Questions Button and Keyboard Dismiss Button
+                VStack {
+                    HStack {
                         Button(action: {
+                            showNamePopup = true
+                            isGeneratingQuestions = true
                             isTextFieldFocused = false  // 키보드 내리기
+                            Task {
+                                await viewModel.sendAllImages()
+                            }
                         }) {
-                            Image(systemName: "keyboard.chevron.compact.down")
-                                .font(.title2)
-                                .foregroundColor(.blue)
-                                .padding(12)
-                                .background(Color.gray.opacity(0.1))
+                            Text("Generate Questions")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(isGenerateButtonEnabled ? Color.accentColor : Color.gray)
                                 .cornerRadius(10)
                         }
+                        .disabled(!isGenerateButtonEnabled)
+                        
+                        // 텍스트 입력이 활성화되어 있을 때만 키보드 내리기 버튼 표시
+                        if viewModel.isTextInputActive {
+                            Button(action: {
+                                isTextFieldFocused = false  // 키보드 내리기
+                            }) {
+                                Image(systemName: "keyboard.chevron.compact.down")
+                                    .font(.title2)
+                                    .foregroundColor(.blue)
+                                    .padding(12)
+                                    .background(Color.gray.opacity(0.1))
+                                    .cornerRadius(10)
+                            }
+                        }
                     }
+                    .padding()
                 }
-                .padding()
+                .background(Color(UIColor.systemGroupedBackground))
             }
-            .background(Color(UIColor.systemGroupedBackground))
-        }
-        .overlay(popupOverlay)
-        .navigationBarItems(leading: cancelButton)
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .camera:
-                ImagePicker(
-                    image: $viewModel.selectedImage,
-                    sourceType: .camera,
-                    onImageSelected: { image in
-                        Task {
-                            await viewModel.handleCameraImage(image)
+            .overlay(popupOverlay)
+            .navigationBarItems(leading: cancelButton)
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .camera:
+                    ImagePicker(
+                        image: $viewModel.selectedImage,
+                        sourceType: .camera,
+                        onImageSelected: { image in
+                            Task {
+                                await viewModel.handleCameraImage(image)
+                            }
+                        }
+                    )
+                    .interactiveDismissDisabled()
+                    
+                case .gallery:
+                    PhotoPicker(selectedImages: $viewModel.selectedImages)
+                        .interactiveDismissDisabled()
+                }
+            }
+            .alert(isPresented: $viewModel.showAlert) {
+                Alert(
+                    title: Text(viewModel.alertTitle),
+                    message: Text(viewModel.alertMessage),
+                    dismissButton: .default(Text("OK")) {
+                        if viewModel.alertTitle == "Success" {
+                            dismiss()
                         }
                     }
                 )
-                .interactiveDismissDisabled()
-                
-            case .gallery:
-                PhotoPicker(selectedImages: $viewModel.selectedImages)
-                    .interactiveDismissDisabled()
             }
-        }
-        .alert(isPresented: $viewModel.showAlert) {
-            Alert(
-                title: Text(viewModel.alertTitle),
-                message: Text(viewModel.alertMessage),
-                dismissButton: .default(Text("OK")) {
-                    if viewModel.alertTitle == "Success" {
-                        dismiss()
+            .onChange(of: viewModel.shouldShowStudyView) { show in
+                if show {
+                    dismiss()
+                    selectedTab = 1
+                }
+            }
+                    .background(Color(UIColor.systemGroupedBackground))
+                    .overlay(popupOverlay)
+                    .navigationBarItems(leading: cancelButton)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .onChange(of: expandedSections) { _ in
+                        scrollToActiveSection(using: proxy)
                     }
-                }
-            )
+            }
         }
-        .onChange(of: viewModel.shouldShowStudyView) { show in
-            if show {
+    
+    private func scrollToActiveSection(using proxy: ScrollViewProxy) {
+        if let activeSection = expandedSections.first {
+            withAnimation {
+                proxy.scrollTo(activeSection, anchor: .top) // 화면 상단에 고정
+            }
+        }
+    }
+    
+        private var cancelButton: some View {
+            Button("Cancel") {
+                viewModel.resetCounts()
                 dismiss()
-                selectedTab = 1
             }
         }
-    }
-    
-    private var cancelButton: some View {
-        Button("Cancel") {
-            viewModel.resetCounts()
-            dismiss()
-        }
-    }
-    
-    private var popupOverlay: some View {
-        Group {
-            if showNamePopup {
-                ProblemSetNamePopup(
-                    isPresented: $showNamePopup,
-                    problemSetName: $viewModel.problemSetName,
-                    isGeneratingQuestions: $viewModel.isGeneratingQuestions,
-                    defaultName: viewModel.generateDefaultName()
-                ) {
-                    viewModel.saveProblemSetName()
-                    showNamePopup = false
-                    viewModel.shouldShowStudyView = true
+        
+        private var popupOverlay: some View {
+            Group {
+                if showNamePopup {
+                    ProblemSetNamePopup(
+                        isPresented: $showNamePopup,
+                        problemSetName: $viewModel.problemSetName,
+                        isGeneratingQuestions: $viewModel.isGeneratingQuestions,
+                        defaultName: viewModel.generateDefaultName()
+                    ) {
+                        viewModel.saveProblemSetName()
+                        showNamePopup = false
+                        viewModel.shouldShowStudyView = true
+                    }
+                    .transition(.opacity)
+                    .animation(.easeInOut, value: showNamePopup)
                 }
-                .transition(.opacity)
-                .animation(.easeInOut, value: showNamePopup)
             }
         }
-    }
-    
-    private var isGenerateButtonEnabled: Bool {
-        let hasInput = !viewModel.selectedImages.isEmpty ||
+        
+        private var isGenerateButtonEnabled: Bool {
+            let hasInput = !viewModel.selectedImages.isEmpty ||
             (!viewModel.questionText.isEmpty && viewModel.isTextInputActive)
-        let hasQuestionType = viewModel.totalQuestionCount > 0
-        return hasInput && hasQuestionType
-    }
-    
+            let hasQuestionType = viewModel.totalQuestionCount > 0
+            return hasInput && hasQuestionType
+        }
+        
     private func isExpandedBinding(for section: SectionType) -> Binding<Bool> {
         Binding(
             get: { expandedSections.contains(section) },
@@ -338,10 +355,14 @@ struct QuestionSettingsView: View {
             }
         )
     }
+
+
 }
 
 
 
+
+import SwiftUI
 
 struct ProblemSetNamePopup: View {
     @Binding var isPresented: Bool
@@ -349,38 +370,47 @@ struct ProblemSetNamePopup: View {
     @Binding var isGeneratingQuestions: Bool
     let defaultName: String
     let onSubmit: () -> Void
-    
+
     var body: some View {
         ZStack {
+            // 반투명 배경
             Color.black.opacity(0.4)
                 .edgesIgnoringSafeArea(.all)
-            
-            VStack(spacing: 24) {
+
+            VStack(spacing: 20) {
+                // 팝업 제목
                 Text("Name Your Question Set")
                     .font(.title2)
                     .fontWeight(.bold)
-                
+                    .foregroundColor(.primary)
+
+                // 텍스트 입력 필드
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Enter a name for your question set:")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    
-                    TextField("Enter name", text: $problemSetName)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .font(.body)
-                        .frame(height: 44)
-                        .placeholder(when: problemSetName.isEmpty) {
-                            Text("Default: \(defaultName)")
+
+                    ZStack(alignment: .leading) {
+                        // Placeholder 텍스트
+                        if problemSetName.isEmpty {
+                            Text(defaultName)
                                 .foregroundColor(.gray)
+                                .padding(.leading, 8)
                         }
+
+                        // 실제 TextField
+                        TextField("", text: $problemSetName)
+                            .textFieldStyle(PlainTextFieldStyle())
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.gray, lineWidth: 1)
+                            )
+                            .font(.body)
+                    }
                 }
-                
-                Text(isGeneratingQuestions ?
-                     "Questions are being generated... Please wait." :
-                     "Questions are ready. Please save the name to continue.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
+
+                // 버튼 섹션
                 Button(action: {
                     if problemSetName.isEmpty {
                         problemSetName = defaultName
@@ -395,19 +425,25 @@ struct ProblemSetNamePopup: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(isGeneratingQuestions ? Color.gray : Color.blue)
-                        .cornerRadius(10)
+                        .cornerRadius(8)
+                        .shadow(radius: 5)
                 }
                 .disabled(isGeneratingQuestions)
             }
-            .padding(32)
-            .background(Color(.systemBackground))
-            .cornerRadius(16)
-            .shadow(radius: 10)
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
+            )
             .padding(.horizontal, 32)
         }
-        // 불필요한 onChange나 onReceive 모디파이어 제거
     }
 }
+
+
+
+
 
 struct SubjectSelectionButton: View {
     let subject: any SubjectType

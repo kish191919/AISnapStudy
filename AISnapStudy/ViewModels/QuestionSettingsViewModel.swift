@@ -283,7 +283,7 @@ class QuestionSettingsViewModel: ObservableObject {
     // 기본 이름 생성 메서드
     func generateDefaultName() -> String {
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "MMdd_HHmm"
+        dateFormatter.dateFormat = "MM/dd_HH:mm"
         let dateString = dateFormatter.string(from: Date())
         let totalQuestions = multipleChoiceCount + trueFalseCount
         
