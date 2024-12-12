@@ -33,17 +33,11 @@ class OpenAIService {
             throw NetworkError.apiError("API key not available")
         }
         
-        // Debug 로그 추가
-        print("Debug - Raw API Key value:", apiKey)
-        print("Debug - API Key type:", type(of: apiKey))
-        print("Debug - API Key length:", apiKey.count)
         
         // String 리터럴로 헤더 생성
         let authHeaderValue = "Bearer " + apiKey
         request.setValue(authHeaderValue, forHTTPHeaderField: "Authorization")
-        
-        // Debug: 실제 전송되는 헤더 값 확인
-        print("Debug - Final Authorization header:", String(authHeaderValue.prefix(20)), "...")
+    
     }
 
     

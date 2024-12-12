@@ -43,6 +43,8 @@ class QuestionSettingsViewModel: ObservableObject {
     private let imageService = ImageService.shared
     private let totalMaximumQuestions = 10
     private var studyViewModel: StudyViewModel?
+    // StoreService 추가
+    private let storeService = StoreService.shared
     
     // MARK: - UserDefaults keys
     private enum UserDefaultsKeys {
@@ -355,6 +357,15 @@ class QuestionSettingsViewModel: ObservableObject {
         return totalQuestionCount < totalMaximumQuestions
     }
     
+    // 계산 프로퍼티 추가
+    var canCreateQuestions: Bool {
+        storeService.subscriptionStatus.dailyQuestionsRemaining > 0
+    }
+    
+    var isPremium: Bool {
+        storeService.subscriptionStatus.isPremium
+    }
+    
     func remainingQuestions() -> Int {
         return totalMaximumQuestions - totalQuestionCount
     }
@@ -430,6 +441,9 @@ class QuestionSettingsViewModel: ObservableObject {
     
     @MainActor
     func sendAllImages() async {
+       // 질문 생성 가능 여부 체크
+       guard checkQuestionGenerationAvailability() else { return }
+
        print("🚀 Starting sendAllImages process...")
        guard !selectedImages.isEmpty || !questionText.isEmpty else {
            print("❌ No content to generate questions from")
@@ -498,6 +512,9 @@ class QuestionSettingsViewModel: ObservableObject {
                }
            }
            
+           // 성공적으로 질문이 생성되면 남은 횟수 감소
+           storeService.decrementRemainingQuestions()
+           
            isLoading = false
            studyViewModel?.isGeneratingQuestions = false
            showSuccess()
@@ -511,6 +528,20 @@ class QuestionSettingsViewModel: ObservableObject {
            showError(error)
        }
     }
+    
+    // 질문 생성 가능 여부 체크 함수 추가
+    private func checkQuestionGenerationAvailability() -> Bool {
+        if !canCreateQuestions {
+            alertTitle = "Daily Limit Reached"
+            alertMessage = isPremium ?
+                "You've used all your daily questions. Please wait until tomorrow." :
+                "You've reached your daily free limit. Upgrade to Premium to create up to 30 question sets per day!"
+            showAlert = true
+            return false
+        }
+        return true
+    }
+    
     // generateQuestions(from:parameters:) 보조 함수
     private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
         print("🔄 Starting question generation from input")
@@ -720,10 +751,23 @@ class QuestionSettingsViewModel: ObservableObject {
 
     @MainActor
     private func showSuccess() {
-       alertTitle = "Success"
-       alertMessage = "Questions have been successfully generated."
-       showAlert = true
+        alertTitle = "Success"
+        alertMessage = """
+            Questions have been successfully generated.
+            You have \(remainingQuestions) question sets remaining today.
+            """
+        showAlert = true
     }
+    
+    // 업그레이드 상태 표시를 위한 함수 추가
+    var subscriptionStatusText: String {
+        if isPremium {
+            return "Premium • \(remainingQuestions) sets remaining today"
+        } else {
+            return "Free • \(remainingQuestions) set remaining today"
+        }
+    }
+
     
     
     // MARK: - Error Handling

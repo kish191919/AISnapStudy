@@ -11,8 +11,10 @@ struct HomeView: View {
     @Environment(\.managedObjectContext) private var context
     @Binding var selectedTab: Int
     @State private var showQuestionSettings = false
+    @State private var showUpgradeView = false // 추가된 State 변수
     @State private var selectedSubject: DefaultSubject = .math
     @StateObject private var subjectManager = SubjectManager.shared
+    @StateObject private var storeService = StoreService.shared // StoreService 추가
     
     var body: some View {
         NavigationView {
@@ -21,38 +23,21 @@ struct HomeView: View {
                     // 웰컴 카드
                     WelcomeCard()
                     
-                    // 즐겨찾기 섹션 추가
+                    // Premium 업그레이드 버튼 (무료 사용자에게만 표시)
+                    if !storeService.subscriptionStatus.isPremium {
+                        PremiumUpgradeButton(
+                            remainingQuestions: storeService.subscriptionStatus.dailyQuestionsRemaining,
+                            showUpgradeView: $showUpgradeView
+                        )
+                    }
+                    
+                    // 즐겨찾기 섹션
                     if !viewModel.favoriteProblemSets.isEmpty {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                Label("Favorites", systemImage: "star.fill")
-                                    .font(.title3)
-                                    .foregroundColor(.yellow)
-                                Spacer()
-                            }
-                            .padding(.horizontal)
-                            
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(viewModel.favoriteProblemSets) { problemSet in
-                                        FavoriteCard(
-                                            problemSet: problemSet,
-                                            onTap: {
-                                                Task {
-                                                    viewModel.setSelectedProblemSet(problemSet)
-                                                    if let studyViewModel = viewModel.studyViewModel {
-                                                        await studyViewModel.resetState()
-                                                        studyViewModel.loadQuestions(problemSet.questions)
-                                                        selectedTab = 1
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
+                        FavoritesSection(
+                            problemSets: viewModel.favoriteProblemSets,
+                            viewModel: viewModel,
+                            selectedTab: $selectedTab
+                        )
                     }
                     
                     // 메인 액션 버튼
@@ -64,7 +49,6 @@ struct HomeView: View {
                 .padding(.vertical, 32)
             }
             .navigationTitle("AI Study")
-
         }
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
@@ -72,6 +56,78 @@ struct HomeView: View {
                 homeViewModel: viewModel,
                 selectedTab: $selectedTab
             )
+        }
+        .sheet(isPresented: $showUpgradeView) {
+            PremiumUpgradeView()
+        }
+    }
+}
+
+// Premium 업그레이드 버튼 컴포넌트
+struct PremiumUpgradeButton: View {
+    let remainingQuestions: Int
+    @Binding var showUpgradeView: Bool
+    
+    var body: some View {
+        Button(action: {
+            showUpgradeView = true
+        }) {
+            HStack {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+                Text("Upgrade to Premium")
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                Spacer()
+                Text("\(remainingQuestions) questions left")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(10)
+            .shadow(radius: 2)
+        }
+        .padding(.horizontal)
+    }
+}
+
+// 즐겨찾기 섹션 컴포넌트
+struct FavoritesSection: View {
+    let problemSets: [ProblemSet]
+    let viewModel: HomeViewModel
+    @Binding var selectedTab: Int
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("Favorites", systemImage: "star.fill")
+                    .font(.title3)
+                    .foregroundColor(.yellow)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(problemSets) { problemSet in
+                        FavoriteCard(
+                            problemSet: problemSet,
+                            onTap: {
+                                Task {
+                                    viewModel.setSelectedProblemSet(problemSet)
+                                    if let studyViewModel = viewModel.studyViewModel {
+                                        await studyViewModel.resetState()
+                                        studyViewModel.loadQuestions(problemSet.questions)
+                                        selectedTab = 1
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
         }
     }
 }
@@ -218,5 +274,38 @@ struct FavoriteCard: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+
+extension HomeView {
+    private var upgradeButton: some View {
+        let storeService = StoreService.shared
+        
+        return Group {
+            if !storeService.subscriptionStatus.isPremium {
+                Button(action: {
+                    showUpgradeView = true
+                }) {
+                    HStack {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                        Text("Upgrade to Premium")
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Text("\(storeService.subscriptionStatus.dailyQuestionsRemaining) questions left")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(10)
+                    .shadow(radius: 2)
+                }
+                .sheet(isPresented: $showUpgradeView) {
+                    PremiumUpgradeView()
+                }
+            }
+        }
     }
 }

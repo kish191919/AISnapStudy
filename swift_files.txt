@@ -8,6 +8,8 @@ import PhotosUI
 @MainActor
 class QuestionSettingsViewModel: ObservableObject {
     
+    let openAIService: OpenAIService
+    
     @Published var selectedSubject: any SubjectType {
         didSet {
             if let defaultSubject = selectedSubject as? DefaultSubject {
@@ -41,7 +43,6 @@ class QuestionSettingsViewModel: ObservableObject {
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
     private let imageService = ImageService.shared
-    private var openAIService: OpenAIService?
     private let totalMaximumQuestions = 10
     private var studyViewModel: StudyViewModel?
     
@@ -118,13 +119,55 @@ class QuestionSettingsViewModel: ObservableObject {
     
      
      // MARK: - Initialization
-    init(subject: any SubjectType, homeViewModel: HomeViewModel) {  // selectedTab 매개변수 제거
+    init(subject: any SubjectType, homeViewModel: HomeViewModel) {
+        // 1. OpenAIService 초기화
+        self.openAIService = OpenAIService.shared
+        
+        // 2. 기본값이 필요한 프로퍼티들 초기화
         self.selectedSubject = subject
-        self.subject = subject as? DefaultSubject ?? .math  // 기본값 설정
+        self.subject = subject as? DefaultSubject ?? .math
         self.homeViewModel = homeViewModel
         self.studyViewModel = homeViewModel.studyViewModel
         
-        // 저장된 Subject 불러오기
+        // 3. @Published 프로퍼티들 초기화
+        self.selectedLanguage = .auto
+        self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
+        self.educationLevel = EducationLevel(rawValue: UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel) ?? "") ?? .elementary
+        self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
+        self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
+        self.isNetworkAvailable = networkMonitor.isReachable
+        
+        // 4. 그 외 나머지 @Published 프로퍼티들 초기화
+        self.extractedTexts = [:]
+        self.isLoadingTexts = [:]
+        self.extractionStatus = [:]
+        self.isCameraAuthorized = false
+        self.isGalleryAuthorized = false
+        self.availableSubjects = []
+        self.selectedImages = []
+        self.hasCameraImage = false
+        self.hasGalleryImages = false
+        self.questionText = ""
+        self.isUsingTextInput = false
+        self.isTextInputActive = false
+        self.hasSelectedCamera = false
+        self.hasSelectedGallery = false
+        self.shouldCollapseQuestionTypes = false
+        self.shouldShowStudyView = false
+        self.isGeneratingQuestions = false
+        self.problemSetName = ""
+        self.isLoading = false
+        self.showImagePicker = false
+        self.showCamera = false
+        self.selectedImage = nil
+        self.showAlert = false
+        self.alertTitle = ""
+        self.alertMessage = ""
+        
+        // 5. UserDefaults 기본값 설정
+        UserDefaults.standard.register(defaults: ["useTextExtraction": true])
+        
+        // 6. Subject 관련 설정 업데이트
         if let savedSubjectID = UserDefaults.standard.string(forKey: "lastSelectedSubject") {
             if savedSubjectID.starts(with: "custom_") {
                 let customID = String(savedSubjectID.dropFirst(7))
@@ -132,46 +175,14 @@ class QuestionSettingsViewModel: ObservableObject {
             } else {
                 self.selectedSubject = DefaultSubject(rawValue: savedSubjectID) ?? subject
             }
-        } else {
-            self.selectedSubject = subject
         }
         
-        // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
-        let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
-        let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
-        
-        // educationLevel 초기화
-        self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
-        
-        // 카운트 초기화
-        self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
-        self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
-         
-         // Initialize network monitoring
-         self.isNetworkAvailable = networkMonitor.isReachable
-         
-         // 기본값 설정
-         UserDefaults.standard.register(defaults: ["useTextExtraction": true])
-         // 저장된 값 로드
-         self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
-         print("📱 Initial useTextExtraction value loaded: \(useTextExtraction)")
-         
-         // 저장된 언어 설정 불러오기
-         if let savedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage"),
-            let language = Language(rawValue: savedLanguage) {
-             self.selectedLanguage = language
-         }
-         
-         
-         // Initialize OpenAI service
-         do {
-             self.openAIService = try OpenAIService()
-         } catch {
-             self.error = error
-             print("Failed to initialize OpenAI service:", error)
-         }
-     }
-    
+        // 7. 언어 설정 업데이트
+        if let savedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage"),
+           let language = Language(rawValue: savedLanguage) {
+            self.selectedLanguage = language
+        }
+    }
     // Add permission check methods
     func checkCameraPermission() async -> Bool {
         do {
@@ -212,35 +223,16 @@ class QuestionSettingsViewModel: ObservableObject {
     // 새로운 함수 추가
     private func sendExtractedTextToOpenAI(_ text: String) async throws {
         print("📤 Preparing to send extracted text to OpenAI")
-        guard let openAIService = openAIService else {
-            print("❌ OpenAI service not initialized")
-            return
-        }
-        
-        do {
-            let response = try await openAIService.sendTextExtractionResult(text)
-            print("✅ OpenAI processing completed for extracted text")
-            print("📥 OpenAI Response: \(response)")
-        } catch {
-            print("❌ Failed to process extracted text with OpenAI: \(error)")
-            throw error
-        }
+        // OpenAIService는 이미 프로퍼티로 존재하므로 직접 사용
+        let response = try await openAIService.sendTextExtractionResult(text)
+        print("✅ OpenAI processing completed for extracted text")
+        print("📥 OpenAI Response: \(response)")
     }
 
     private func sendImageToOpenAI(_ imageData: Data) async throws {
         print("📤 Preparing to send image to OpenAI")
-        guard let openAIService = openAIService else {
-            print("❌ OpenAI service not initialized")
-            return
-        }
-        
-        do {
-            try await openAIService.sendImageDataToOpenAI(imageData)
-            print("✅ Image successfully sent to OpenAI")
-        } catch {
-            print("❌ Failed to send image to OpenAI: \(error)")
-            throw error
-        }
+        try await openAIService.sendImageDataToOpenAI(imageData)
+        print("✅ Image successfully sent to OpenAI")
     }
 
     
@@ -523,34 +515,26 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     // generateQuestions(from:parameters:) 보조 함수
     private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
-       print("🔄 Starting question generation from input")
-       guard let openAIService = self.openAIService else {
-           print("❌ OpenAI service not initialized")
-           return
-       }
-       
-       do {
-           let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
-           print("✅ Successfully generated \(questions.count) questions")
-           
-           let name = problemSetName.isEmpty ? generateDefaultName() : problemSetName
-           await processGeneratedQuestions(questions, name: name)
-       } catch {
-           print("❌ Error generating questions: \(error)")
-           await MainActor.run {
-               self.error = error
-               showError(error)
-           }
-       }
+        print("🔄 Starting question generation from input")
+        
+        do {
+            let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
+            print("✅ Successfully generated \(questions.count) questions")
+            
+            let name = problemSetName.isEmpty ? generateDefaultName() : problemSetName
+            await processGeneratedQuestions(questions, name: name)
+        } catch {
+            print("❌ Error generating questions: \(error)")
+            await MainActor.run {
+                self.error = error
+                showError(error)
+            }
+        }
     }
 
     // 직접 이미지 처리를 위한 함수도 수정
     private func processImageDirectly(_ image: UIImage) async throws {
         print("🖼️ Processing image directly...")
-        guard let openAIService = self.openAIService else {
-            throw NetworkError.apiError("OpenAI service not initialized")
-        }
-        
         let compressedData = try await imageService.compressForAPI(image)
         let input = OpenAIService.QuestionInput(
             content: compressedData,
@@ -1916,13 +1900,9 @@ class StudyViewModel: ObservableObject {
     init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
         self.context = context
         self.homeViewModel = homeViewModel
-
-        // OpenAIService 초기화
-        do {
-            self.openAIService = try OpenAIService()
-        } catch {
-            fatalError("Failed to initialize OpenAI service: \(error)")
-        }
+        
+        // OpenAIService 싱글톤 인스턴스 사용
+        self.openAIService = OpenAIService.shared
 
         Task { @MainActor in
             homeViewModel.$selectedProblemSet
@@ -1931,7 +1911,6 @@ class StudyViewModel: ObservableObject {
                 .receive(on: RunLoop.main)
                 .sink { [weak self] problemSet in
                     guard let self = self else { return }
-                    // async 메서드를 Task 내에서 호출하도록 수정
                     Task {
                         await self.resetState()
                         await MainActor.run {
@@ -2175,7 +2154,23 @@ struct AISnapStudyApp: App {
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         setupCoreData()
+        
+        // OpenAI API Key 초기 설정
+        Task {
+            do {
+                try await OpenAIService.shared.fetchAPIKey()
+                print("✅ Successfully initialized OpenAI API Key")
+            } catch {
+                print("❌ Failed to fetch OpenAI API Key: \(error)")
+            }
+        }
+        
         return true
+    }
+    
+    // 앱 종료 시 API Key 정리
+    func applicationWillTerminate(_ application: UIApplication) {
+        OpenAIService.shared.cleanup()
     }
     
     private func setupCoreData() {
@@ -2229,901 +2224,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         CoreDataService.shared.viewContext.refreshAllObjects()
     }
-}
-
-
-// ./AISnapStudy/CoreData/SecureArrayTransformer.swift
-
-
-
-import Foundation
-
-@objc(SecureArrayTransformer)
-final class SecureArrayTransformer: NSSecureUnarchiveFromDataTransformer {
-    
-    static let transformerName = NSValueTransformerName(rawValue: "SecureArrayTransformer")
-    
-    override static var allowedTopLevelClasses: [AnyClass] {
-        [NSArray.self, NSString.self, NSDictionary.self]
-    }
-    
-    static func register() {
-        let transformer = SecureArrayTransformer()
-        ValueTransformer.setValueTransformer(
-            transformer,
-            forName: transformerName
-        )
-    }
-}
-
-
-// ./AISnapStudy/CoreData/CoreDataService.swift
-
-import CoreData
-import Foundation
-
-class CoreDataService {
-    static let shared = CoreDataService()
-    
-    // private -> public으로 변경
-    public var persistentContainer: NSPersistentContainer = {
-        let container = NSPersistentContainer(name: "AISnapStudy")
-        
-        // 저장소 설명 생성
-        let storeDescription = NSPersistentStoreDescription()
-        
-        // Application Support 디렉토리 생성 확인
-        if let applicationSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            // Application Support 디렉토리가 없다면 생성
-            if !FileManager.default.fileExists(atPath: applicationSupportURL.path) {
-                do {
-                    try FileManager.default.createDirectory(
-                        at: applicationSupportURL,
-                        withIntermediateDirectories: true,
-                        attributes: nil
-                    )
-                    print("✅ Created Application Support directory")
-                } catch {
-                    print("❌ Failed to create Application Support directory: \(error)")
-                }
-            }
-            
-            // 데이터베이스 파일 URL 설정
-            let storeURL = applicationSupportURL.appendingPathComponent("AISnapStudy.sqlite")
-            storeDescription.url = storeURL
-            
-            print("📁 CoreData store URL: \(storeURL.path)")
-            
-            // 마이그레이션 옵션 설정
-            storeDescription.setOption(true as NSNumber, forKey: NSMigratePersistentStoresAutomaticallyOption)
-            storeDescription.setOption(true as NSNumber, forKey: NSInferMappingModelAutomaticallyOption)
-            storeDescription.setOption(["journal_mode": "WAL"] as NSDictionary, forKey: NSSQLitePragmasOption)
-            storeDescription.setOption(FileProtectionType.complete as NSString, forKey: NSPersistentStoreFileProtectionKey)
-            
-            container.persistentStoreDescriptions = [storeDescription]
-        }
-        
-        // 저장소 로드
-        container.loadPersistentStores { description, error in
-            if let error = error {
-                print("""
-                ❌ CoreData Error:
-                • Error: \(error.localizedDescription)
-                • Description: \(description)
-                • Store URL: \(description.url?.absoluteString ?? "unknown")
-                """)
-                
-                // 오류 발생 시 저장소 재생성 시도
-                if let storeURL = description.url {
-                    do {
-                        try FileManager.default.removeItem(at: storeURL)
-                        print("🔄 Removed existing store file")
-                        
-                        // 저장소 재생성
-                        try container.persistentStoreCoordinator.addPersistentStore(
-                            ofType: NSSQLiteStoreType,
-                            configurationName: nil,
-                            at: storeURL,
-                            options: [
-                                NSMigratePersistentStoresAutomaticallyOption: true,
-                                NSInferMappingModelAutomaticallyOption: true
-                            ]
-                        )
-                        print("✅ Successfully recreated store")
-                    } catch {
-                        print("❌ Failed to recreate store: \(error)")
-                        fatalError("Unresolved error \(error)")
-                    }
-                }
-            } else {
-                print("✅ CoreData store loaded successfully")
-            }
-        }
-        
-        // Context 설정
-        container.viewContext.automaticallyMergesChangesFromParent = true
-        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        
-        return container
-    }()
-    
-    // MARK: - Question Operations 섹션에 추가
-    // MARK: - Question Operations
-    public func fetchSavedQuestions() throws -> [Question] {
-        print("📊 Fetching Saved Questions from CoreData")
-        let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
-        request.predicate = NSPredicate(format: "isSaved == true")
-        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
-        
-        do {
-            let cdQuestions = try viewContext.fetch(request)
-            print("📊 Found \(cdQuestions.count) saved questions")
-            
-            let questions = cdQuestions.compactMap { cdQuestion -> Question? in
-                guard let id = cdQuestion.id,
-                      let type = cdQuestion.type,
-                      let questionText = cdQuestion.question,
-                      let correctAnswer = cdQuestion.correctAnswer,
-                      let explanation = cdQuestion.explanation else {
-                    print("⚠️ Invalid question data found")
-                    return nil
-                }
-                
-                let options = cdQuestion.options as? [String] ?? []
-                
-                return Question(
-                    id: id,
-                    type: QuestionType(rawValue: type) ?? .multipleChoice,
-                    subject: DefaultSubject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .math,
-                    question: questionText,
-                    options: options,
-                    correctAnswer: correctAnswer,
-                    explanation: explanation,
-                    hint: cdQuestion.hint,
-                    isSaved: cdQuestion.isSaved,
-                    createdAt: cdQuestion.createdAt ?? Date()
-                )
-            }
-            
-            print("✅ Successfully mapped \(questions.count) saved questions")
-            return questions
-            
-        } catch {
-            print("❌ Failed to fetch saved questions: \(error)")
-            throw error
-        }
-    }
-
-    // 기존 saveQuestion 메서드 수정
-    public func saveQuestion(_ question: Question) throws {
-        print("💾 Attempting to save question: \(question.id)")
-        
-        // 먼저 이미 존재하는지 확인
-        let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
-        request.predicate = NSPredicate(format: "id == %@", question.id)
-        
-        do {
-            let existingQuestions = try viewContext.fetch(request)
-            let cdQuestion: CDQuestion
-            
-            if let existingQuestion = existingQuestions.first {
-                print("📝 Updating existing question")
-                cdQuestion = existingQuestion
-            } else {
-                print("📝 Creating new question")
-                cdQuestion = CDQuestion(context: viewContext)
-            }
-            
-            // 질문 데이터 업데이트
-            updateCDQuestion(cdQuestion, with: question)
-            
-            try viewContext.save()
-            print("✅ Successfully saved question: \(question.id)")
-            
-        } catch {
-            print("❌ Failed to save question: \(error)")
-            viewContext.rollback()
-            throw error
-        }
-    }
-    
-    func fetchStatsByPeriod(_ period: StatsPeriod) async throws -> [DailyStats] {
-       let context = persistentContainer.viewContext
-       let calendar = Calendar.current
-       let now = Date()
-       
-       let startDate: Date = switch period {
-           case .day:
-               calendar.date(byAdding: .day, value: -6, to: now)!
-           case .month:
-               calendar.date(byAdding: .month, value: -1, to: now)!
-           case .year:
-               calendar.date(byAdding: .year, value: -1, to: now)!
-       }
-       
-       // 시작일부터 현재까지의 모든 날짜 생성
-       var dates: [Date] = []
-       var date = startDate
-       while date <= now {
-           dates.append(date)
-           date = calendar.date(byAdding: .day, value: 1, to: date)!
-       }
-       
-       let request: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
-       request.predicate = NSPredicate(format: "date >= %@", startDate as NSDate)
-       request.sortDescriptors = [NSSortDescriptor(key: "date", ascending: true)]
-       
-       let existingStats = try context.fetch(request)
-       
-       // 각 날짜에 대해 통계 생성 (없으면 0으로 설정)
-       return dates.map { date in
-           if let existing = existingStats.first(where: { calendar.isDate($0.date ?? Date(), inSameDayAs: date) }) {
-               return DailyStats(
-                   id: UUID(),
-                   date: date,
-                   totalQuestions: Int(existing.totalQuestions),
-                   correctAnswers: Int(existing.correctAnswers),
-                   wrongAnswers: Int(existing.totalQuestions - existing.correctAnswers),
-                   timeSpent: 0
-               )
-           } else {
-               return DailyStats(
-                   id: UUID(),
-                   date: date,
-                   totalQuestions: 0,
-                   correctAnswers: 0,
-                   wrongAnswers: 0,
-                   timeSpent: 0
-               )
-           }
-       }
-    }
-    
-    // viewContext에 대한 public 접근자 추가
-    public var viewContext: NSManagedObjectContext {
-        persistentContainer.viewContext
-    }
-    
-    private init() {}
-    
-    // 공개 메서드들...
-    public func saveContext() {
-        if viewContext.hasChanges {
-            do {
-                try viewContext.save()
-                print("✅ CoreData context saved successfully")
-            } catch {
-                print("❌ CoreData context save error: \(error)")
-                viewContext.rollback()
-            }
-        }
-    }
-    
-    public func newBackgroundContext() -> NSManagedObjectContext {
-        let context = persistentContainer.newBackgroundContext()
-        context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
-        return context
-    }
-    
-    public func saveProblemSet(_ problemSet: ProblemSet) throws {
-        print("📝 Starting to save ProblemSet: \(problemSet.id)")
-        
-        let context = persistentContainer.viewContext
-        
-        // 기존 ProblemSet 찾기
-        let request = NSFetchRequest<CDProblemSet>(entityName: "CDProblemSet")
-        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
-        
-        let cdProblemSet: CDProblemSet
-        
-        // 기존 ProblemSet이 있으면 업데이트, 없으면 새로 생성
-        if let existingSet = try context.fetch(request).first {
-            cdProblemSet = existingSet
-            print("📝 Updating existing ProblemSet")
-        } else {
-            cdProblemSet = CDProblemSet(context: context)
-            print("📝 Creating new ProblemSet")
-        }
-        
-        cdProblemSet.id = problemSet.id
-        cdProblemSet.isFavorite = problemSet.isFavorite
-        
-        // subject 저장 로직
-        if let defaultSubject = problemSet.subject as? DefaultSubject {
-            cdProblemSet.subject = defaultSubject.rawValue
-        } else if let customSubject = problemSet.subject as? CustomSubject {
-            cdProblemSet.subject = customSubject.id
-            cdProblemSet.subjectType = "custom"
-            cdProblemSet.subjectName = customSubject.name
-        } else {
-            cdProblemSet.subject = DefaultSubject.generalKnowledge.rawValue
-        }
-        
-        cdProblemSet.subjectType = problemSet.subjectType
-        cdProblemSet.subjectId = problemSet.subjectId
-        cdProblemSet.subjectName = problemSet.subjectName
-        cdProblemSet.name = problemSet.name
-        cdProblemSet.createdAt = problemSet.createdAt
-        cdProblemSet.lastAttempted = problemSet.lastAttempted
-        
-        // 기존 questions 제거
-        if let existingQuestions = cdProblemSet.questions {
-            existingQuestions.forEach { question in
-                if let cdQuestion = question as? CDQuestion {
-                    context.delete(cdQuestion)
-                }
-            }
-        }
-        
-        // 새로운 questions 추가
-        print("💾 Preparing to save \(problemSet.questions.count) questions")
-        let questionSet = NSMutableSet()
-        
-        for question in problemSet.questions {
-            let cdQuestion = CDQuestion(context: viewContext)
-            cdQuestion.id = question.id
-            cdQuestion.type = question.type.rawValue
-            cdQuestion.question = question.question
-            cdQuestion.options = NSArray(array: question.options)
-            cdQuestion.correctAnswer = question.correctAnswer
-            cdQuestion.explanation = question.explanation
-            cdQuestion.hint = question.hint
-            cdQuestion.isSaved = question.isSaved
-            cdQuestion.createdAt = question.createdAt
-            cdQuestion.problemSet = cdProblemSet
-            
-            questionSet.add(cdQuestion)
-            print("✏️ Prepared question: \(question.id)")
-        }
-        
-        cdProblemSet.questions = questionSet
-        
-        do {
-            try viewContext.save()
-            print("✅ Successfully saved ProblemSet with \(questionSet.count) questions, isFavorite: \(problemSet.isFavorite)")
-        } catch {
-            print("❌ Failed to save ProblemSet: \(error)")
-            viewContext.rollback()
-            throw error
-        }
-    }
-
-    public func fetchProblemSets() throws -> [ProblemSet] {
-        print("📊 Fetching ProblemSets from CoreData")
-        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
-        
-        do {
-            let cdProblemSets = try viewContext.fetch(request)
-            print("📊 Fetched \(cdProblemSets.count) ProblemSets from CoreData")
-            
-            return try cdProblemSets.map { cdProblemSet -> ProblemSet in
-                let questions = (cdProblemSet.questions?.allObjects as? [CDQuestion])?
-                    .compactMap { cdQuestion -> Question? in
-                        guard let id = cdQuestion.id,
-                              let type = cdQuestion.type,
-                              let questionText = cdQuestion.question,
-                              let correctAnswer = cdQuestion.correctAnswer,
-                              let explanation = cdQuestion.explanation else {
-                            print("⚠️ Invalid question data found")
-                            return nil
-                        }
-                        
-                        let options = cdQuestion.options as? [String] ?? []
-                        
-                        return Question(
-                            id: id,
-                            type: QuestionType(rawValue: type) ?? .multipleChoice,
-                            subject: DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math,
-                            question: questionText,
-                            options: options,
-                            correctAnswer: correctAnswer,
-                            explanation: explanation,
-                            hint: cdQuestion.hint,
-                            isSaved: cdQuestion.isSaved,
-                            createdAt: cdQuestion.createdAt ?? Date()
-                        )
-                    } ?? []
-                
-                let defaultSubject = DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math
-                
-                return ProblemSet(
-                    id: cdProblemSet.id ?? UUID().uuidString,
-                    subject: defaultSubject,
-                    subjectType: cdProblemSet.subjectType ?? "default",
-                    subjectId: cdProblemSet.subjectId ?? defaultSubject.rawValue,
-                    subjectName: cdProblemSet.subjectName ?? defaultSubject.displayName,
-                    questions: questions,
-                    createdAt: cdProblemSet.createdAt ?? Date(),
-                    educationLevel: EducationLevel(rawValue: cdProblemSet.educationLevel ?? "") ?? .elementary,
-                    name: cdProblemSet.name ?? "Default Name",
-                    isFavorite: cdProblemSet.isFavorite  // isFavorite 추가
-                )
-            }
-        } catch {
-            print("❌ Failed to fetch ProblemSets: \(error)")
-            throw error
-        }
-    }
-    
-    public func deleteQuestion(_ question: Question) throws {
-        // Type annotation을 명시적으로 지정
-        let request = NSFetchRequest<CDQuestion>(entityName: "CDQuestion")
-        // 또는 아래와 같이 작성 가능
-        // let request: NSFetchRequest<CDQuestion> = NSFetchRequest(entityName: "CDQuestion")
-        
-        request.predicate = NSPredicate(format: "id == %@", question.id)
-        
-        do {
-            let questions = try viewContext.fetch(request)
-            if let cdQuestion = questions.first {
-                viewContext.delete(cdQuestion)
-                try viewContext.save()
-                print("✅ Deleted Question: \(question.id)")
-            }
-        } catch {
-            print("❌ Failed to delete Question: \(error)")
-            viewContext.rollback()
-            throw error
-        }
-    }
-    
-    // MARK: - Helper Methods
-    // 조회 로직도 수정
-    private func updateCDQuestion(_ cdQuestion: CDQuestion, with question: Question) {
-        cdQuestion.id = question.id
-        cdQuestion.type = question.type.rawValue
-        cdQuestion.question = question.question
-        
-        // Convert String arrays to NSArray
-        cdQuestion.options = NSArray(array: question.options)
-        cdQuestion.correctAnswer = question.correctAnswer
-        cdQuestion.explanation = question.explanation
-        cdQuestion.hint = question.hint
-        cdQuestion.isSaved = question.isSaved
-        cdQuestion.createdAt = question.createdAt
-    }
-}
-
-// CDQuestion+Extension 수정
-extension CDQuestion {
-    func toDomain() -> Question? {
-        guard let id = self.id,
-              let type = self.type,
-              let question = self.question,
-              let correctAnswer = self.correctAnswer,
-              let explanation = self.explanation else {
-            return nil
-        }
-        
-        let options = (self.options as? [String]) ?? []
-        
-        return Question(
-            id: id,
-            type: QuestionType(rawValue: type) ?? .multipleChoice,
-            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .math,
-            question: question,
-            options: options,
-            correctAnswer: correctAnswer,
-            explanation: explanation,
-            hint: self.hint,
-            isSaved: self.isSaved,
-            createdAt: self.createdAt ?? Date()
-        )
-    }
-}
-extension CoreDataService {
-    @MainActor
-    func updateProblemSet(_ problemSet: ProblemSet, newName: String) throws {
-        let context = persistentContainer.viewContext
-        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
-        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
-        
-        if let cdProblemSet = try context.fetch(request).first {
-            cdProblemSet.name = newName
-            
-            // Save immediately
-            if context.hasChanges {
-                try context.save()
-                print("💾 CoreData: Successfully updated problem set name to: \(newName)")
-            }
-        } else {
-            print("⚠️ CoreData: Problem set not found with ID: \(problemSet.id)")
-        }
-    }
-    
-    func deleteProblemSet(_ problemSet: ProblemSet) throws {
-        let context = persistentContainer.viewContext
-        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
-        request.predicate = NSPredicate(format: "id == %@", problemSet.id)
-        
-        if let cdProblemSet = try context.fetch(request).first {
-            context.delete(cdProblemSet)
-            try context.save()
-        }
-    }
-}
-
-extension CoreDataService {
-    func saveDailyStats(_ stats: DailyStats) throws {
-        let context = viewContext
-        let today = Calendar.current.startOfDay(for: Date())
-        
-        let fetchRequest: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "date >= %@ AND date < %@",
-            today as NSDate,
-            Calendar.current.date(byAdding: .day, value: 1, to: today)! as NSDate
-        )
-        
-        do {
-            let existingStats = try context.fetch(fetchRequest)
-            let dailyStats: CDDailyStats
-            
-            if let existing = existingStats.first {
-                print("📊 Found existing stats - Questions: \(existing.totalQuestions), Correct: \(existing.correctAnswers)")
-                dailyStats = existing
-                // 누적 처리
-                dailyStats.totalQuestions += 1  // 항상 1씩 증가
-                if stats.correctAnswers > existing.correctAnswers {
-                    dailyStats.correctAnswers += 1
-                }
-            } else {
-                print("📊 Creating new daily stats")
-                dailyStats = CDDailyStats(context: context)
-                dailyStats.date = today
-                dailyStats.totalQuestions = 1
-                dailyStats.correctAnswers = Int32(stats.correctAnswers)
-            }
-            
-            try context.save()
-            
-            print("""
-            ✅ Daily stats saved:
-            • Date: \(today)
-            • Previous Total: \(existingStats.first?.totalQuestions ?? 0)
-            • New Total: \(dailyStats.totalQuestions)
-            • Previous Correct: \(existingStats.first?.correctAnswers ?? 0)
-            • New Correct: \(dailyStats.correctAnswers)
-            """)
-            
-        } catch {
-            print("❌ Failed to save daily stats: \(error)")
-            throw error
-        }
-    }
-
-    func fetchDailyStats(for date: Date = Date()) throws -> DailyStats? {
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: date)
-        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
-        
-        let fetchRequest: NSFetchRequest<CDDailyStats> = CDDailyStats.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "date >= %@ AND date < %@",
-            startOfDay as NSDate,
-            endOfDay as NSDate
-        )
-        
-        do {
-            if let stats = try viewContext.fetch(fetchRequest).first {
-                return DailyStats(
-                    id: UUID(),
-                    date: startOfDay,
-                    totalQuestions: Int(stats.totalQuestions),
-                    correctAnswers: Int(stats.correctAnswers),
-                    wrongAnswers: Int(stats.totalQuestions - stats.correctAnswers),
-                    timeSpent: 0
-                )
-            }
-            return nil
-        } catch {
-            print("❌ Failed to fetch daily stats: \(error)")
-            throw error
-        }
-    }
-}
-
-extension CoreDataService {
-    func updateProblemSetFavorite(problemSetId: String, isFavorite: Bool) async throws {
-        let context = viewContext
-        let request: NSFetchRequest<CDProblemSet> = CDProblemSet.fetchRequest()
-        request.predicate = NSPredicate(format: "id == %@", problemSetId)
-        
-        if let problemSet = try context.fetch(request).first {
-            problemSet.isFavorite = isFavorite
-            try context.save()
-            print("💾 CoreData: Updated favorite status for problem set: \(problemSetId)")
-        } else {
-            print("⚠️ CoreData: Problem set not found with ID: \(problemSetId)")
-        }
-    }
-}
-
-
-// ./AISnapStudy/CoreData/CoreDataModels+Extensions.swift
-
-
-
-import Foundation
-import CoreData
-
-// MARK: - CDProblemSet Extension
-extension CDProblemSet {
-    func toDomain() -> ProblemSet {
-        let questions = (self.questions?.allObjects as? [CDQuestion])?.compactMap { question -> Question? in
-            question.toDomain()
-        } ?? []
-
-        let defaultSubject = DefaultSubject(rawValue: self.subject ?? "") ?? .math
-
-        return ProblemSet(
-            id: self.id ?? UUID().uuidString,
-            subject: defaultSubject,
-            subjectType: self.subjectType ?? "default",
-            subjectId: self.subjectId ?? defaultSubject.rawValue,
-            subjectName: self.subjectName ?? defaultSubject.displayName,
-            questions: questions,
-            createdAt: self.createdAt ?? Date(),
-            educationLevel: EducationLevel(rawValue: self.educationLevel ?? "") ?? .elementary,
-            name: self.name ?? ""
-        )
-    }
-}
-
-// MARK: - CDQuestion Extension
-extension CDQuestion {
-    func toDomain() -> Question {
-        Question(
-            id: self.id ?? UUID().uuidString,
-            type: QuestionType(rawValue: self.type ?? "") ?? .multipleChoice,
-            // Subject를 DefaultSubject로 변경
-            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .math,
-            question: self.question ?? "",
-            options: self.options as? [String] ?? [],
-            correctAnswer: self.correctAnswer ?? "",
-            explanation: self.explanation ?? "",
-            hint: self.hint,
-            isSaved: self.isSaved,
-            createdAt: self.createdAt ?? Date()
-        )
-    }
-}
-
-// MARK: - CDStudySession Extension
-extension CDStudySession {
-    func toDomain() -> StudySession {
-        let defaultSubject = DefaultSubject.math
-        
-        return StudySession(
-            id: self.id ?? UUID().uuidString,
-            problemSet: self.problemSet?.toDomain() ?? ProblemSet(
-                id: UUID().uuidString,
-                subject: defaultSubject,
-                subjectType: "default",
-                subjectId: defaultSubject.rawValue,
-                subjectName: defaultSubject.displayName,
-                questions: [],
-                createdAt: Date(),
-                educationLevel: .elementary,
-                name: "Default Name"
-            ),
-            startTime: self.startTime ?? Date(),
-            endTime: self.endTime,
-            answers: self.answers as? [String: String] ?? [:],
-            score: Int(self.score)
-        )
-    }
-}
-
-
-// ./AISnapStudy/CoreData/CDQuestion+CoreDataClass.swift
-
-
-
-import Foundation
-import CoreData
-
-
-public class CDQuestion: NSManagedObject {
-
-}
-
-
-// ./AISnapStudy/CoreData/CDDailyStats+CoreDataClass.swift
-
-
-
-import Foundation
-import CoreData
-
-@objc(CDDailyStats)
-public class CDDailyStats: NSManagedObject {
-
-}
-
-
-
-
-// ./AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift
-
-
-
-import Foundation
-import CoreData
-
-
-public class CDStudySession: NSManagedObject {
-
-}
-
-
-// ./AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift
-
-
-
-import Foundation
-import CoreData
-
-
-extension CDProblemSet {
-
-    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDProblemSet> {
-        return NSFetchRequest<CDProblemSet>(entityName: "CDProblemSet")
-    }
-
-    @NSManaged public var createdAt: Date?
-    @NSManaged public var educationLevel: String?
-    @NSManaged public var id: String?
-    @NSManaged public var isFavorite: Bool
-    @NSManaged public var lastAttempted: Date?
-    @NSManaged public var name: String?
-    @NSManaged public var problemSetDescription: String?
-    @NSManaged public var subject: String?
-    @NSManaged public var tags: NSArray?
-    @NSManaged public var subjectType: String?
-    @NSManaged public var subjectId: String?
-    @NSManaged public var subjectName: String?
-    @NSManaged public var questions: NSSet?
-
-}
-
-// MARK: Generated accessors for questions
-extension CDProblemSet {
-
-    @objc(addQuestionsObject:)
-    @NSManaged public func addToQuestions(_ value: CDQuestion)
-
-    @objc(removeQuestionsObject:)
-    @NSManaged public func removeFromQuestions(_ value: CDQuestion)
-
-    @objc(addQuestions:)
-    @NSManaged public func addToQuestions(_ values: NSSet)
-
-    @objc(removeQuestions:)
-    @NSManaged public func removeFromQuestions(_ values: NSSet)
-
-}
-
-extension CDProblemSet : Identifiable {
-
-}
-
-
-// ./AISnapStudy/CoreData/CDQuestion+CoreDataProperties.swift
-
-
-
-import Foundation
-import CoreData
-
-
-extension CDQuestion {
-
-    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDQuestion> {
-        return NSFetchRequest<CDQuestion>(entityName: "CDQuestion")
-    }
-
-    @NSManaged public var attribute: String?
-    @NSManaged public var correctAnswer: String?
-    @NSManaged public var createdAt: Date?
-    @NSManaged public var explanation: String?
-    @NSManaged public var hint: String?
-    @NSManaged public var id: String?
-    @NSManaged public var isCorrect: Bool
-    @NSManaged public var isSaved: Bool
-    @NSManaged public var options: NSObject?
-    @NSManaged public var question: String?
-    @NSManaged public var type: String?
-    @NSManaged public var problemSet: CDProblemSet?
-    @NSManaged public var session: CDStudySession?
-
-}
-
-extension CDQuestion : Identifiable {
-
-}
-
-
-// ./AISnapStudy/CoreData/CDStudySession+CoreDataProperties.swift
-
-
-
-import Foundation
-import CoreData
-
-
-extension CDStudySession {
-
-    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDStudySession> {
-        return NSFetchRequest<CDStudySession>(entityName: "CDStudySession")
-    }
-
-    @NSManaged public var answers: NSObject?
-    @NSManaged public var endTime: Date?
-    @NSManaged public var id: String?
-    @NSManaged public var score: Int16
-    @NSManaged public var startTime: Date?
-    @NSManaged public var problemSet: CDProblemSet?
-    @NSManaged public var questions: NSSet?
-
-}
-
-// MARK: Generated accessors for questions
-extension CDStudySession {
-
-    @objc(addQuestionsObject:)
-    @NSManaged public func addToQuestions(_ value: CDQuestion)
-
-    @objc(removeQuestionsObject:)
-    @NSManaged public func removeFromQuestions(_ value: CDQuestion)
-
-    @objc(addQuestions:)
-    @NSManaged public func addToQuestions(_ values: NSSet)
-
-    @objc(removeQuestions:)
-    @NSManaged public func removeFromQuestions(_ values: NSSet)
-
-}
-
-extension CDStudySession : Identifiable {
-
-}
-
-
-// ./AISnapStudy/CoreData/CDDailyStats+CoreDataProperties.swift
-
-
-
-import Foundation
-import CoreData
-
-
-extension CDDailyStats {
-
-    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDDailyStats> {
-        return NSFetchRequest<CDDailyStats>(entityName: "CDDailyStats")
-    }
-
-    @NSManaged public var date: Date?
-    @NSManaged public var totalQuestions: Int32
-    @NSManaged public var correctAnswers: Int32
-
-}
-
-extension CDDailyStats : Identifiable {
-
-}
-
-
-// ./AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift
-
-
-
-import Foundation
-import CoreData
-
-
-public class CDProblemSet: NSManagedObject {
-
 }
 
 
@@ -10625,29 +9725,87 @@ import Foundation
 import UIKit
 
 class OpenAIService {
-    private let apiKey: String
+    // private 저장 프로퍼티 수정
+    private var apiKey: String?
     private let baseURL = "https://api.openai.com/v1/chat/completions"
     private let session: URLSession
     private let cache = NSCache<NSString, NSArray>()
+    private let keyServerURL = "https://aistockadvisor.net/api/get-api-key"
     
-    static let shared: OpenAIService = {
-        do {
-            return try OpenAIService()
-        } catch {
-            fatalError("Failed to initialize OpenAIService: \(error)")
+    // 싱글톤 수정
+    static let shared = OpenAIService()
+    
+    // 단일 초기화 메서드
+    private init() {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 300
+        configuration.waitsForConnectivity = true
+        configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
+        self.session = URLSession(configuration: configuration)
+        
+        // 초기화 시점에 API Key 가져오기
+        Task {
+            try? await fetchAPIKey()
         }
-    }()
+    }
     
+    private func makeOpenAIRequest(_ request: inout URLRequest) throws {
+        guard let apiKey = self.apiKey else {
+            print("❌ API key is nil")
+            throw NetworkError.apiError("API key not available")
+        }
+        
+        
+        // String 리터럴로 헤더 생성
+        let authHeaderValue = "Bearer " + apiKey
+        request.setValue(authHeaderValue, forHTTPHeaderField: "Authorization")
+    
+    }
+
+    
+    // fetchAPIKey 함수 수정
+    func fetchAPIKey() async throws {
+        let request = URLRequest(url: URL(string: keyServerURL)!)
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NetworkError.invalidResponse
+        }
+        
+        let decoder = JSONDecoder()
+        let keyResponse = try decoder.decode(APIKeyResponse.self, from: data)
+        
+        // API 키 저장 전 확인
+        print("Debug - Received API Key (first 10 chars):", keyResponse.apiKey.prefix(10))
+        
+        // API 키 저장
+        self.apiKey = keyResponse.apiKey
+    }
+    
+    // API Key가 없을 경우 가져오는 메서드
+    private func ensureValidAPIKey() async throws {
+        if apiKey == nil {
+            try await fetchAPIKey()
+        }
+    }
+    
+    func cleanup() {
+           apiKey = nil
+       }
     
     func sendTextExtractionResult(_ extractedText: String) async throws -> String {
+        // API Key 확인
+        try await ensureValidAPIKey()
+        
         print("🔄 Processing extracted text in OpenAI service...")
         print("📝 Input text: \(extractedText)")
         
-        let url = URL(string: baseURL)!
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        try makeOpenAIRequest(&request)  // API Key 설정
 
         let body: [String: Any] = [
             "model": "gpt-4o",
@@ -10683,11 +9841,14 @@ class OpenAIService {
 
 
         func sendImageDataToOpenAI(_ imageData: Data) async throws {
+            // API Key 확인
+            try await ensureValidAPIKey()
+            
             let url = URL(string: "https://api.openai.com/v1/images")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue("Bearer YOUR_API_KEY", forHTTPHeaderField: "Authorization")
+            request.addValue("Bearer \(apiKey ?? "")", forHTTPHeaderField: "Authorization")
 
             let body: [String: Any] = [
                 "image": imageData.base64EncodedString(),
@@ -10816,31 +9977,30 @@ class OpenAIService {
         static let maxTokens = 4000
     }
     
-    // MARK: - Initialization
-    init() throws {
-        self.apiKey = try ConfigurationManager.shared.getValue(for: "OpenAIAPIKey")
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 300
-        configuration.waitsForConnectivity = true
-        configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
-        self.session = URLSession(configuration: configuration)
-    }
-    
     // MARK: - Main Question Generation Method
     func generateQuestions(
         from input: QuestionInput,
         parameters: QuestionParameters
     ) async throws -> [Question] {
+        // 네트워크 연결 확인
         guard NetworkMonitor.shared.isReachable else {
             throw NetworkError.noConnection
         }
         
+        // 캐시 확인
         let cacheKey = "\(input.contentHash)_\(parameters.subject.rawValue)"
         if let cachedQuestions = cache.object(forKey: cacheKey as NSString) as? [Question] {
             print("✅ Retrieved questions from cache")
             return cachedQuestions
         }
+        
+        // API 키 확인 및 로깅
+        guard let apiKey = self.apiKey else {
+            print("❌ API key is nil")
+            throw NetworkError.apiError("API key not available")
+        }
+        print("Debug - API Key type:", type(of: apiKey))
+        print("Debug - API Key length:", apiKey.count)
         
         return try await withThrowingTaskGroup(of: Any.self) { group -> [Question] in
             var processedInput: Data?
@@ -10870,13 +10030,15 @@ class OpenAIService {
                 throw NetworkError.invalidData
             }
 
+            // API 키를 명시적으로 전달
             let questions = try await self.performQuestionGeneration(
-                input: processedInput,                     // 이미지 데이터 전달
-                textInput: processedTextInput,             // 텍스트 데이터 전달
+                input: processedInput,
+                textInput: processedTextInput,
                 schema: prepared.schema,
                 systemPrompt: prepared.prompts.system,
                 userPrompt: prepared.prompts.user,
-                parameters: parameters
+                parameters: parameters,
+                apiKey: apiKey  // API 키 전달
             )
 
             self.cache.setObject(questions as NSArray, forKey: cacheKey as NSString)
@@ -11087,7 +10249,8 @@ class OpenAIService {
         schema: [String: Any],
         systemPrompt: String,
         userPrompt: String,
-        parameters: QuestionParameters
+        parameters: QuestionParameters,
+        apiKey: String  // API 키 매개변수 추가
     ) async throws -> [Question] {
         print("🤖 OpenAI Prompt Information:")
         print("\nSystem Prompt:\n-------------\n\(systemPrompt)")
@@ -11153,11 +10316,17 @@ class OpenAIService {
         
         var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        // API 키를 직접 사용하여 Authorization 헤더 설정
+        let authHeaderValue = "Bearer " + apiKey
+        request.setValue(authHeaderValue, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
+        // Debug: 헤더 확인
+        print("Debug - Final Authorization header:", String(authHeaderValue.prefix(20)), "...")
+        
         print("""
         🌐 API Request:
         • URL: \(baseURL)
@@ -11204,12 +10373,12 @@ class OpenAIService {
                         with: "",
                         options: [.regularExpression, .caseInsensitive]
                     )
-                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
-                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines) :
                 questionData.question
-                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
-                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
             // True/False 답변 정규화
@@ -11227,7 +10396,7 @@ class OpenAIService {
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
-                question: processedQuestion,  // 처리된 질문 사용
+                question: processedQuestion,
                 options: questionData.options,
                 correctAnswer: correctAnswer,
                 explanation: questionData.explanation,
@@ -11247,6 +10416,17 @@ class OpenAIService {
     }
     
 }
+
+
+struct APIKeyResponse: Codable {
+    let apiKey: String
+    
+    // CodingKeys 추가
+    enum CodingKeys: String, CodingKey {
+        case apiKey = "apiKey"
+    }
+}
+
 
 
 // ./AISnapStudy/Services/VisionService.swift

@@ -11,9 +11,9 @@ def collect_swift_files(directory, output_file):
     swift_files = []
     
     for root, dirs, files in os.walk(directory):
-        # # CoreData 폴더는 제외
-        # if 'CoreData' in root:
-        #     continue
+         # CoreData 폴더는 제외
+        if 'CoreData' in root:
+            continue
         
         for file in files:
             if file.endswith('.swift'):
