@@ -49,7 +49,23 @@ struct AISnapStudyApp: App {
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         setupCoreData()
+        
+        // OpenAI API Key 초기 설정
+        Task {
+            do {
+                try await OpenAIService.shared.fetchAPIKey()
+                print("✅ Successfully initialized OpenAI API Key")
+            } catch {
+                print("❌ Failed to fetch OpenAI API Key: \(error)")
+            }
+        }
+        
         return true
+    }
+    
+    // 앱 종료 시 API Key 정리
+    func applicationWillTerminate(_ application: UIApplication) {
+        OpenAIService.shared.cleanup()
     }
     
     private func setupCoreData() {

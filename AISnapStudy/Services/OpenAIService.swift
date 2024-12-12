@@ -2,29 +2,93 @@ import Foundation
 import UIKit
 
 class OpenAIService {
-    private let apiKey: String
+    // private 저장 프로퍼티 수정
+    private var apiKey: String?
     private let baseURL = "https://api.openai.com/v1/chat/completions"
     private let session: URLSession
     private let cache = NSCache<NSString, NSArray>()
+    private let keyServerURL = "https://aistockadvisor.net/api/get-api-key"
     
-    static let shared: OpenAIService = {
-        do {
-            return try OpenAIService()
-        } catch {
-            fatalError("Failed to initialize OpenAIService: \(error)")
+    // 싱글톤 수정
+    static let shared = OpenAIService()
+    
+    // 단일 초기화 메서드
+    private init() {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 300
+        configuration.waitsForConnectivity = true
+        configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
+        self.session = URLSession(configuration: configuration)
+        
+        // 초기화 시점에 API Key 가져오기
+        Task {
+            try? await fetchAPIKey()
         }
-    }()
+    }
     
+    private func makeOpenAIRequest(_ request: inout URLRequest) throws {
+        guard let apiKey = self.apiKey else {
+            print("❌ API key is nil")
+            throw NetworkError.apiError("API key not available")
+        }
+        
+        // Debug 로그 추가
+        print("Debug - Raw API Key value:", apiKey)
+        print("Debug - API Key type:", type(of: apiKey))
+        print("Debug - API Key length:", apiKey.count)
+        
+        // String 리터럴로 헤더 생성
+        let authHeaderValue = "Bearer " + apiKey
+        request.setValue(authHeaderValue, forHTTPHeaderField: "Authorization")
+        
+        // Debug: 실제 전송되는 헤더 값 확인
+        print("Debug - Final Authorization header:", String(authHeaderValue.prefix(20)), "...")
+    }
+
+    
+    // fetchAPIKey 함수 수정
+    func fetchAPIKey() async throws {
+        let request = URLRequest(url: URL(string: keyServerURL)!)
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw NetworkError.invalidResponse
+        }
+        
+        let decoder = JSONDecoder()
+        let keyResponse = try decoder.decode(APIKeyResponse.self, from: data)
+        
+        // API 키 저장 전 확인
+        print("Debug - Received API Key (first 10 chars):", keyResponse.apiKey.prefix(10))
+        
+        // API 키 저장
+        self.apiKey = keyResponse.apiKey
+    }
+    
+    // API Key가 없을 경우 가져오는 메서드
+    private func ensureValidAPIKey() async throws {
+        if apiKey == nil {
+            try await fetchAPIKey()
+        }
+    }
+    
+    func cleanup() {
+           apiKey = nil
+       }
     
     func sendTextExtractionResult(_ extractedText: String) async throws -> String {
+        // API Key 확인
+        try await ensureValidAPIKey()
+        
         print("🔄 Processing extracted text in OpenAI service...")
         print("📝 Input text: \(extractedText)")
         
-        let url = URL(string: baseURL)!
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        try makeOpenAIRequest(&request)  // API Key 설정
 
         let body: [String: Any] = [
             "model": "gpt-4o",
@@ -60,11 +124,14 @@ class OpenAIService {
 
 
         func sendImageDataToOpenAI(_ imageData: Data) async throws {
+            // API Key 확인
+            try await ensureValidAPIKey()
+            
             let url = URL(string: "https://api.openai.com/v1/images")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.addValue("Bearer YOUR_API_KEY", forHTTPHeaderField: "Authorization")
+            request.addValue("Bearer \(apiKey ?? "")", forHTTPHeaderField: "Authorization")
 
             let body: [String: Any] = [
                 "image": imageData.base64EncodedString(),
@@ -193,31 +260,30 @@ class OpenAIService {
         static let maxTokens = 4000
     }
     
-    // MARK: - Initialization
-    init() throws {
-        self.apiKey = try ConfigurationManager.shared.getValue(for: "OpenAIAPIKey")
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 300
-        configuration.waitsForConnectivity = true
-        configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
-        self.session = URLSession(configuration: configuration)
-    }
-    
     // MARK: - Main Question Generation Method
     func generateQuestions(
         from input: QuestionInput,
         parameters: QuestionParameters
     ) async throws -> [Question] {
+        // 네트워크 연결 확인
         guard NetworkMonitor.shared.isReachable else {
             throw NetworkError.noConnection
         }
         
+        // 캐시 확인
         let cacheKey = "\(input.contentHash)_\(parameters.subject.rawValue)"
         if let cachedQuestions = cache.object(forKey: cacheKey as NSString) as? [Question] {
             print("✅ Retrieved questions from cache")
             return cachedQuestions
         }
+        
+        // API 키 확인 및 로깅
+        guard let apiKey = self.apiKey else {
+            print("❌ API key is nil")
+            throw NetworkError.apiError("API key not available")
+        }
+        print("Debug - API Key type:", type(of: apiKey))
+        print("Debug - API Key length:", apiKey.count)
         
         return try await withThrowingTaskGroup(of: Any.self) { group -> [Question] in
             var processedInput: Data?
@@ -247,13 +313,15 @@ class OpenAIService {
                 throw NetworkError.invalidData
             }
 
+            // API 키를 명시적으로 전달
             let questions = try await self.performQuestionGeneration(
-                input: processedInput,                     // 이미지 데이터 전달
-                textInput: processedTextInput,             // 텍스트 데이터 전달
+                input: processedInput,
+                textInput: processedTextInput,
                 schema: prepared.schema,
                 systemPrompt: prepared.prompts.system,
                 userPrompt: prepared.prompts.user,
-                parameters: parameters
+                parameters: parameters,
+                apiKey: apiKey  // API 키 전달
             )
 
             self.cache.setObject(questions as NSArray, forKey: cacheKey as NSString)
@@ -464,7 +532,8 @@ class OpenAIService {
         schema: [String: Any],
         systemPrompt: String,
         userPrompt: String,
-        parameters: QuestionParameters
+        parameters: QuestionParameters,
+        apiKey: String  // API 키 매개변수 추가
     ) async throws -> [Question] {
         print("🤖 OpenAI Prompt Information:")
         print("\nSystem Prompt:\n-------------\n\(systemPrompt)")
@@ -530,11 +599,17 @@ class OpenAIService {
         
         var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        
+        // API 키를 직접 사용하여 Authorization 헤더 설정
+        let authHeaderValue = "Bearer " + apiKey
+        request.setValue(authHeaderValue, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("gzip, deflate, br", forHTTPHeaderField: "Accept-Encoding")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
+        // Debug: 헤더 확인
+        print("Debug - Final Authorization header:", String(authHeaderValue.prefix(20)), "...")
+        
         print("""
         🌐 API Request:
         • URL: \(baseURL)
@@ -581,12 +656,12 @@ class OpenAIService {
                         with: "",
                         options: [.regularExpression, .caseInsensitive]
                     )
-                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
-                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines) :
                 questionData.question
-                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)  // 여러 공백을 하나로
-                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)   // 줄바꿈을 공백으로
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .replacingOccurrences(of: "\n+", with: " ", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
 
             // True/False 답변 정규화
@@ -604,7 +679,7 @@ class OpenAIService {
                 id: UUID().uuidString,
                 type: QuestionType(rawValue: questionData.type) ?? .multipleChoice,
                 subject: parameters.subject,
-                question: processedQuestion,  // 처리된 질문 사용
+                question: processedQuestion,
                 options: questionData.options,
                 correctAnswer: correctAnswer,
                 explanation: questionData.explanation,
@@ -624,3 +699,14 @@ class OpenAIService {
     }
     
 }
+
+
+struct APIKeyResponse: Codable {
+    let apiKey: String
+    
+    // CodingKeys 추가
+    enum CodingKeys: String, CodingKey {
+        case apiKey = "apiKey"
+    }
+}
+

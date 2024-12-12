@@ -56,13 +56,9 @@ class StudyViewModel: ObservableObject {
     init(homeViewModel: HomeViewModel, context: NSManagedObjectContext) {
         self.context = context
         self.homeViewModel = homeViewModel
-
-        // OpenAIService 초기화
-        do {
-            self.openAIService = try OpenAIService()
-        } catch {
-            fatalError("Failed to initialize OpenAI service: \(error)")
-        }
+        
+        // OpenAIService 싱글톤 인스턴스 사용
+        self.openAIService = OpenAIService.shared
 
         Task { @MainActor in
             homeViewModel.$selectedProblemSet
@@ -71,7 +67,6 @@ class StudyViewModel: ObservableObject {
                 .receive(on: RunLoop.main)
                 .sink { [weak self] problemSet in
                     guard let self = self else { return }
-                    // async 메서드를 Task 내에서 호출하도록 수정
                     Task {
                         await self.resetState()
                         await MainActor.run {

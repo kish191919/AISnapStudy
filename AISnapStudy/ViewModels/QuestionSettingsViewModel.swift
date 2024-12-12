@@ -6,6 +6,8 @@ import PhotosUI
 @MainActor
 class QuestionSettingsViewModel: ObservableObject {
     
+    let openAIService: OpenAIService
+    
     @Published var selectedSubject: any SubjectType {
         didSet {
             if let defaultSubject = selectedSubject as? DefaultSubject {
@@ -39,7 +41,6 @@ class QuestionSettingsViewModel: ObservableObject {
     private let homeViewModel: HomeViewModel
     private let networkMonitor = NetworkMonitor.shared
     private let imageService = ImageService.shared
-    private var openAIService: OpenAIService?
     private let totalMaximumQuestions = 10
     private var studyViewModel: StudyViewModel?
     
@@ -116,13 +117,55 @@ class QuestionSettingsViewModel: ObservableObject {
     
      
      // MARK: - Initialization
-    init(subject: any SubjectType, homeViewModel: HomeViewModel) {  // selectedTab 매개변수 제거
+    init(subject: any SubjectType, homeViewModel: HomeViewModel) {
+        // 1. OpenAIService 초기화
+        self.openAIService = OpenAIService.shared
+        
+        // 2. 기본값이 필요한 프로퍼티들 초기화
         self.selectedSubject = subject
-        self.subject = subject as? DefaultSubject ?? .math  // 기본값 설정
+        self.subject = subject as? DefaultSubject ?? .math
         self.homeViewModel = homeViewModel
         self.studyViewModel = homeViewModel.studyViewModel
         
-        // 저장된 Subject 불러오기
+        // 3. @Published 프로퍼티들 초기화
+        self.selectedLanguage = .auto
+        self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
+        self.educationLevel = EducationLevel(rawValue: UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel) ?? "") ?? .elementary
+        self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
+        self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
+        self.isNetworkAvailable = networkMonitor.isReachable
+        
+        // 4. 그 외 나머지 @Published 프로퍼티들 초기화
+        self.extractedTexts = [:]
+        self.isLoadingTexts = [:]
+        self.extractionStatus = [:]
+        self.isCameraAuthorized = false
+        self.isGalleryAuthorized = false
+        self.availableSubjects = []
+        self.selectedImages = []
+        self.hasCameraImage = false
+        self.hasGalleryImages = false
+        self.questionText = ""
+        self.isUsingTextInput = false
+        self.isTextInputActive = false
+        self.hasSelectedCamera = false
+        self.hasSelectedGallery = false
+        self.shouldCollapseQuestionTypes = false
+        self.shouldShowStudyView = false
+        self.isGeneratingQuestions = false
+        self.problemSetName = ""
+        self.isLoading = false
+        self.showImagePicker = false
+        self.showCamera = false
+        self.selectedImage = nil
+        self.showAlert = false
+        self.alertTitle = ""
+        self.alertMessage = ""
+        
+        // 5. UserDefaults 기본값 설정
+        UserDefaults.standard.register(defaults: ["useTextExtraction": true])
+        
+        // 6. Subject 관련 설정 업데이트
         if let savedSubjectID = UserDefaults.standard.string(forKey: "lastSelectedSubject") {
             if savedSubjectID.starts(with: "custom_") {
                 let customID = String(savedSubjectID.dropFirst(7))
@@ -130,46 +173,14 @@ class QuestionSettingsViewModel: ObservableObject {
             } else {
                 self.selectedSubject = DefaultSubject(rawValue: savedSubjectID) ?? subject
             }
-        } else {
-            self.selectedSubject = subject
         }
         
-        // UserDefaults에서 마지막 설정값을 불러오거나, 선택된 subject 사용
-        let lastSubjectRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastSubject)
-        let lastEducationLevelRaw = UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel)
-        
-        // educationLevel 초기화
-        self.educationLevel = EducationLevel(rawValue: lastEducationLevelRaw ?? "") ?? .elementary
-        
-        // 카운트 초기화
-        self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)
-        self.trueFalseCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastTrueFalseCount)
-         
-         // Initialize network monitoring
-         self.isNetworkAvailable = networkMonitor.isReachable
-         
-         // 기본값 설정
-         UserDefaults.standard.register(defaults: ["useTextExtraction": true])
-         // 저장된 값 로드
-         self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
-         print("📱 Initial useTextExtraction value loaded: \(useTextExtraction)")
-         
-         // 저장된 언어 설정 불러오기
-         if let savedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage"),
-            let language = Language(rawValue: savedLanguage) {
-             self.selectedLanguage = language
-         }
-         
-         
-         // Initialize OpenAI service
-         do {
-             self.openAIService = try OpenAIService()
-         } catch {
-             self.error = error
-             print("Failed to initialize OpenAI service:", error)
-         }
-     }
-    
+        // 7. 언어 설정 업데이트
+        if let savedLanguage = UserDefaults.standard.string(forKey: "selectedLanguage"),
+           let language = Language(rawValue: savedLanguage) {
+            self.selectedLanguage = language
+        }
+    }
     // Add permission check methods
     func checkCameraPermission() async -> Bool {
         do {
@@ -210,35 +221,16 @@ class QuestionSettingsViewModel: ObservableObject {
     // 새로운 함수 추가
     private func sendExtractedTextToOpenAI(_ text: String) async throws {
         print("📤 Preparing to send extracted text to OpenAI")
-        guard let openAIService = openAIService else {
-            print("❌ OpenAI service not initialized")
-            return
-        }
-        
-        do {
-            let response = try await openAIService.sendTextExtractionResult(text)
-            print("✅ OpenAI processing completed for extracted text")
-            print("📥 OpenAI Response: \(response)")
-        } catch {
-            print("❌ Failed to process extracted text with OpenAI: \(error)")
-            throw error
-        }
+        // OpenAIService는 이미 프로퍼티로 존재하므로 직접 사용
+        let response = try await openAIService.sendTextExtractionResult(text)
+        print("✅ OpenAI processing completed for extracted text")
+        print("📥 OpenAI Response: \(response)")
     }
 
     private func sendImageToOpenAI(_ imageData: Data) async throws {
         print("📤 Preparing to send image to OpenAI")
-        guard let openAIService = openAIService else {
-            print("❌ OpenAI service not initialized")
-            return
-        }
-        
-        do {
-            try await openAIService.sendImageDataToOpenAI(imageData)
-            print("✅ Image successfully sent to OpenAI")
-        } catch {
-            print("❌ Failed to send image to OpenAI: \(error)")
-            throw error
-        }
+        try await openAIService.sendImageDataToOpenAI(imageData)
+        print("✅ Image successfully sent to OpenAI")
     }
 
     
@@ -521,34 +513,26 @@ class QuestionSettingsViewModel: ObservableObject {
     }
     // generateQuestions(from:parameters:) 보조 함수
     private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
-       print("🔄 Starting question generation from input")
-       guard let openAIService = self.openAIService else {
-           print("❌ OpenAI service not initialized")
-           return
-       }
-       
-       do {
-           let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
-           print("✅ Successfully generated \(questions.count) questions")
-           
-           let name = problemSetName.isEmpty ? generateDefaultName() : problemSetName
-           await processGeneratedQuestions(questions, name: name)
-       } catch {
-           print("❌ Error generating questions: \(error)")
-           await MainActor.run {
-               self.error = error
-               showError(error)
-           }
-       }
+        print("🔄 Starting question generation from input")
+        
+        do {
+            let questions = try await openAIService.generateQuestions(from: input, parameters: parameters)
+            print("✅ Successfully generated \(questions.count) questions")
+            
+            let name = problemSetName.isEmpty ? generateDefaultName() : problemSetName
+            await processGeneratedQuestions(questions, name: name)
+        } catch {
+            print("❌ Error generating questions: \(error)")
+            await MainActor.run {
+                self.error = error
+                showError(error)
+            }
+        }
     }
 
     // 직접 이미지 처리를 위한 함수도 수정
     private func processImageDirectly(_ image: UIImage) async throws {
         print("🖼️ Processing image directly...")
-        guard let openAIService = self.openAIService else {
-            throw NetworkError.apiError("OpenAI service not initialized")
-        }
-        
         let compressedData = try await imageService.compressForAPI(image)
         let input = OpenAIService.QuestionInput(
             content: compressedData,
