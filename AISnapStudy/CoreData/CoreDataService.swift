@@ -113,7 +113,7 @@ class CoreDataService {
                 return Question(
                     id: id,
                     type: QuestionType(rawValue: type) ?? .multipleChoice,
-                    subject: DefaultSubject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .math,
+                    subject: DefaultSubject(rawValue: cdQuestion.problemSet?.subject ?? "") ?? .generalKnowledge,
                     question: questionText,
                     options: options,
                     correctAnswer: correctAnswer,
@@ -353,7 +353,7 @@ class CoreDataService {
                         return Question(
                             id: id,
                             type: QuestionType(rawValue: type) ?? .multipleChoice,
-                            subject: DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math,
+                            subject: DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .generalKnowledge,
                             question: questionText,
                             options: options,
                             correctAnswer: correctAnswer,
@@ -364,7 +364,7 @@ class CoreDataService {
                         )
                     } ?? []
                 
-                let defaultSubject = DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .math
+                let defaultSubject = DefaultSubject(rawValue: cdProblemSet.subject ?? "") ?? .generalKnowledge
                 
                 return ProblemSet(
                     id: cdProblemSet.id ?? UUID().uuidString,
@@ -440,7 +440,7 @@ extension CDQuestion {
         return Question(
             id: id,
             type: QuestionType(rawValue: type) ?? .multipleChoice,
-            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .math,
+            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .generalKnowledge,
             question: question,
             options: options,
             correctAnswer: correctAnswer,

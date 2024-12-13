@@ -134,7 +134,7 @@ public class QuestionData: NSObject, NSSecureCoding {
        let question = Question(
            id: id,
            type: QuestionType(rawValue: typeRaw) ?? .multipleChoice,
-           subject: DefaultSubject(rawValue: subjectRaw) ?? .math,  // Subject를 DefaultSubject로 변경
+           subject: DefaultSubject(rawValue: subjectRaw) ?? .generalKnowledge,  // Subject를 DefaultSubject로 변경
            question: questionText,
            options: options,
            correctAnswer: correctAnswer,

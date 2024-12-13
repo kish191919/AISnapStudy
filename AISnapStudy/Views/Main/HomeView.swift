@@ -12,7 +12,7 @@ struct HomeView: View {
     @Binding var selectedTab: Int
     @State private var showQuestionSettings = false
     @State private var showUpgradeView = false // 추가된 State 변수
-    @State private var selectedSubject: DefaultSubject = .math
+    @State private var selectedSubject: DefaultSubject = .generalKnowledge
     @StateObject private var subjectManager = SubjectManager.shared
     @StateObject private var storeService = StoreService.shared // StoreService 추가
     
@@ -42,7 +42,7 @@ struct HomeView: View {
                     
                     // 메인 액션 버튼
                     CreateQuestionsButton(action: {
-                        selectedSubject = .math
+                        selectedSubject = .generalKnowledge
                         showQuestionSettings = true
                     })
                 }
@@ -200,7 +200,7 @@ struct CreateQuestionsButton: View {
 // SubjectType 확장
 extension DefaultSubject {
     static var defaultSubject: DefaultSubject {
-        return .math
+        return .generalKnowledge
     }
     
     public var displayName: String {

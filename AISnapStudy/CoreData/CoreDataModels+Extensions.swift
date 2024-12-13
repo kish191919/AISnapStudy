@@ -10,7 +10,7 @@ extension CDProblemSet {
             question.toDomain()
         } ?? []
 
-        let defaultSubject = DefaultSubject(rawValue: self.subject ?? "") ?? .math
+        let defaultSubject = DefaultSubject(rawValue: self.subject ?? "") ?? .generalKnowledge
 
         return ProblemSet(
             id: self.id ?? UUID().uuidString,
@@ -33,7 +33,7 @@ extension CDQuestion {
             id: self.id ?? UUID().uuidString,
             type: QuestionType(rawValue: self.type ?? "") ?? .multipleChoice,
             // Subject를 DefaultSubject로 변경
-            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .math,
+            subject: DefaultSubject(rawValue: self.problemSet?.subject ?? "") ?? .generalKnowledge,
             question: self.question ?? "",
             options: self.options as? [String] ?? [],
             correctAnswer: self.correctAnswer ?? "",
@@ -48,7 +48,7 @@ extension CDQuestion {
 // MARK: - CDStudySession Extension
 extension CDStudySession {
     func toDomain() -> StudySession {
-        let defaultSubject = DefaultSubject.math
+        let defaultSubject = DefaultSubject.generalKnowledge
         
         return StudySession(
             id: self.id ?? UUID().uuidString,

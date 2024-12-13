@@ -38,6 +38,15 @@ struct ReviewView: View {
                     Spacer()
                         .frame(height: 5)
                     
+                    // Add Saved Questions Card
+                    NavigationLink(
+                        destination: SavedQuestionsView(selectedTab: $selectedTab)
+                    ) {
+                        SavedQuestionsCard(savedCount: homeViewModel.savedQuestions.count)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .padding(.horizontal)
+                    
                     LazyVGrid(columns: [
                         GridItem(.flexible()),
                         GridItem(.flexible())
@@ -104,6 +113,43 @@ struct ReviewView: View {
             }
             return false
         }
+    }
+}
+
+// Add new SavedQuestionsCard component
+struct SavedQuestionsCard: View {
+    let savedCount: Int
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "bookmark.fill")
+                .font(.system(size: 24))
+                .foregroundColor(.blue)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Saved Questions")
+                    .font(.headline)
+                Text("\(savedCount) questions saved")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .foregroundColor(.gray)
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBackground))
+                .shadow(
+                    color: Color.black.opacity(0.1),
+                    radius: 8,
+                    x: 0,
+                    y: 4
+                )
+        )
     }
 }
 

@@ -67,7 +67,7 @@ class QuestionSettingsViewModel: ObservableObject {
         
         // 현재 선택된 과목이 없거나 비활성화된 경우 기본 과목으로 설정
         if !subjects.contains(where: { $0.id == selectedSubject.id }) {
-            selectedSubject = DefaultSubject.math  // 기본값으로 math 설정
+            selectedSubject = DefaultSubject.generalKnowledge  // 기본값으로 math 설정
         }
     }
 
@@ -125,7 +125,7 @@ class QuestionSettingsViewModel: ObservableObject {
         
         // 2. 기본값이 필요한 프로퍼티들 초기화
         self.selectedSubject = subject
-        self.subject = subject as? DefaultSubject ?? .math
+        self.subject = subject as? DefaultSubject ?? .generalKnowledge
         self.homeViewModel = homeViewModel
         self.studyViewModel = homeViewModel.studyViewModel
         
@@ -575,7 +575,7 @@ class QuestionSettingsViewModel: ObservableObject {
     }
 
     private func createParameters() -> OpenAIService.QuestionParameters {
-        let subjectToUse = (selectedSubject as? DefaultSubject) ?? .math  // DefaultSubject로 변환
+        let subjectToUse = (selectedSubject as? DefaultSubject) ?? .generalKnowledge  // DefaultSubject로 변환
         
         return OpenAIService.QuestionParameters(
             subject: subjectToUse,
