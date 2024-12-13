@@ -12,7 +12,7 @@ struct SavedQuestionsView: View {
                     let problemSet = ProblemSet(
                         id: UUID().uuidString,
                         subject: question.subject,
-                        subjectType: "default",  // 저장된 문제는 항상 기본 과목으로 처리
+                        subjectType: "default",
                         subjectId: question.subject.rawValue,
                         subjectName: question.subject.displayName,
                         questions: [question],
@@ -20,8 +20,13 @@ struct SavedQuestionsView: View {
                         educationLevel: .elementary,
                         name: "Saved Question"
                     )
-                    homeViewModel.setSelectedProblemSet(problemSet)
-                    showStudyView = true
+                    Task {
+                        await homeViewModel.setSelectedProblemSet(problemSet)
+                        // StudyViewModel은 setSelectedProblemSet 내에서 처리됨
+                        await MainActor.run {
+                            showStudyView = true
+                        }
+                    }
                 }
         }
         .navigationTitle("Saved Questions")

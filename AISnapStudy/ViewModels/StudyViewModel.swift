@@ -111,6 +111,16 @@ class StudyViewModel: ObservableObject {
             isLoadingQuestions = false
         }
     }
+    
+    @MainActor
+    func loadUpdatedQuestions(_ problemSetId: String) async {
+        if let updatedSet = try? await homeViewModel.fetchUpdatedProblemSet(problemSetId) {
+            questions = updatedSet.questions
+            currentQuestion = questions.first
+            print("📝 Loaded updated questions from CoreData - count: \(updatedSet.questions.count)")
+        }
+    }
+    
    
     @MainActor
     func resetState() async {
@@ -120,12 +130,19 @@ class StudyViewModel: ObservableObject {
         showExplanation = false
         correctAnswers = 0
         
-        await MainActor.run {
-            questions.removeAll()
-            
-            if let problemSet = homeViewModel.selectedProblemSet {
+        questions.removeAll()
+        
+        if let problemSet = homeViewModel.selectedProblemSet {
+            // CoreData에서 최신 상태 가져오기 시도
+            if let updatedSet = try? await homeViewModel.fetchUpdatedProblemSet(problemSet.id) {
+                questions = updatedSet.questions
+                currentQuestion = updatedSet.questions.first
+                print("📝 Updated questions loaded from CoreData - count: \(updatedSet.questions.count)")
+            } else {
+                // 실패 시 메모리의 문제 세트 사용
                 questions = problemSet.questions
-                currentQuestion = questions.first
+                currentQuestion = problemSet.questions.first
+                print("⚠️ Using memory cached questions - count: \(problemSet.questions.count)")
             }
         }
         

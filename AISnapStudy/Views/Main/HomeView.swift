@@ -115,10 +115,10 @@ struct FavoritesSection: View {
                             problemSet: problemSet,
                             onTap: {
                                 Task {
-                                    viewModel.setSelectedProblemSet(problemSet)
+                                    await viewModel.setSelectedProblemSet(problemSet)
                                     if let studyViewModel = viewModel.studyViewModel {
                                         await studyViewModel.resetState()
-                                        studyViewModel.loadQuestions(problemSet.questions)
+                                        // 직접 loadQuestions 호출하지 않음
                                         selectedTab = 1
                                     }
                                 }

@@ -45,6 +45,8 @@ class QuestionSettingsViewModel: ObservableObject {
     private let imageService = ImageService.shared
     private let totalMaximumQuestions = 10
     private var studyViewModel: StudyViewModel?
+    // StoreService 추가
+    private let storeService = StoreService.shared
     
     // MARK: - UserDefaults keys
     private enum UserDefaultsKeys {
@@ -357,6 +359,15 @@ class QuestionSettingsViewModel: ObservableObject {
         return totalQuestionCount < totalMaximumQuestions
     }
     
+    // 계산 프로퍼티 추가
+    var canCreateQuestions: Bool {
+        storeService.subscriptionStatus.dailyQuestionsRemaining > 0
+    }
+    
+    var isPremium: Bool {
+        storeService.subscriptionStatus.isPremium
+    }
+    
     func remainingQuestions() -> Int {
         return totalMaximumQuestions - totalQuestionCount
     }
@@ -432,6 +443,9 @@ class QuestionSettingsViewModel: ObservableObject {
     
     @MainActor
     func sendAllImages() async {
+       // 질문 생성 가능 여부 체크
+       guard checkQuestionGenerationAvailability() else { return }
+
        print("🚀 Starting sendAllImages process...")
        guard !selectedImages.isEmpty || !questionText.isEmpty else {
            print("❌ No content to generate questions from")
@@ -500,6 +514,9 @@ class QuestionSettingsViewModel: ObservableObject {
                }
            }
            
+           // 성공적으로 질문이 생성되면 남은 횟수 감소
+           storeService.decrementRemainingQuestions()
+           
            isLoading = false
            studyViewModel?.isGeneratingQuestions = false
            showSuccess()
@@ -513,6 +530,20 @@ class QuestionSettingsViewModel: ObservableObject {
            showError(error)
        }
     }
+    
+    // 질문 생성 가능 여부 체크 함수 추가
+    private func checkQuestionGenerationAvailability() -> Bool {
+        if !canCreateQuestions {
+            alertTitle = "Daily Limit Reached"
+            alertMessage = isPremium ?
+                "You've used all your daily questions. Please wait until tomorrow." :
+                "You've reached your daily free limit. Upgrade to Premium to create up to 30 question sets per day!"
+            showAlert = true
+            return false
+        }
+        return true
+    }
+    
     // generateQuestions(from:parameters:) 보조 함수
     private func generateQuestions(from input: OpenAIService.QuestionInput, parameters: OpenAIService.QuestionParameters) async {
         print("🔄 Starting question generation from input")
@@ -722,10 +753,23 @@ class QuestionSettingsViewModel: ObservableObject {
 
     @MainActor
     private func showSuccess() {
-       alertTitle = "Success"
-       alertMessage = "Questions have been successfully generated."
-       showAlert = true
+        alertTitle = "Success"
+        alertMessage = """
+            Questions have been successfully generated.
+            You have \(remainingQuestions) question sets remaining today.
+            """
+        showAlert = true
     }
+    
+    // 업그레이드 상태 표시를 위한 함수 추가
+    var subscriptionStatusText: String {
+        if isPremium {
+            return "Premium • \(remainingQuestions) sets remaining today"
+        } else {
+            return "Free • \(remainingQuestions) set remaining today"
+        }
+    }
+
     
     
     // MARK: - Error Handling
@@ -2781,6 +2825,37 @@ enum ReviewFilter: String, CaseIterable {
     case inProgress = "In Progress"
 }
 
+
+
+// ./AISnapStudy/Models/PurchaseProduct.swift
+
+
+import Foundation
+
+
+enum PurchaseProduct: String, CaseIterable {
+    case premiumUpgrade = "com.aisnapstudy.premiumupgrade"
+    
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .premiumUpgrade:
+            return "Premium Upgrade"
+        }
+    }
+}
+
+struct UserSubscriptionStatus: Codable {
+    var isPremium: Bool
+    var dailyQuestionsRemaining: Int
+    var lastResetDate: Date?
+    
+    static let defaultStatus = UserSubscriptionStatus(
+        isPremium: false,
+        dailyQuestionsRemaining: 1,
+        lastResetDate: nil
+    )
+}
 
 
 // ./AISnapStudy/Models/Question.swift
@@ -6767,6 +6842,122 @@ struct GenerateQuestionsButton: View {
 }
 
 
+// ./AISnapStudy/Views/Components/PremiumUpgradeView.swift
+
+import SwiftUI
+
+struct PremiumUpgradeView: View {
+    @StateObject private var storeService = StoreService.shared
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Premium features section
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Premium Features")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        
+                        FeatureRow(
+                            icon: "sparkles",
+                            title: "More Daily Questions",
+                            description: "Create up to 30 question sets per day"
+                        )
+                        
+                        // Add more premium features here
+                    }
+                    .padding()
+                    
+                    // Purchase button
+                    if let product = storeService.products.first {
+                        Button {
+                            Task {
+                                try? await storeService.purchase(product)
+                                dismiss()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Upgrade Now")
+                                Text(product.displayPrice)
+                                    .fontWeight(.bold)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .navigationTitle("Premium Upgrade")
+            .navigationBarItems(trailing: Button("Close") {
+                dismiss()
+            })
+        }
+    }
+}
+
+struct FeatureRow: View {
+    let icon: String
+    let title: String
+    let description: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundColor(.blue)
+                .frame(width: 30)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+
+// View에서 사용할 수 있는 Premium 상태 표시 컴포넌트
+struct SubscriptionStatusView: View {
+    @ObservedObject var viewModel: QuestionSettingsViewModel
+    @State private var showUpgradeView = false
+    
+    var body: some View {
+        HStack {
+            Text(viewModel.subscriptionStatusText)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            
+            if !viewModel.isPremium {
+                Button(action: {
+                    showUpgradeView = true
+                }) {
+                    Text("Upgrade")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                }
+            }
+        }
+        .sheet(isPresented: $showUpgradeView) {
+            PremiumUpgradeView()
+        }
+    }
+}
+
+
 // ./AISnapStudy/Views/Components/MainActionButton.swift
 
 // File: ./AISnapStudy/Views/Components/MainActionButton.swift
@@ -7317,8 +7508,10 @@ struct HomeView: View {
     @Environment(\.managedObjectContext) private var context
     @Binding var selectedTab: Int
     @State private var showQuestionSettings = false
+    @State private var showUpgradeView = false // 추가된 State 변수
     @State private var selectedSubject: DefaultSubject = .math
     @StateObject private var subjectManager = SubjectManager.shared
+    @StateObject private var storeService = StoreService.shared // StoreService 추가
     
     var body: some View {
         NavigationView {
@@ -7327,38 +7520,21 @@ struct HomeView: View {
                     // 웰컴 카드
                     WelcomeCard()
                     
-                    // 즐겨찾기 섹션 추가
+                    // Premium 업그레이드 버튼 (무료 사용자에게만 표시)
+                    if !storeService.subscriptionStatus.isPremium {
+                        PremiumUpgradeButton(
+                            remainingQuestions: storeService.subscriptionStatus.dailyQuestionsRemaining,
+                            showUpgradeView: $showUpgradeView
+                        )
+                    }
+                    
+                    // 즐겨찾기 섹션
                     if !viewModel.favoriteProblemSets.isEmpty {
-                        VStack(alignment: .leading, spacing: 16) {
-                            HStack {
-                                Label("Favorites", systemImage: "star.fill")
-                                    .font(.title3)
-                                    .foregroundColor(.yellow)
-                                Spacer()
-                            }
-                            .padding(.horizontal)
-                            
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(viewModel.favoriteProblemSets) { problemSet in
-                                        FavoriteCard(
-                                            problemSet: problemSet,
-                                            onTap: {
-                                                Task {
-                                                    viewModel.setSelectedProblemSet(problemSet)
-                                                    if let studyViewModel = viewModel.studyViewModel {
-                                                        await studyViewModel.resetState()
-                                                        studyViewModel.loadQuestions(problemSet.questions)
-                                                        selectedTab = 1
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
+                        FavoritesSection(
+                            problemSets: viewModel.favoriteProblemSets,
+                            viewModel: viewModel,
+                            selectedTab: $selectedTab
+                        )
                     }
                     
                     // 메인 액션 버튼
@@ -7370,7 +7546,6 @@ struct HomeView: View {
                 .padding(.vertical, 32)
             }
             .navigationTitle("AI Study")
-
         }
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
@@ -7378,6 +7553,78 @@ struct HomeView: View {
                 homeViewModel: viewModel,
                 selectedTab: $selectedTab
             )
+        }
+        .sheet(isPresented: $showUpgradeView) {
+            PremiumUpgradeView()
+        }
+    }
+}
+
+// Premium 업그레이드 버튼 컴포넌트
+struct PremiumUpgradeButton: View {
+    let remainingQuestions: Int
+    @Binding var showUpgradeView: Bool
+    
+    var body: some View {
+        Button(action: {
+            showUpgradeView = true
+        }) {
+            HStack {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+                Text("Upgrade to Premium")
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                Spacer()
+                Text("\(remainingQuestions) questions left")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color(.systemBackground))
+            .cornerRadius(10)
+            .shadow(radius: 2)
+        }
+        .padding(.horizontal)
+    }
+}
+
+// 즐겨찾기 섹션 컴포넌트
+struct FavoritesSection: View {
+    let problemSets: [ProblemSet]
+    let viewModel: HomeViewModel
+    @Binding var selectedTab: Int
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("Favorites", systemImage: "star.fill")
+                    .font(.title3)
+                    .foregroundColor(.yellow)
+                Spacer()
+            }
+            .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(problemSets) { problemSet in
+                        FavoriteCard(
+                            problemSet: problemSet,
+                            onTap: {
+                                Task {
+                                    viewModel.setSelectedProblemSet(problemSet)
+                                    if let studyViewModel = viewModel.studyViewModel {
+                                        await studyViewModel.resetState()
+                                        studyViewModel.loadQuestions(problemSet.questions)
+                                        selectedTab = 1
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
         }
     }
 }
@@ -7524,6 +7771,39 @@ struct FavoriteCard: View {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+
+extension HomeView {
+    private var upgradeButton: some View {
+        let storeService = StoreService.shared
+        
+        return Group {
+            if !storeService.subscriptionStatus.isPremium {
+                Button(action: {
+                    showUpgradeView = true
+                }) {
+                    HStack {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                        Text("Upgrade to Premium")
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Text("\(storeService.subscriptionStatus.dailyQuestionsRemaining) questions left")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.systemBackground))
+                    .cornerRadius(10)
+                    .shadow(radius: 2)
+                }
+                .sheet(isPresented: $showUpgradeView) {
+                    PremiumUpgradeView()
+                }
+            }
+        }
     }
 }
 
@@ -7858,7 +8138,6 @@ private struct DeleteAlertButtons: View {
         }
     }
 }
-
 
 
 // ./AISnapStudy/Views/Main/StudyView.swift
@@ -10530,6 +10809,187 @@ class VisionService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         
         return processedText
+    }
+}
+
+
+// ./AISnapStudy/Services/StoreService.swift
+
+import StoreKit
+
+@MainActor
+class StoreService: ObservableObject {
+    static let shared = StoreService()
+    
+    @Published private(set) var products: [Product] = []
+    @Published private(set) var purchasedProducts: [Product] = []
+    @Published private(set) var subscriptionStatus: UserSubscriptionStatus
+    
+    private let productIds: Set<String> = Set(PurchaseProduct.allCases.map { $0.id })
+    private let defaults = UserDefaults.standard
+    private let subscriptionStatusKey = "userSubscriptionStatus"
+    private let lastResetDateKey = "lastResetDate"
+    private var resetTimer: Timer?
+    
+    private init() {
+        // 저장된 구독 상태 불러오기
+        if let savedData = defaults.data(forKey: subscriptionStatusKey),
+           let savedStatus = try? JSONDecoder().decode(UserSubscriptionStatus.self, from: savedData) {
+            self.subscriptionStatus = savedStatus
+        } else {
+            self.subscriptionStatus = UserSubscriptionStatus.defaultStatus
+        }
+        
+        // 초기화 시 상태 확인 및 리셋
+        checkAndResetDailyQuestions()
+        
+        Task {
+            await loadProducts()
+            await updatePurchasedProducts()
+            await checkSubscriptionStatus()
+        }
+        
+        setupDailyReset()
+    }
+    
+    deinit {
+        resetTimer?.invalidate()
+    }
+    
+    private func setupDailyReset() {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+              let nextMidnight = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: tomorrow) else {
+            return
+        }
+        
+        resetTimer?.invalidate()
+        resetTimer = Timer(fire: nextMidnight, interval: 86400, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.checkAndResetDailyQuestions()
+            }
+        }
+        
+        if let timer = resetTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+    
+    private func checkAndResetDailyQuestions() {
+        let calendar = Calendar.current
+        let now = Date()
+        
+        let shouldReset = if let lastResetDate = defaults.object(forKey: lastResetDateKey) as? Date {
+            !calendar.isDate(lastResetDate, inSameDayAs: now)
+        } else {
+            true
+        }
+        
+        if shouldReset {
+            resetDailyQuestions()
+        }
+    }
+    
+    func loadProducts() async {
+        do {
+            products = try await Product.products(for: productIds)
+            print("✅ Loaded \(products.count) products")
+        } catch {
+            print("❌ Failed to load products: \(error)")
+        }
+    }
+    
+    func purchase(_ product: Product) async throws {
+        let result = try await product.purchase()
+        
+        switch result {
+        case .success(let verification):
+            await updatePurchasedProducts()
+            await checkSubscriptionStatus()
+            print("✅ Purchase successful")
+            
+        case .userCancelled:
+            print("ℹ️ Purchase cancelled by user")
+            
+        case .pending:
+            print("⏳ Purchase pending")
+            
+        @unknown default:
+            print("❓ Unknown purchase result")
+        }
+    }
+    
+    func updatePurchasedProducts() async {
+        purchasedProducts.removeAll()
+        
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            
+            if let product = products.first(where: { $0.id == transaction.productID }) {
+                purchasedProducts.append(product)
+            }
+        }
+        
+        await updateSubscriptionStatus()
+    }
+    
+    private func updateSubscriptionStatus() async {
+        let isPremium = !purchasedProducts.isEmpty
+        subscriptionStatus.isPremium = isPremium
+        
+        // Premium 상태가 변경되었을 때만 질문 수 리셋
+        if isPremium != subscriptionStatus.isPremium {
+            resetDailyQuestions()
+        }
+        
+        saveSubscriptionStatus()
+    }
+    
+    private func resetDailyQuestions() {
+        let maxQuestions = subscriptionStatus.isPremium ? 30 : 1
+        subscriptionStatus.dailyQuestionsRemaining = maxQuestions
+        subscriptionStatus.lastResetDate = Date()
+        
+        // 상태 저장
+        saveSubscriptionStatus()
+        // 마지막 리셋 날짜 저장
+        defaults.set(Date(), forKey: lastResetDateKey)
+    }
+    
+    func checkSubscriptionStatus() async {
+        if let savedStatus = loadSubscriptionStatus() {
+            if savedStatus.isPremium != subscriptionStatus.isPremium {
+                // Premium 상태가 변경된 경우만 업데이트
+                subscriptionStatus = savedStatus
+                resetDailyQuestions()
+            } else {
+                // 그 외의 경우 남은 질문 수만 유지
+                subscriptionStatus.dailyQuestionsRemaining = savedStatus.dailyQuestionsRemaining
+            }
+        }
+        
+        checkAndResetDailyQuestions()
+    }
+    
+    func decrementRemainingQuestions() {
+        guard subscriptionStatus.dailyQuestionsRemaining > 0 else { return }
+        subscriptionStatus.dailyQuestionsRemaining -= 1
+        saveSubscriptionStatus()
+    }
+    
+    private func saveSubscriptionStatus() {
+        if let encoded = try? JSONEncoder().encode(subscriptionStatus) {
+            defaults.set(encoded, forKey: subscriptionStatusKey)
+        }
+    }
+    
+    private func loadSubscriptionStatus() -> UserSubscriptionStatus? {
+        guard let data = defaults.data(forKey: subscriptionStatusKey),
+              let status = try? JSONDecoder().decode(UserSubscriptionStatus.self, from: data) else {
+            return nil
+        }
+        return status
     }
 }
 

@@ -49,6 +49,11 @@ class HomeViewModel: ObservableObject {
         }
     }
 
+    @MainActor
+    public func fetchUpdatedProblemSet(_ id: String) async throws -> ProblemSet? {
+        let problemSets = try await coreDataService.fetchProblemSets()
+        return problemSets.first(where: { $0.id == id })
+    }
     
     // 즐겨찾기된 문제 세트 가져오기
     var favoriteProblemSets: [ProblemSet] {
@@ -147,14 +152,27 @@ class HomeViewModel: ObservableObject {
         let updatedProblemSet = problemSet.removeQuestion(questionId)
         
         do {
-            try await coreDataService.updateProblemSet(problemSet, newName: problemSet.name) // newName 매개변수 추가
-            if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
-                problemSets[index] = updatedProblemSet
+            try await coreDataService.saveProblemSet(updatedProblemSet)
+            
+            // UI 업데이트를 MainActor에서 한번에 처리
+            await MainActor.run {
+                if let index = problemSets.firstIndex(where: { $0.id == problemSet.id }) {
+                    problemSets[index] = updatedProblemSet
+                }
+                
+                if selectedProblemSet?.id == problemSet.id {
+                    selectedProblemSet = updatedProblemSet
+                }
+                
+                // 명시적으로 UI 업데이트 알림
+                objectWillChange.send()
             }
             
-            if selectedProblemSet?.id == problemSet.id {
-                selectedProblemSet = updatedProblemSet
-            }
+            print("""
+            ✅ Question removed successfully:
+            • Problem Set: \(problemSet.id)
+            • Updated question count: \(updatedProblemSet.questions.count)
+            """)
         } catch {
             print("❌ Failed to remove question: \(error)")
         }
@@ -172,7 +190,7 @@ class HomeViewModel: ObservableObject {
             self.savedQuestions = try coreDataService.fetchSavedQuestions()
             
             if selectedProblemSet == nil && !problemSets.isEmpty {
-                setSelectedProblemSet(problemSets[0])
+                await setSelectedProblemSet(problemSets[0])  // await 추가
             }
             
             hasLoadedData = true
@@ -201,7 +219,7 @@ class HomeViewModel: ObservableObject {
             
             // 최근 ProblemSet을 selectedProblemSet으로 설정
             if selectedProblemSet == nil && !problemSets.isEmpty {
-                setSelectedProblemSet(problemSets[0])
+                await setSelectedProblemSet(problemSets[0])  // await 추가
             }
             
             print("✅ Loaded problem sets: \(problemSets.count)")
@@ -246,22 +264,25 @@ class HomeViewModel: ObservableObject {
     }
     
     @MainActor
-    func setSelectedProblemSet(_ problemSet: ProblemSet?) {
+    func setSelectedProblemSet(_ problemSet: ProblemSet?) async {
         guard selectedProblemSet?.id != problemSet?.id else { return }
         
         print("🔵 HomeViewModel - Setting selected problem set")
         
-        // 상태 변경을 메인 스레드에서 한번에 처리
-        DispatchQueue.main.async {
-            self.selectedProblemSet = problemSet
-            
-            if let problemSet = problemSet {
-                print("""
-                ✅ ProblemSet set successfully:
-                • ID: \(problemSet.id)
-                • Questions: \(problemSet.questions.count)
-                """)
+        if let problemSet = problemSet {
+            let updatedProblemSets = try? await coreDataService.fetchProblemSets()
+            if let updatedSet = updatedProblemSets?.first(where: { $0.id == problemSet.id }) {
+                self.selectedProblemSet = updatedSet
+                if let studyVM = studyViewModel {
+                    await studyVM.resetState()
+                    await studyVM.loadUpdatedQuestions(updatedSet.id)
+                }
+                print("✅ ProblemSet set successfully with latest data:")
+                print("• ID: \(updatedSet.id)")
+                print("• Questions: \(updatedSet.questions.count)")
             }
+        } else {
+            self.selectedProblemSet = nil
         }
     }
     

@@ -268,10 +268,10 @@ private struct ProblemSetItem: View {
     
     private func handleTap() {
         Task {
-            homeViewModel.setSelectedProblemSet(problemSet)
+            await homeViewModel.setSelectedProblemSet(problemSet)
             if let studyViewModel = homeViewModel.studyViewModel {
                 await studyViewModel.resetState()
-                studyViewModel.loadQuestions(problemSet.questions)
+                // 직접 loadQuestions 호출하지 않음 - setSelectedProblemSet에서 처리
                 await MainActor.run {
                     withAnimation {
                         selectedTab = 1
@@ -326,4 +326,3 @@ private struct DeleteAlertButtons: View {
         }
     }
 }
-
