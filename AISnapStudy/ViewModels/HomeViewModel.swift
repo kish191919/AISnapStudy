@@ -59,6 +59,18 @@ class HomeViewModel: ObservableObject {
     var favoriteProblemSets: [ProblemSet] {
         problemSets.filter { $0.isFavorite }
     }
+    
+    // 질문 북마크 토글 메서드 추가
+    func toggleQuestionBookmark(_ question: Question) async {
+        var updatedQuestion = question
+        updatedQuestion.isSaved.toggle()
+        
+        if updatedQuestion.isSaved {
+            await saveQuestion(updatedQuestion)
+        } else {
+            await deleteQuestion(updatedQuestion)
+        }
+    }
 
     
 
