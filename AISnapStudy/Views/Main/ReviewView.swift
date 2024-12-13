@@ -211,7 +211,7 @@ private struct ProblemSetListContainer: View {
                 LazyVStack(spacing: 12) {
                     ForEach(localProblemSets) { problemSet in
                         ProblemSetItem(
-                            problemSet: problemSet,
+                            problemSetId: problemSet.id,  // ID만 전달
                             isEditMode: isEditMode,
                             selectedTab: $selectedTab,
                             problemSetToDelete: $problemSetToDelete,
@@ -236,42 +236,65 @@ private struct ProblemSetListContainer: View {
 }
 
 private struct ProblemSetItem: View {
-    let problemSet: ProblemSet
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    let problemSetId: String  // problemSet 대신 ID만 저장
     let isEditMode: Bool
     @Binding var selectedTab: Int
     @Binding var problemSetToDelete: ProblemSet?
     @Binding var isShowingDeleteAlert: Bool
-    let onFavoriteToggle: () -> Void // 추가
-    @EnvironmentObject var homeViewModel: HomeViewModel
+    let onFavoriteToggle: () -> Void
+
+    // 필요할 때마다 최신 problemSet 데이터 조회
+    private var problemSet: ProblemSet? {
+        homeViewModel.problemSets.first { $0.id == problemSetId }
+    }
+    
+    // 생성자 수정
+    init(problemSetId: String,
+         isEditMode: Bool,
+         selectedTab: Binding<Int>,
+         problemSetToDelete: Binding<ProblemSet?>,
+         isShowingDeleteAlert: Binding<Bool>,
+         onFavoriteToggle: @escaping () -> Void) {
+        self.problemSetId = problemSetId
+        self.isEditMode = isEditMode
+        self._selectedTab = selectedTab
+        self._problemSetToDelete = problemSetToDelete
+        self._isShowingDeleteAlert = isShowingDeleteAlert
+        self.onFavoriteToggle = onFavoriteToggle
+    }
     
     var body: some View {
-        ReviewProblemSetCard(
-            subject: problemSet.resolvedSubject,
-            problemSet: problemSet,
-            isEditMode: isEditMode,
-            onDelete: {
-                problemSetToDelete = problemSet
-                isShowingDeleteAlert = true
-            },
-            onRename: { newName in
-                Task {
-                    await homeViewModel.renameProblemSet(problemSet, newName: newName)
+        Group {
+            if let currentProblemSet = problemSet {
+                ReviewProblemSetCard(
+                    subject: currentProblemSet.resolvedSubject,
+                    problemSet: currentProblemSet,
+                    isEditMode: isEditMode,
+                    onDelete: {
+                        problemSetToDelete = currentProblemSet
+                        isShowingDeleteAlert = true
+                    },
+                    onRename: { newName in
+                        Task {
+                            await homeViewModel.renameProblemSet(currentProblemSet, newName: newName)
+                        }
+                    },
+                    onFavoriteToggle: onFavoriteToggle
+                )
+                .onTapGesture {
+                    handleTap(problemSet: currentProblemSet)
                 }
-            },
-            onFavoriteToggle: onFavoriteToggle // 수정
-        )
-        .onTapGesture {
-            handleTap()
+            }
         }
         .padding(.horizontal)
     }
     
-    private func handleTap() {
+    private func handleTap(problemSet: ProblemSet) {
         Task {
             await homeViewModel.setSelectedProblemSet(problemSet)
             if let studyViewModel = homeViewModel.studyViewModel {
                 await studyViewModel.resetState()
-                // 직접 loadQuestions 호출하지 않음 - setSelectedProblemSet에서 처리
                 await MainActor.run {
                     withAnimation {
                         selectedTab = 1

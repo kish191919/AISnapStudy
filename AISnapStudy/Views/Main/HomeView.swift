@@ -101,9 +101,9 @@ struct FavoritesSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Label("Favorites", systemImage: "star.fill")
-                    .font(.title3)
-                    .foregroundColor(.yellow)
+                Text("Favorite Sets")  // 더 세련된 텍스트로 변경
+                    .font(.system(size: 20, weight: .semibold))  // 폰트 스타일 수정
+                    .foregroundColor(.primary)
                 Spacer()
             }
             .padding(.horizontal)
