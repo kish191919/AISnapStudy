@@ -6,6 +6,7 @@ struct SavedQuestionsView: View {
     @State private var selectedQuestions: Set<String> = []
     @State private var showCreateSetDialog = false
     @State private var setName = "Saved Questions Set"
+    @State private var selectedSubject: DefaultSubject = .generalKnowledge
 
     var body: some View {
         VStack {
@@ -18,7 +19,7 @@ struct SavedQuestionsView: View {
                     homeViewModel: homeViewModel
                 )
             }
-
+            
             if !selectedQuestions.isEmpty {
                 CreateSetButton(
                     count: selectedQuestions.count,
@@ -27,52 +28,126 @@ struct SavedQuestionsView: View {
             }
         }
         .navigationTitle("Saved Questions")
-        .alert("Create New Set", isPresented: $showCreateSetDialog) {
-            CreateSetAlert(
+        .sheet(isPresented: $showCreateSetDialog) {  // alert 대신 sheet 사용
+            CreateSetView(
                 setName: $setName,
-                onCreate: createNewSet
+                selectedSubject: $selectedSubject,
+                onCreate: {
+                    createNewSet()
+                    showCreateSetDialog = false
+                }
             )
         }
     }
 
-   private func createNewSet() {
-       // 선택된 질문들의 복사본 생성
-       let selectedQuestionsList = homeViewModel.savedQuestions
-           .filter { selectedQuestions.contains($0.id) }
-           .map { question in
-               // 새로운 Question 인스턴스 생성
-               Question(
-                   id: UUID().uuidString,  // 새로운 ID 부여
-                   type: question.type,
-                   subject: question.subject,
-                   question: question.question,
-                   options: question.options,
-                   correctAnswer: question.correctAnswer,
-                   explanation: question.explanation,
-                   hint: question.hint,
-                   isSaved: false,  // 북마크 상태는 false로 시작
-                   createdAt: Date()
-               )
-           }
-       
-       let newProblemSet = ProblemSet(
-           subject: DefaultSubject.generalKnowledge,
-           subjectType: "default",
-           subjectId: DefaultSubject.generalKnowledge.rawValue,
-           subjectName: "Saved Questions",
-           questions: selectedQuestionsList,  // 복사된 질문들 사용
-           educationLevel: .elementary,
-           name: setName
-       )
+    private func createNewSet() {
+        // 선택된 질문들의 ID 리스트
+        let selectedQuestionIds = selectedQuestions
 
-       Task {
-           await homeViewModel.saveProblemSet(newProblemSet)
-           await homeViewModel.setSelectedProblemSet(newProblemSet)
-           selectedTab = 1
-           showCreateSetDialog = false
-           selectedQuestions.removeAll()
-       }
-   }
+        let selectedQuestionsList = homeViewModel.savedQuestions
+            .filter { selectedQuestions.contains($0.id) }
+            .map { question in
+                Question(
+                    id: UUID().uuidString,
+                    type: question.type,
+                    subject: selectedSubject,
+                    question: question.question,
+                    options: question.options,
+                    correctAnswer: question.correctAnswer,
+                    explanation: question.explanation,
+                    hint: question.hint,
+                    isSaved: false,  // 새 질문은 북마크 해제된 상태로 생성
+                    createdAt: Date()
+                )
+            }
+        
+        let newProblemSet = ProblemSet(
+            subject: selectedSubject,
+            subjectType: "default",
+            subjectId: selectedSubject.rawValue,
+            subjectName: selectedSubject.displayName,
+            questions: selectedQuestionsList,
+            educationLevel: .elementary,
+            name: setName
+        )
+
+        Task {
+            // 먼저 새 문제 세트 저장
+            await homeViewModel.saveProblemSet(newProblemSet)
+            await homeViewModel.setSelectedProblemSet(newProblemSet)
+            
+            // 선택된 원본 질문들의 북마크 해제
+            for questionId in selectedQuestionIds {
+                if let originalQuestion = homeViewModel.savedQuestions.first(where: { $0.id == questionId }) {
+                    await homeViewModel.toggleQuestionBookmark(originalQuestion)
+                }
+            }
+            
+            selectedTab = 1
+            showCreateSetDialog = false
+            selectedQuestions.removeAll()
+        }
+    }
+}
+
+// 새로운 CreateSetView 구현
+struct CreateSetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var setName: String
+    @Binding var selectedSubject: DefaultSubject
+    let onCreate: () -> Void
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Set Name")) {
+                    TextField("Enter set name", text: $setName)
+                }
+                
+                Section(header: Text("Subject")) {
+                    Picker("Select Subject", selection: $selectedSubject) {
+                        ForEach(DefaultSubject.allCases, id: \.self) { subject in
+                            Text(subject.displayName)
+                                .tag(subject)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Create New Set")
+            .navigationBarItems(
+                leading: Button("Cancel") {
+                    dismiss()
+                },
+                trailing: Button("Create") {
+                    onCreate()
+                }
+            )
+        }
+    }
+}
+
+private struct CreateSetAlert: View {
+    @Binding var setName: String
+    @Binding var selectedSubject: DefaultSubject
+    let onCreate: () -> Void
+
+    var body: some View {
+        Group {
+            TextField("Set Name", text: $setName)
+            
+            Picker("Subject", selection: $selectedSubject) {
+                ForEach(DefaultSubject.allCases, id: \.self) { subject in
+                    Text(subject.displayName)
+                        .tag(subject)
+                }
+            }
+            
+            Button("Cancel", role: .cancel) { }
+            Button("Create") {
+                onCreate()
+            }
+        }
+    }
 }
 
 // MARK: - Supporting Views
@@ -152,20 +227,5 @@ private struct CreateSetButton: View {
                 .cornerRadius(10)
         }
         .padding()
-    }
-}
-
-private struct CreateSetAlert: View {
-    @Binding var setName: String
-    let onCreate: () -> Void
-
-    var body: some View {
-        Group {
-            TextField("Set Name", text: $setName)
-            Button("Cancel", role: .cancel) { }
-            Button("Create") {
-                onCreate()
-            }
-        }
     }
 }
