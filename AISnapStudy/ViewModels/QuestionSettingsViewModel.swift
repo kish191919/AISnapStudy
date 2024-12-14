@@ -120,6 +120,15 @@ class QuestionSettingsViewModel: ObservableObject {
      
      // MARK: - Initialization
     init(subject: any SubjectType, homeViewModel: HomeViewModel) {
+        
+        // 1. UserDefaults 기본값을 먼저 설정
+        UserDefaults.standard.register(defaults: [
+            "useTextExtraction": true,
+            UserDefaultsKeys.lastMultipleChoiceCount: 5,
+            UserDefaultsKeys.lastTrueFalseCount: 5
+        ])
+
+        
         // 1. OpenAIService 초기화
         self.openAIService = OpenAIService.shared
         
@@ -164,8 +173,7 @@ class QuestionSettingsViewModel: ObservableObject {
         self.alertTitle = ""
         self.alertMessage = ""
         
-        // 5. UserDefaults 기본값 설정
-        UserDefaults.standard.register(defaults: ["useTextExtraction": true])
+
         
         // 6. Subject 관련 설정 업데이트
         if let savedSubjectID = UserDefaults.standard.string(forKey: "lastSelectedSubject") {

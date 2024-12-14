@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct SpeedUpSection: View {
-    @Binding var useTextExtraction: Bool
+    @Binding var useTextExtraction: Bool 
     @State private var isExpanded: Bool = false
     
     var body: some View {

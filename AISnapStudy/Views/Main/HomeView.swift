@@ -14,23 +14,25 @@ struct HomeView: View {
     @State private var showStudySets = false
     @State private var selectedSubject: DefaultSubject = .generalKnowledge
     @StateObject private var storeService = StoreService.shared
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 32) { // 전체적인 간격 증가
+                VStack(spacing: 32) {
                     // Welcome Section
-                    VStack(alignment: .leading, spacing: 24) { // 섹션 내부 간격 증가
+                    VStack(alignment: .leading, spacing: 24) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Welcome Back!")
                                 .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                             
                             if !storeService.subscriptionStatus.isPremium {
                                 HStack(spacing: 8) {
                                     Image(systemName: "sparkles")
                                         .foregroundColor(.yellow)
                                     Text("\(storeService.subscriptionStatus.dailyQuestionsRemaining) questions remaining")
-                                        .foregroundColor(.gray)
+                                        .foregroundColor(.secondary)
                                 }
                                 .font(.system(size: 16))
                             }
@@ -64,7 +66,6 @@ struct HomeView: View {
                     }
                     
                     // Favorites Section
-                    // HomeView 내의 Favorites 섹션 부분
                     if !viewModel.favoriteProblemSets.isEmpty {
                         VStack(alignment: .leading, spacing: 20) {
                             HStack(spacing: 12) {
@@ -73,6 +74,7 @@ struct HomeView: View {
                                     .font(.system(size: 24))
                                 Text("Favorites")
                                     .font(.system(size: 24, weight: .bold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
                             }
                             .padding(.horizontal, 24)
                             
@@ -96,12 +98,17 @@ struct HomeView: View {
                                                     .truncationMode(.tail)
                                                 Text("\(set.questions.count) Questions")
                                                     .font(.system(size: 14))
-                                                    .foregroundColor(.gray)
+                                                    .foregroundColor(.secondary)
                                             }
-                                            .frame(width: 280) // 너비를 늘림
+                                            .frame(width: 230)
                                             .padding(16)
-                                            .background(Color(.systemGray6))
+                                            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
                                             .cornerRadius(12)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(Color.gray.opacity(0.1), lineWidth: 3)
+                                            )
+                                            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
                                         }
                                     }
                                 }
@@ -110,7 +117,7 @@ struct HomeView: View {
                         }
                     }
                     
-                    // Available Sets Section
+                    // Library Section
                     VStack(alignment: .leading, spacing: 20) {
                         HStack(spacing: 12) {
                             Image(systemName: "square.stack.3d.up.fill")
@@ -118,6 +125,7 @@ struct HomeView: View {
                                 .font(.system(size: 24))
                             Text("Library")
                                 .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
                         }
                         .padding(.horizontal, 24)
                         
@@ -127,29 +135,32 @@ struct HomeView: View {
                             HStack {
                                 Text("View library question sets")
                                     .font(.system(size: 18))
+                                    .foregroundColor(.primary)
                                 Spacer()
                                 Text("\(viewModel.remoteSets.count) Sets")
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(.secondary)
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 14))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(.secondary)
                             }
                             .padding(20)
-                            .background(Color(.systemGray6))
+                            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
                             .cornerRadius(12)
+                            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
                         }
                         .padding(.horizontal, 24)
                     }
                 }
                 .padding(.vertical, 32)
             }
-            .background(Color.black)
+            .background(colorScheme == .dark ? Color.black : Color(.systemBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack {
                         Text("AI Study")
                             .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
                         Spacer()
                         if !storeService.subscriptionStatus.isPremium {
                             Button(action: { showUpgradeView = true }) {
@@ -249,6 +260,7 @@ struct WelcomeSection: View {
     }
 }
 
+// CardView 컴포넌트
 struct CardView<Content: View>: View {
     let content: Content
     
@@ -260,7 +272,7 @@ struct CardView<Content: View>: View {
         content
             .background(Color(.systemBackground))
             .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.03), radius: 3, x: 0, y: 1) // 그림자 더 미세하게 조정
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
     }
 }
 
@@ -416,7 +428,7 @@ struct DownloadableSetCard: View {
             .padding(.vertical, 12)
         }
         .padding(.horizontal)
-        .padding(.vertical, 4) // 카드 간 간격만 줄임
+        .padding(.vertical, 4)
     }
 }
 
