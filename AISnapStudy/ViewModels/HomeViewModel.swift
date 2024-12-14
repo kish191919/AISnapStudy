@@ -1,21 +1,18 @@
-// ./AISnapStudy/ViewModels/HomeViewModel.swift
-
 import Foundation
 import Combine
 
 @MainActor
 class HomeViewModel: ObservableObject {
-    
     @Published var studyViewModel: StudyViewModel?
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
     @Published var selectedProblemSet: ProblemSet?
-//    @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
-
-    
+    private let remoteService = RemoteQuestionService.shared
+    @Published private(set) var remoteSets: [RemoteQuestionSet] = []  // 추가
+    @Published private(set) var isLoadingRemote = false  // 추가
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasLoadedData = false
@@ -190,24 +187,33 @@ class HomeViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Data Loading
     @MainActor
-    private func loadInitialData() async {
+    func loadInitialData() async {
         guard !hasLoadedData else { return }
         
         do {
             print("🔵 HomeViewModel - Initial data loading")
+            // 로컬 데이터 로드
             let loadedProblemSets = try coreDataService.fetchProblemSets()
             self.problemSets = loadedProblemSets
             self.savedQuestions = try coreDataService.fetchSavedQuestions()
             
-            if selectedProblemSet == nil && !problemSets.isEmpty {
-                await setSelectedProblemSet(problemSets[0])  // await 추가
+            // 원격 메타데이터 로드
+            isLoadingRemote = true
+            do {
+                self.remoteSets = try await remoteService.fetchQuestionSets()
+                print("✅ Successfully loaded remote sets: \(remoteSets.count)")
+            } catch {
+                print("⚠️ Remote data loading failed: \(error.localizedDescription)")
+                self.remoteSets = []
             }
+            isLoadingRemote = false
             
             hasLoadedData = true
-            print("✅ Initial data loaded successfully")
+            print("✅ Initial data loaded - Local sets: \(loadedProblemSets.count), Remote sets: \(remoteSets.count)")
+            
         } catch {
+            isLoadingRemote = false
             print("❌ Failed to load initial data: \(error)")
         }
     }
@@ -245,9 +251,53 @@ class HomeViewModel: ObservableObject {
         isLoading = false
     }
     
+    // 원격 세트 다운로드 메서드 추가
+    @MainActor
+    func downloadQuestionSet(_ remoteSet: RemoteQuestionSet) async {
+        do {
+            print("🌐 Downloading question set: \(remoteSet.id)")
+            
+            // 상세 데이터 가져오기
+            let detailedSet = try await remoteService.fetchQuestionSet(remoteSet.id)
+            
+            // ProblemSet으로 변환
+            let problemSet = ProblemSet(
+                subject: DefaultSubject.download,
+                subjectType: "default",
+                subjectId: DefaultSubject.download.rawValue,
+                subjectName: "Downloaded Sets",
+                questions: detailedSet.questions,
+                createdAt: remoteSet.createdAt,
+                educationLevel: determineEducationLevel(from: remoteSet.difficulty),
+                name: remoteSet.title
+            )
+            
+            // CoreData에 저장
+            await saveProblemSet(problemSet)
+            
+            print("✅ Successfully downloaded and saved question set: \(remoteSet.title)")
+            
+            // 다운로드 상태 업데이트
+            if let index = remoteSets.firstIndex(where: { $0.id == remoteSet.id }) {
+                remoteSets[index].isDownloaded = true
+            }
+            
+        } catch {
+            print("❌ Failed to download question set: \(error)")
+        }
+    }
+    
+    private func determineEducationLevel(from difficulty: String) -> EducationLevel {
+        switch difficulty.lowercased() {
+        case "elementary": return .elementary
+        case "middle": return .middle
+        case "high": return .high
+        case "college": return .college
+        default: return .elementary
+        }
+    }
+    
     // MARK: - Problem Set Management
-    // 파일: ./AISnapStudy/ViewModels/HomeViewModel.swift
-
     @MainActor
     func saveProblemSet(_ problemSet: ProblemSet) async {
         do {

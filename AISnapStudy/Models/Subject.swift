@@ -20,6 +20,7 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
     case history = "history"
     case science = "science"
     case generalKnowledge = "general_knowledge"
+    case download = "download"  // 새로운 case 추가
     
     public var id: String {
         self.rawValue
@@ -39,11 +40,20 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
             return .green
         case .generalKnowledge:
             return .green
+        case .download:
+            return .blue  // 다운로드 섹션을 위한 새로운 색상
         }
     }
     
-    // 기존의 displayName을 baseDisplayName으로 변경
-    private var baseDisplayName: String {
+    static var defaultSubject: DefaultSubject {
+        return .generalKnowledge
+    }
+    
+    public var displayName: String {
+        SubjectManager.shared.modifiedDefaultSubjects[self.id] ?? defaultDisplayName
+    }
+    
+    private var defaultDisplayName: String {
         switch self {
         case .language:
             return "Language"
@@ -57,6 +67,8 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
             return "Science"
         case .generalKnowledge:
             return "General Knowledge"
+        case .download:
+            return "Downloaded Sets"  // 다운로드된 세트를 위한 표시 이름
         }
     }
     
@@ -74,6 +86,8 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
             return "atom"
         case .generalKnowledge:
             return "book.fill"
+        case .download:
+            return "square.and.arrow.down.fill"  // 다운로드 아이콘
         }
     }
 }

@@ -40,6 +40,14 @@ struct HomeView: View {
                         )
                     }
                     
+                    // 원격 문제 세트 섹션 추가
+                    if !viewModel.remoteSets.isEmpty {
+                        RemoteQuestionSetsSection(
+                            remoteSets: viewModel.remoteSets,
+                            viewModel: viewModel
+                        )
+                    }
+                    
                     // 메인 액션 버튼
                     CreateQuestionsButton(action: {
                         selectedSubject = .generalKnowledge
@@ -60,6 +68,77 @@ struct HomeView: View {
         .sheet(isPresented: $showUpgradeView) {
             PremiumUpgradeView()
         }
+    }
+}
+
+// 원격 문제 세트 섹션 컴포넌트
+struct RemoteQuestionSetsSection: View {
+    let remoteSets: [RemoteQuestionSet]
+    let viewModel: HomeViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Available Question Sets")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(.primary)
+                .padding(.horizontal)
+            
+            ForEach(remoteSets) { remoteSet in
+                RemoteQuestionSetCard(
+                    set: remoteSet,
+                    onDownload: {
+                        Task {
+                            await viewModel.downloadQuestionSet(remoteSet)
+                        }
+                    }
+                )
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// 원격 문제 세트 카드 컴포넌트
+struct RemoteQuestionSetCard: View {
+    let set: RemoteQuestionSet
+    let onDownload: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(set.title)
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            Text(set.description)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+            
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text")
+                        .foregroundColor(.blue)
+                    Text("\(set.questionCount) questions")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: onDownload) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text("Download")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
 }
 
@@ -194,35 +273,6 @@ struct CreateQuestionsButton: View {
             .shadow(color: Color.blue.opacity(0.3), radius: 10, x: 0, y: 5)
         }
         .padding(.horizontal)
-    }
-}
-
-// SubjectType 확장
-extension DefaultSubject {
-    static var defaultSubject: DefaultSubject {
-        return .generalKnowledge
-    }
-    
-    public var displayName: String {
-        SubjectManager.shared.modifiedDefaultSubjects[self.id] ?? defaultDisplayName
-    }
-    
-    // 원래의 displayName을 defaultDisplayName으로 이동
-    private var defaultDisplayName: String {
-        switch self {
-        case .language:
-            return "Language"
-        case .math:
-            return "Mathematics"
-        case .geography:
-            return "Geography"
-        case .history:
-            return "History"
-        case .science:
-            return "Science"
-        case .generalKnowledge:
-            return "General Knowledge"
-        }
     }
 }
 
