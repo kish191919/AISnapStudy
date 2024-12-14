@@ -74,7 +74,7 @@ struct ReviewView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Review")
-                        .font(.title)
+                        .font(.system(size: 34, weight: .bold))  // 크기를 키우고 볼드 처리
                         .padding(.bottom, 5)
                 }
                 

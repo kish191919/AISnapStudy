@@ -22,7 +22,7 @@ struct StatView: View {
        ScrollView {
            VStack(spacing: 20) {
                Text("Result")
-                   .font(.title)
+                   .font(.system(size: 34, weight: .bold))  // 크기를 키우고 볼드 처리
                    .padding(.top)
                
                // Progress Circle

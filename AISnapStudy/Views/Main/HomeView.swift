@@ -41,8 +41,13 @@ struct HomeView: View {
                         
                         // Create Questions Button
                         Button(action: {
-                            selectedSubject = .generalKnowledge
-                            showQuestionSettings = true
+                            if storeService.subscriptionStatus.dailyQuestionsRemaining > 0 {
+                                selectedSubject = .generalKnowledge
+                                showQuestionSettings = true
+                            } else {
+                                // 남은 질문이 없을 때는 업그레이드 안내
+                                showUpgradeView = true
+                            }
                         }) {
                             HStack(spacing: 12) {
                                 Image(systemName: "sparkles")
@@ -55,7 +60,10 @@ struct HomeView: View {
                             .foregroundColor(.white)
                             .background(
                                 LinearGradient(
-                                    colors: [.blue, .blue.opacity(0.8)],
+                                    colors: [
+                                        storeService.subscriptionStatus.dailyQuestionsRemaining > 0 ? .blue : .gray,
+                                        storeService.subscriptionStatus.dailyQuestionsRemaining > 0 ? .blue.opacity(0.8) : .gray.opacity(0.8)
+                                    ],
                                     startPoint: .leading,
                                     endPoint: .trailing
                                 )
