@@ -39,6 +39,22 @@ class StoreService: ObservableObject {
         resetTimer?.invalidate()
     }
     
+    func canDownloadMoreSets() -> Bool {
+        return subscriptionStatus.isPremium || subscriptionStatus.downloadedSetsCount < UserSubscriptionStatus.maxFreeDownloads
+    }
+    
+    func incrementDownloadCount() {
+        guard !subscriptionStatus.isPremium else { return }
+        subscriptionStatus.downloadedSetsCount += 1
+        saveSubscriptionStatus()
+    }
+    
+    var remainingDownloads: Int {
+        guard !subscriptionStatus.isPremium else { return .max }
+        return max(0, UserSubscriptionStatus.maxFreeDownloads - subscriptionStatus.downloadedSetsCount)
+    }
+    
+    
     private func setupDailyReset() {
         let calendar = Calendar.current
         let now = Date()

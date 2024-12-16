@@ -368,8 +368,11 @@ struct DownloadableSetCard: View {
     let set: RemoteQuestionSet
     let action: () -> Void
     
+    @StateObject private var storeService = StoreService.shared
     @State private var isDownloading = false
     @State private var isCompleted = false
+    @State private var showUpgradeAlert = false
+    @State private var showUpgradeView = false
     
     var body: some View {
         CardView {
@@ -404,16 +407,21 @@ struct DownloadableSetCard: View {
                 
                 // 다운로드 버튼
                 Button {
-                    withAnimation {
-                        isDownloading = true
-                    }
-                    action()
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    if storeService.canDownloadMoreSets() {
                         withAnimation {
-                            isDownloading = false
-                            isCompleted = true
+                            isDownloading = true
                         }
+                        storeService.incrementDownloadCount()
+                        action()
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            withAnimation {
+                                isDownloading = false
+                                isCompleted = true
+                            }
+                        }
+                    } else {
+                        showUpgradeAlert = true
                     }
                 } label: {
                     Group {
@@ -437,6 +445,17 @@ struct DownloadableSetCard: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 4)
+        .alert("Upgrade to Premium", isPresented: $showUpgradeAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Upgrade") {
+                showUpgradeView = true
+            }
+        } message: {
+            Text("You've reached the maximum limit of 5 free downloads. Upgrade to Premium for unlimited access to all question sets!")
+        }
+        .sheet(isPresented: $showUpgradeView) {
+            PremiumUpgradeView()
+        }
     }
 }
 

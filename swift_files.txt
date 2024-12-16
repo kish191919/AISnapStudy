@@ -397,6 +397,19 @@ class QuestionSettingsViewModel: ObservableObject {
     @MainActor
     func addImage(_ image: UIImage) async {
        print("📸 Starting addImage processing...")
+        if useTextExtraction && selectedImages.count >= 3 {
+            self.alertTitle = "Image Limit Reached"
+            self.alertMessage = "Speed Up mode allows maximum 3 images at once."
+            self.showAlert = true
+            return
+        }
+        
+        if !useTextExtraction && selectedImages.count >= 1 {
+            self.alertTitle = "Image Limit Reached"
+            self.alertMessage = "When Speed Up is disabled, you can process only one image at a time."
+            self.showAlert = true
+            return
+        }
        do {
            let compressedData = try await Task {
                try ImageService.shared.compressForAPI(image)
@@ -2261,6 +2274,8 @@ import CoreData
 @main
 struct AISnapStudyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var isLoading = true
+
     
     init() {
         SecureArrayTransformer.register()
@@ -2270,8 +2285,20 @@ struct AISnapStudyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
-                .environment(\.managedObjectContext, CoreDataService.shared.viewContext)
+            if isLoading {
+                AnimatedSplashScreen()
+                    .onAppear {
+                        // 애니메이션 완료 후 메인 화면으로 전환
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            withAnimation(.easeOut(duration: 0.3)) {
+                                isLoading = false
+                            }
+                        }
+                    }
+            } else {
+                MainTabView()
+                    .environment(\.managedObjectContext, CoreDataService.shared.viewContext)
+            }
         }
     }
     
@@ -2286,20 +2313,6 @@ struct AISnapStudyApp: App {
         DispatchQueue.main.async {
             // MetalTools 관련 작업
         }
-    }
-    
-    private func setupAppearance() {
-        // 네비게이션 바 스타일 설정
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        
-        // 탭 바 스타일 설정
-        let tabBarAppearance = UITabBarAppearance()
-        tabBarAppearance.configureWithOpaqueBackground()
-        UITabBar.appearance().standardAppearance = tabBarAppearance
-        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
     }
 }
 
@@ -2375,6 +2388,113 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     // MARK: - Memory Management
     func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
         CoreDataService.shared.viewContext.refreshAllObjects()
+    }
+}
+
+
+struct AnimatedSplashScreen: View {
+    @State private var isAnimating = false
+    @State private var iconScale: CGFloat = 0.3
+    @State private var titleOpacity = 0.0
+    @State private var subtitleOpacity = 0.0
+    
+    var body: some View {
+        ZStack {
+            // 배경 그라데이션
+            LinearGradient(
+                gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                // 아이콘 애니메이션
+                Image(systemName: "doc.text.viewfinder")
+                    .font(.system(size: 80))
+                    .foregroundColor(.white)
+                    .scaleEffect(iconScale)
+                    .rotationEffect(.degrees(isAnimating ? 360 : 0))
+                
+                // 앱 타이틀
+                Text("AISnapStudy")
+                    .font(.system(size: 36, weight: .bold))
+                    .foregroundColor(.white)
+                    .opacity(titleOpacity)
+                
+                // 서브타이틀
+                Text("Learn Smarter with AI")
+                    .font(.title3)
+                    .foregroundColor(.white.opacity(0.8))
+                    .opacity(subtitleOpacity)
+                
+                // 로딩 인디케이터
+                if isAnimating {
+                    LoadingDots()
+                        .frame(height: 40)
+                }
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.5)) {
+                iconScale = 1.0
+                isAnimating = true
+            }
+            
+            withAnimation(.easeIn(duration: 0.4).delay(0.3)) {
+                titleOpacity = 1.0
+            }
+            
+            withAnimation(.easeIn(duration: 0.4).delay(0.5)) {
+                subtitleOpacity = 1.0
+            }
+        }
+    }
+}
+
+// 로딩 닷 애니메이션
+struct LoadingDots: View {
+    @State private var animationStage = 0
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(animationStage == index ? 1.5 : 1)
+                    .opacity(animationStage == index ? 1 : 0.5)
+            }
+        }
+        .onAppear {
+            Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { timer in
+                withAnimation(.spring()) {
+                    animationStage = (animationStage + 1) % 3
+                }
+            }
+        }
+    }
+}
+
+// 앱 스타일 설정
+extension AISnapStudyApp {
+    private func setupAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor.systemBackground
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.label]
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.label]
+        
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+        
+        let tabBarAppearance = UITabBarAppearance()
+        tabBarAppearance.configureWithOpaqueBackground()
+        tabBarAppearance.backgroundColor = UIColor.systemBackground
+        
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
     }
 }
 
@@ -2940,18 +3060,6 @@ enum ReviewFilter: String, CaseIterable {
 
 import Foundation
 
-
-enum PurchaseProduct: String, CaseIterable {
-    case premiumUpgrade = "com.aisnapstudy.premiumupgrade"
-    
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .premiumUpgrade:
-            return "Premium Upgrade"
-        }
-    }
-}
 
 struct UserSubscriptionStatus: Codable {
     var isPremium: Bool
@@ -4189,8 +4297,12 @@ struct QuestionSettingsView: View {
                     .interactiveDismissDisabled()
                     
                 case .gallery:
-                    PhotoPicker(selectedImages: $viewModel.selectedImages)
-                        .interactiveDismissDisabled()
+                    PhotoPicker(
+                        selectedImages: $viewModel.selectedImages,
+                        useSpeedUp: viewModel.useTextExtraction
+                    )
+                    .interactiveDismissDisabled()
+                    
                 }
             }
             .alert(isPresented: $viewModel.showAlert) {
@@ -4641,10 +4753,11 @@ struct SubjectSelectionSection: View {
 struct PhotoPicker: UIViewControllerRepresentable {
     @Binding var selectedImages: [UIImage]
     @Environment(\.presentationMode) var presentationMode
+    let useSpeedUp: Bool // 추가
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
-        config.selectionLimit = 10
+        config.selectionLimit = useSpeedUp ? 3 : 1 // Speed Up 설정에 따라 제한
         config.filter = .images
         
         let picker = PHPickerViewController(configuration: config)
@@ -5406,28 +5519,61 @@ import SwiftUI
 struct SpeedUpSection: View {
     @Binding var useTextExtraction: Bool 
     @State private var isExpanded: Bool = false
+    @State private var showHelp = false
     
     var body: some View {
-        DisclosureGroup(
-            isExpanded: $isExpanded,
-            content: {
-                Text("Automatically extracts text from images to generate questions faster. Recommended when images contain mostly text.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+        VStack {
+            DisclosureGroup(
+                isExpanded: $isExpanded,
+                content: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Automatically extracts text from images to generate questions faster. Recommended when images contain mostly text.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        // 이미지 제한 설명 추가
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundColor(.blue)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Image Selection Limits:")
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                
+                                Text("• When enabled: Up to 3 images")
+                                Text("• When disabled: Single image only")
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
+                    }
                     .padding(.vertical, 8)
-            },
-            label: {
-                HStack {
-                    Image(systemName: "bolt.fill")
-                        .foregroundColor(.yellow)
-                    Text("Speed Up")
-                        .font(.headline)
-                    Spacer()
-                    Toggle("", isOn: $useTextExtraction)
-                        .labelsHidden()
+                },
+                label: {
+                    HStack {
+                        Image(systemName: "bolt.fill")
+                            .foregroundColor(.yellow)
+                        Text("Speed Up")
+                            .font(.headline)
+                        Spacer()
+                        Toggle("", isOn: $useTextExtraction)
+                            .labelsHidden()
+                        
+                        Button(action: { showHelp = true }) {
+                            Image(systemName: "questionmark.circle")
+                                .foregroundColor(.blue)
+                        }
+                    }
                 }
-            }
-        )
+            )
+        }
+        .alert("Speed Up Mode", isPresented: $showHelp) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Speed Up mode allows batch processing of multiple images (up to 3) with text extraction. When disabled, you can process one image at a time for more detailed analysis.")
+        }
     }
 }
 
@@ -7185,6 +7331,7 @@ import SwiftUI
 struct PremiumUpgradeView: View {
     @StateObject private var storeService = StoreService.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var showPlans = false
     
     var body: some View {
         NavigationView {
@@ -7202,38 +7349,325 @@ struct PremiumUpgradeView: View {
                             description: "Create up to 30 question sets per day"
                         )
                         
-                        // Add more premium features here
+                        FeatureRow(
+                            icon: "square.and.arrow.down",
+                            title: "Full Library Access",
+                            description: "Download all question sets from our library"
+                        )
                     }
                     .padding()
                     
-                    // Purchase button
-                    if let product = storeService.products.first {
-                        Button {
-                            Task {
-                                try? await storeService.purchase(product)
-                                dismiss()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Upgrade Now")
-                                Text(product.displayPrice)
-                                    .fontWeight(.bold)
-                            }
+                    // See Plans Button
+                    Button {
+                        showPlans = true
+                    } label: {
+                        Text("See Plans")
+                            .font(.headline)
+                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.blue)
-                            .foregroundColor(.white)
                             .cornerRadius(10)
-                        }
-                        .padding()
                     }
+                    .padding()
                 }
             }
             .navigationTitle("Premium Upgrade")
             .navigationBarItems(trailing: Button("Close") {
                 dismiss()
             })
+            .sheet(isPresented: $showPlans) {
+                SubscriptionPlansView()
+            }
         }
+    }
+}
+
+struct SubscriptionPlansView: View {
+   @Environment(\.dismiss) private var dismiss
+   @StateObject private var storeService = StoreService.shared
+   @State private var showTerms = false
+   @State private var selectedPlan: PlanType = .annual
+   @State private var isLoading = false
+   @State private var showAlert = false
+   @State private var alertMessage = ""
+   
+   enum PlanType: String {
+       case annual = "com.aisnapstudy.subscription.annual"
+       case monthly = "com.aisnapstudy.subscription.monthly"
+       
+       var productId: String {
+           return self.rawValue
+       }
+   }
+   
+   var body: some View {
+       NavigationView {
+           ScrollView {
+               VStack(spacing: 24) {
+                   Text("Choose your plan")
+                       .font(.title2)
+                       .fontWeight(.bold)
+                   
+                   // Annual Plan
+                   PlanCard(
+                       type: .annual,
+                       title: "Annual",
+                       price: "$107.92",
+                       period: "/ year",
+                       description: "Recurring billing.",
+                       isSelected: selectedPlan == .annual,
+                       discount: "40% off",
+                       isBestValue: true,
+                       action: { selectedPlan = .annual }
+                   )
+                   
+                   // Monthly Plan
+                   PlanCard(
+                       type: .monthly,
+                       title: "Monthly",
+                       price: "$14.99",
+                       period: "/ month",
+                       description: "Recurring billing. Cancel anytime.",
+                       isSelected: selectedPlan == .monthly,
+                       action: { selectedPlan = .monthly }
+                   )
+                   
+                   // How subscriptions work
+                   SubscriptionInfoSection()
+                   
+                   // Terms and conditions link
+                   Button("Terms and conditions") {
+                       showTerms = true
+                   }
+                   .font(.footnote)
+                   .foregroundColor(.blue)
+                   
+                   // Subscribe button
+                   Button(action: {
+                       Task {
+                           await handlePurchase()
+                       }
+                   }) {
+                       if isLoading {
+                           ProgressView()
+                               .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                       } else {
+                           Text("Subscribe")
+                               .font(.headline)
+                               .foregroundColor(.white)
+                       }
+                   }
+                   .frame(maxWidth: .infinity)
+                   .padding()
+                   .background(Color.yellow)
+                   .cornerRadius(10)
+                   .disabled(isLoading)
+                   .padding(.horizontal)
+               }
+               .padding()
+           }
+           .navigationBarItems(leading: Button("Cancel") { dismiss() })
+           .sheet(isPresented: $showTerms) {
+               TermsAndConditionsView()
+           }
+           .alert("구매 오류", isPresented: $showAlert) {
+               Button("확인", role: .cancel) { }
+           } message: {
+               Text(alertMessage)
+           }
+       }
+       .task {
+           // 상품 정보 로드
+           await storeService.loadProducts()
+       }
+   }
+   
+   private func handlePurchase() async {
+       isLoading = true
+       defer { isLoading = false }
+       
+       do {
+           if let product = storeService.products.first(where: { $0.id == selectedPlan.productId }) {
+               try await storeService.purchase(product)
+               await MainActor.run {
+                   dismiss()
+               }
+           } else {
+               throw PurchaseError.productNotFound
+           }
+       } catch {
+           await MainActor.run {
+               alertMessage = error.localizedDescription
+               showAlert = true
+           }
+       }
+   }
+}
+
+enum PurchaseError: LocalizedError {
+   case productNotFound
+   
+   var errorDescription: String? {
+       switch self {
+       case .productNotFound:
+           return "선택한 구독 상품을 찾을 수 없습니다."
+       }
+   }
+}
+
+// StoreService의 PurchaseProduct enum 업데이트
+enum PurchaseProduct: String, CaseIterable {
+   case monthlySubscription = "com.aisnapstudy.subscription.monthly"
+   case annualSubscription = "com.aisnapstudy.subscription.annual"
+   
+   var id: String { rawValue }
+   var displayName: String {
+       switch self {
+       case .monthlySubscription:
+           return "Monthly Subscription"
+       case .annualSubscription:
+           return "Annual Subscription"
+       }
+   }
+}
+
+struct TermsAndConditionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Payment will be charged to the user's iTunes Account upon confirmation of purchase.")
+                        .padding(.bottom)
+                    
+                    Text("Subscription will renew automatically unless auto-renew is turned off at least 24 hours before the end of the current period.")
+                        .padding(.bottom)
+                    
+                    Text("Account will be charged for renewal within 24 hours prior to the end of the current period and will identify the cost of the renewal.")
+                        .padding(.bottom)
+                    
+                    Text("Subscriptions may be managed by the user and auto-renewal may be turned off in the user's account settings after purchase.")
+                        .padding(.bottom)
+                    
+                    Text("Any unused portion of a free trial period, if offered, will be forfeited when the user purchases a subscription, where applicable.")
+                        .padding(.bottom)
+                }
+                .padding()
+            }
+            .navigationTitle("Terms and conditions")
+            .navigationBarItems(trailing: Button("Done") { dismiss() })
+        }
+    }
+}
+
+struct PlanCard: View {
+    let type: SubscriptionPlansView.PlanType
+    let title: String
+    let price: String
+    let period: String
+    let description: String
+    let isSelected: Bool
+    var discount: String? = nil
+    var isBestValue: Bool = false
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    if isBestValue {
+                        Text("Best Value")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.yellow)
+                            .cornerRadius(12)
+                    }
+                    Spacer()
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    }
+                }
+                
+                Text(title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                HStack(alignment: .firstTextBaseline) {
+                    Text(price)
+                        .font(.title)
+                        .fontWeight(.bold)
+                    Text(period)
+                        .foregroundColor(.secondary)
+                }
+                
+                if let discount = discount {
+                    Text(discount)
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                }
+                
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.systemBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(isSelected ? Color.blue : Color.gray.opacity(0.2), lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+struct SubscriptionInfoSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("How annual subscriptions work")
+                .font(.headline)
+            
+            HStack(spacing: 16) {
+                Image(systemName: "lock.fill")
+                    .foregroundColor(.yellow)
+                    .frame(width: 30)
+                
+                VStack(alignment: .leading) {
+                    Text("Today: Get instant access")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text("You are billed for one year")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            HStack(spacing: 16) {
+                Image(systemName: "arrow.clockwise")
+                    .frame(width: 30)
+                
+                VStack(alignment: .leading) {
+                    Text("December 16, 2025: Renewal")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text("Your subscription is renewed for another year unless you cancel before this date.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 }
 
@@ -7292,6 +7726,7 @@ struct SubscriptionStatusView: View {
         }
     }
 }
+
 
 
 // ./AISnapStudy/Views/Components/MainActionButton.swift
