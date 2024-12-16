@@ -91,7 +91,7 @@ class OpenAIService {
                 ["role": "user", "content": extractedText]
             ],
             "temperature": 0.7,
-            "max_tokens": 2000
+            "max_tokens": 4000
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -529,9 +529,13 @@ class OpenAIService {
         parameters: QuestionParameters,
         apiKey: String  // API 키 매개변수 추가
     ) async throws -> [Question] {
-        print("🤖 OpenAI Prompt Information:")
-        print("\nSystem Prompt:\n-------------\n\(systemPrompt)")
-        print("\nUser Prompt:\n-----------\n\(userPrompt)")
+        print("\n🔍 Debugging Text Input Generation:")
+        print("----------------------------------------")
+        print("📝 Original Text Input:", textInput ?? "None")
+        print("\n🤖 System Prompt:")
+        print(systemPrompt)
+        print("\n👤 User Prompt:")
+        print(userPrompt)
 
         // messages 배열을 미리 선언
         var messages: [[String: Any]]
@@ -573,6 +577,10 @@ class OpenAIService {
                     ]
                 ]]
             ]
+            print("textData : \(textData)")
+            print("\n📤 Final Message Structure:")
+            print(try JSONSerialization.data(withJSONObject: messages, options: .prettyPrinted).prettyPrintedJSONString ?? "")
+            
         } else {
             throw NetworkError.invalidData
         }
@@ -704,3 +712,12 @@ struct APIKeyResponse: Codable {
     }
 }
 
+extension Data {
+    var prettyPrintedJSONString: String? {
+        guard let object = try? JSONSerialization.jsonObject(with: self, options: []),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted]),
+              let prettyString = String(data: data, encoding: .utf8) else { return nil }
+        
+        return prettyString
+    }
+}
