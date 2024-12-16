@@ -269,8 +269,12 @@ struct QuestionSettingsView: View {
                     .interactiveDismissDisabled()
                     
                 case .gallery:
-                    PhotoPicker(selectedImages: $viewModel.selectedImages)
-                        .interactiveDismissDisabled()
+                    PhotoPicker(
+                        selectedImages: $viewModel.selectedImages,
+                        useSpeedUp: viewModel.useTextExtraction
+                    )
+                    .interactiveDismissDisabled()
+                    
                 }
             }
             .alert(isPresented: $viewModel.showAlert) {
@@ -721,10 +725,11 @@ struct SubjectSelectionSection: View {
 struct PhotoPicker: UIViewControllerRepresentable {
     @Binding var selectedImages: [UIImage]
     @Environment(\.presentationMode) var presentationMode
+    let useSpeedUp: Bool // 추가
     
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
-        config.selectionLimit = 10
+        config.selectionLimit = useSpeedUp ? 3 : 1 // Speed Up 설정에 따라 제한
         config.filter = .images
         
         let picker = PHPickerViewController(configuration: config)

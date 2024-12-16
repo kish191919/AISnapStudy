@@ -122,6 +122,15 @@ class QuestionSettingsViewModel: ObservableObject {
      
      // MARK: - Initialization
     init(subject: any SubjectType, homeViewModel: HomeViewModel) {
+        
+        // 1. UserDefaults 기본값을 먼저 설정
+        UserDefaults.standard.register(defaults: [
+            "useTextExtraction": true,
+            UserDefaultsKeys.lastMultipleChoiceCount: 5,
+            UserDefaultsKeys.lastTrueFalseCount: 5
+        ])
+
+        
         // 1. OpenAIService 초기화
         self.openAIService = OpenAIService.shared
         
@@ -166,8 +175,7 @@ class QuestionSettingsViewModel: ObservableObject {
         self.alertTitle = ""
         self.alertMessage = ""
         
-        // 5. UserDefaults 기본값 설정
-        UserDefaults.standard.register(defaults: ["useTextExtraction": true])
+
         
         // 6. Subject 관련 설정 업데이트
         if let savedSubjectID = UserDefaults.standard.string(forKey: "lastSelectedSubject") {
@@ -1315,24 +1323,21 @@ enum StatsPeriod {
 
 // ./AISnapStudy/ViewModels/HomeViewModel.swift
 
-// ./AISnapStudy/ViewModels/HomeViewModel.swift
-
 import Foundation
 import Combine
 
 @MainActor
 class HomeViewModel: ObservableObject {
-    
     @Published var studyViewModel: StudyViewModel?
     @Published private(set) var problemSets: [ProblemSet] = []
     @Published private(set) var savedQuestions: [Question] = []
     @Published private(set) var isLoading = false
     @Published private(set) var error: Error?
     @Published var selectedProblemSet: ProblemSet?
-//    @Published var correctAnswers: Int = 0
     @Published var totalQuestions: Int = 0
-
-    
+    private let remoteService = RemoteQuestionService.shared
+    @Published private(set) var remoteSets: [RemoteQuestionSet] = []  // 추가
+    @Published private(set) var isLoadingRemote = false  // 추가
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasLoadedData = false
@@ -1507,24 +1512,33 @@ class HomeViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Data Loading
     @MainActor
-    private func loadInitialData() async {
+    func loadInitialData() async {
         guard !hasLoadedData else { return }
         
         do {
             print("🔵 HomeViewModel - Initial data loading")
+            // 로컬 데이터 로드
             let loadedProblemSets = try coreDataService.fetchProblemSets()
             self.problemSets = loadedProblemSets
             self.savedQuestions = try coreDataService.fetchSavedQuestions()
             
-            if selectedProblemSet == nil && !problemSets.isEmpty {
-                await setSelectedProblemSet(problemSets[0])  // await 추가
+            // 원격 메타데이터 로드
+            isLoadingRemote = true
+            do {
+                self.remoteSets = try await remoteService.fetchQuestionSets()
+                print("✅ Successfully loaded remote sets: \(remoteSets.count)")
+            } catch {
+                print("⚠️ Remote data loading failed: \(error.localizedDescription)")
+                self.remoteSets = []
             }
+            isLoadingRemote = false
             
             hasLoadedData = true
-            print("✅ Initial data loaded successfully")
+            print("✅ Initial data loaded - Local sets: \(loadedProblemSets.count), Remote sets: \(remoteSets.count)")
+            
         } catch {
+            isLoadingRemote = false
             print("❌ Failed to load initial data: \(error)")
         }
     }
@@ -1562,9 +1576,53 @@ class HomeViewModel: ObservableObject {
         isLoading = false
     }
     
+    // 원격 세트 다운로드 메서드 추가
+    @MainActor
+    func downloadQuestionSet(_ remoteSet: RemoteQuestionSet) async {
+        do {
+            print("🌐 Downloading question set: \(remoteSet.id)")
+            
+            // 상세 데이터 가져오기
+            let detailedSet = try await remoteService.fetchQuestionSet(remoteSet.id)
+            
+            // ProblemSet으로 변환
+            let problemSet = ProblemSet(
+                subject: DefaultSubject.download,
+                subjectType: "default",
+                subjectId: DefaultSubject.download.rawValue,
+                subjectName: "Downloaded Sets",
+                questions: detailedSet.questions,
+                createdAt: remoteSet.createdAt,
+                educationLevel: determineEducationLevel(from: remoteSet.difficulty),
+                name: remoteSet.title
+            )
+            
+            // CoreData에 저장
+            await saveProblemSet(problemSet)
+            
+            print("✅ Successfully downloaded and saved question set: \(remoteSet.title)")
+            
+            // 다운로드 상태 업데이트
+            if let index = remoteSets.firstIndex(where: { $0.id == remoteSet.id }) {
+                remoteSets[index].isDownloaded = true
+            }
+            
+        } catch {
+            print("❌ Failed to download question set: \(error)")
+        }
+    }
+    
+    private func determineEducationLevel(from difficulty: String) -> EducationLevel {
+        switch difficulty.lowercased() {
+        case "elementary": return .elementary
+        case "middle": return .middle
+        case "high": return .high
+        case "college": return .college
+        default: return .elementary
+        }
+    }
+    
     // MARK: - Problem Set Management
-    // 파일: ./AISnapStudy/ViewModels/HomeViewModel.swift
-
     @MainActor
     func saveProblemSet(_ problemSet: ProblemSet) async {
         do {
@@ -3108,6 +3166,7 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
     case history = "history"
     case science = "science"
     case generalKnowledge = "general_knowledge"
+    case download = "download"  // 새로운 case 추가
     
     public var id: String {
         self.rawValue
@@ -3127,11 +3186,20 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
             return .green
         case .generalKnowledge:
             return .green
+        case .download:
+            return .blue  // 다운로드 섹션을 위한 새로운 색상
         }
     }
     
-    // 기존의 displayName을 baseDisplayName으로 변경
-    private var baseDisplayName: String {
+    static var defaultSubject: DefaultSubject {
+        return .generalKnowledge
+    }
+    
+    public var displayName: String {
+        SubjectManager.shared.modifiedDefaultSubjects[self.id] ?? defaultDisplayName
+    }
+    
+    private var defaultDisplayName: String {
         switch self {
         case .language:
             return "Language"
@@ -3145,6 +3213,8 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
             return "Science"
         case .generalKnowledge:
             return "General Knowledge"
+        case .download:
+            return "Downloaded Sets"  // 다운로드된 세트를 위한 표시 이름
         }
     }
     
@@ -3162,6 +3232,8 @@ public enum DefaultSubject: String, Codable, CaseIterable, SubjectType {
             return "atom"
         case .generalKnowledge:
             return "book.fill"
+        case .download:
+            return "square.and.arrow.down.fill"  // 다운로드 아이콘
         }
     }
 }
@@ -3661,6 +3733,33 @@ extension StudySession: Hashable {
     
     public static func == (lhs: StudySession, rhs: StudySession) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+
+// ./AISnapStudy/Models/RemoteQuestionSet.swift
+
+import Foundation
+
+// MARK: - Models
+struct RemoteQuestionSet: Codable, Identifiable {
+    let id: String
+    let title: String
+    let description: String
+    let category: String
+    let difficulty: String
+    let questionCount: Int
+    let downloadCount: Int
+    let createdAt: Date
+    let updatedAt: Date
+    var isDownloaded: Bool = false  // 기본값 설정
+    
+    // CodingKeys를 명시적으로 정의하여 isDownloaded를 디코딩에서 제외
+    private enum CodingKeys: String, CodingKey {
+        case id, title, description, category
+        case difficulty, questionCount, downloadCount
+        case createdAt, updatedAt
+        // isDownloaded는 CodingKeys에서 제외
     }
 }
 
@@ -5305,7 +5404,7 @@ struct InfoRow: View {
 import SwiftUI
 
 struct SpeedUpSection: View {
-    @Binding var useTextExtraction: Bool
+    @Binding var useTextExtraction: Bool 
     @State private var isExpanded: Bool = false
     
     var body: some View {
@@ -5343,6 +5442,7 @@ struct SavedQuestionsView: View {
     @State private var selectedQuestions: Set<String> = []
     @State private var showCreateSetDialog = false
     @State private var setName = "Saved Questions Set"
+    @State private var selectedSubject: DefaultSubject = .generalKnowledge
 
     var body: some View {
         VStack {
@@ -5355,7 +5455,7 @@ struct SavedQuestionsView: View {
                     homeViewModel: homeViewModel
                 )
             }
-
+            
             if !selectedQuestions.isEmpty {
                 CreateSetButton(
                     count: selectedQuestions.count,
@@ -5364,52 +5464,126 @@ struct SavedQuestionsView: View {
             }
         }
         .navigationTitle("Saved Questions")
-        .alert("Create New Set", isPresented: $showCreateSetDialog) {
-            CreateSetAlert(
+        .sheet(isPresented: $showCreateSetDialog) {  // alert 대신 sheet 사용
+            CreateSetView(
                 setName: $setName,
-                onCreate: createNewSet
+                selectedSubject: $selectedSubject,
+                onCreate: {
+                    createNewSet()
+                    showCreateSetDialog = false
+                }
             )
         }
     }
 
-   private func createNewSet() {
-       // 선택된 질문들의 복사본 생성
-       let selectedQuestionsList = homeViewModel.savedQuestions
-           .filter { selectedQuestions.contains($0.id) }
-           .map { question in
-               // 새로운 Question 인스턴스 생성
-               Question(
-                   id: UUID().uuidString,  // 새로운 ID 부여
-                   type: question.type,
-                   subject: question.subject,
-                   question: question.question,
-                   options: question.options,
-                   correctAnswer: question.correctAnswer,
-                   explanation: question.explanation,
-                   hint: question.hint,
-                   isSaved: false,  // 북마크 상태는 false로 시작
-                   createdAt: Date()
-               )
-           }
-       
-       let newProblemSet = ProblemSet(
-           subject: DefaultSubject.generalKnowledge,
-           subjectType: "default",
-           subjectId: DefaultSubject.generalKnowledge.rawValue,
-           subjectName: "Saved Questions",
-           questions: selectedQuestionsList,  // 복사된 질문들 사용
-           educationLevel: .elementary,
-           name: setName
-       )
+    private func createNewSet() {
+        // 선택된 질문들의 ID 리스트
+        let selectedQuestionIds = selectedQuestions
 
-       Task {
-           await homeViewModel.saveProblemSet(newProblemSet)
-           await homeViewModel.setSelectedProblemSet(newProblemSet)
-           selectedTab = 1
-           showCreateSetDialog = false
-           selectedQuestions.removeAll()
-       }
-   }
+        let selectedQuestionsList = homeViewModel.savedQuestions
+            .filter { selectedQuestions.contains($0.id) }
+            .map { question in
+                Question(
+                    id: UUID().uuidString,
+                    type: question.type,
+                    subject: selectedSubject,
+                    question: question.question,
+                    options: question.options,
+                    correctAnswer: question.correctAnswer,
+                    explanation: question.explanation,
+                    hint: question.hint,
+                    isSaved: false,  // 새 질문은 북마크 해제된 상태로 생성
+                    createdAt: Date()
+                )
+            }
+        
+        let newProblemSet = ProblemSet(
+            subject: selectedSubject,
+            subjectType: "default",
+            subjectId: selectedSubject.rawValue,
+            subjectName: selectedSubject.displayName,
+            questions: selectedQuestionsList,
+            educationLevel: .elementary,
+            name: setName
+        )
+
+        Task {
+            // 먼저 새 문제 세트 저장
+            await homeViewModel.saveProblemSet(newProblemSet)
+            await homeViewModel.setSelectedProblemSet(newProblemSet)
+            
+            // 선택된 원본 질문들의 북마크 해제
+            for questionId in selectedQuestionIds {
+                if let originalQuestion = homeViewModel.savedQuestions.first(where: { $0.id == questionId }) {
+                    await homeViewModel.toggleQuestionBookmark(originalQuestion)
+                }
+            }
+            
+            selectedTab = 1
+            showCreateSetDialog = false
+            selectedQuestions.removeAll()
+        }
+    }
+}
+
+// 새로운 CreateSetView 구현
+struct CreateSetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var setName: String
+    @Binding var selectedSubject: DefaultSubject
+    let onCreate: () -> Void
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Set Name")) {
+                    TextField("Enter set name", text: $setName)
+                }
+                
+                Section(header: Text("Subject")) {
+                    Picker("Select Subject", selection: $selectedSubject) {
+                        ForEach(DefaultSubject.allCases, id: \.self) { subject in
+                            Text(subject.displayName)
+                                .tag(subject)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Create New Set")
+            .navigationBarItems(
+                leading: Button("Cancel") {
+                    dismiss()
+                },
+                trailing: Button("Create") {
+                    onCreate()
+                }
+            )
+        }
+    }
+}
+
+private struct CreateSetAlert: View {
+    @Binding var setName: String
+    @Binding var selectedSubject: DefaultSubject
+    let onCreate: () -> Void
+
+    var body: some View {
+        Group {
+            TextField("Set Name", text: $setName)
+            
+            Picker("Subject", selection: $selectedSubject) {
+                ForEach(DefaultSubject.allCases, id: \.self) { subject in
+                    Text(subject.displayName)
+                        .tag(subject)
+                }
+            }
+            
+            Button("Cancel", role: .cancel) { }
+            Button("Create") {
+                onCreate()
+            }
+        }
+    }
 }
 
 // MARK: - Supporting Views
@@ -5489,21 +5663,6 @@ private struct CreateSetButton: View {
                 .cornerRadius(10)
         }
         .padding()
-    }
-}
-
-private struct CreateSetAlert: View {
-    @Binding var setName: String
-    let onCreate: () -> Void
-
-    var body: some View {
-        Group {
-            TextField("Set Name", text: $setName)
-            Button("Cancel", role: .cancel) { }
-            Button("Create") {
-                onCreate()
-            }
-        }
     }
 }
 
@@ -7553,7 +7712,7 @@ struct StatView: View {
        ScrollView {
            VStack(spacing: 20) {
                Text("Result")
-                   .font(.title)
+                   .font(.system(size: 34, weight: .bold))  // 크기를 키우고 볼드 처리
                    .padding(.top)
                
                // Progress Circle
@@ -7652,50 +7811,186 @@ import SwiftUI
 import Combine
 import CoreData
 
+// MARK: - Main View
 struct HomeView: View {
     @ObservedObject var viewModel: HomeViewModel
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.managedObjectContext) private var context
     @Binding var selectedTab: Int
     @State private var showQuestionSettings = false
-    @State private var showUpgradeView = false // 추가된 State 변수
+    @State private var showUpgradeView = false
+    @State private var showStudySets = false
     @State private var selectedSubject: DefaultSubject = .generalKnowledge
-    @StateObject private var subjectManager = SubjectManager.shared
-    @StateObject private var storeService = StoreService.shared // StoreService 추가
+    @StateObject private var storeService = StoreService.shared
+    @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 32) {
-                    // 웰컴 카드
-                    WelcomeCard()
-                    
-                    // Premium 업그레이드 버튼 (무료 사용자에게만 표시)
-                    if !storeService.subscriptionStatus.isPremium {
-                        PremiumUpgradeButton(
-                            remainingQuestions: storeService.subscriptionStatus.dailyQuestionsRemaining,
-                            showUpgradeView: $showUpgradeView
-                        )
+                    // Welcome Section
+                    VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Welcome Back!")
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                            
+                            if !storeService.subscriptionStatus.isPremium {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "sparkles")
+                                        .foregroundColor(.yellow)
+                                    Text("\(storeService.subscriptionStatus.dailyQuestionsRemaining) questions remaining")
+                                        .foregroundColor(.secondary)
+                                }
+                                .font(.system(size: 16))
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        
+                        // Create Questions Button
+                        Button(action: {
+                            if storeService.subscriptionStatus.dailyQuestionsRemaining > 0 {
+                                selectedSubject = .generalKnowledge
+                                showQuestionSettings = true
+                            } else {
+                                // 남은 질문이 없을 때는 업그레이드 안내
+                                showUpgradeView = true
+                            }
+                        }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 28))
+                                Text("Create New Questions")
+                                    .font(.system(size: 22, weight: .semibold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 100)
+                            .foregroundColor(.white)
+                            .background(
+                                LinearGradient(
+                                    colors: [
+                                        storeService.subscriptionStatus.dailyQuestionsRemaining > 0 ? .blue : .gray,
+                                        storeService.subscriptionStatus.dailyQuestionsRemaining > 0 ? .blue.opacity(0.8) : .gray.opacity(0.8)
+                                    ],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .cornerRadius(16)
+                        }
+                        .padding(.horizontal, 24)
                     }
                     
-                    // 즐겨찾기 섹션
+                    // Favorites Section
                     if !viewModel.favoriteProblemSets.isEmpty {
-                        FavoritesSection(
-                            problemSets: viewModel.favoriteProblemSets,
-                            viewModel: viewModel,
-                            selectedTab: $selectedTab
-                        )
+                        VStack(alignment: .leading, spacing: 20) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                    .font(.system(size: 24))
+                                Text("Favorites")
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                            }
+                            .padding(.horizontal, 24)
+                            
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 16) {
+                                    ForEach(viewModel.favoriteProblemSets) { set in
+                                        Button {
+                                            Task {
+                                                await viewModel.setSelectedProblemSet(set)
+                                                if let studyViewModel = viewModel.studyViewModel {
+                                                    await studyViewModel.resetState()
+                                                    selectedTab = 1
+                                                }
+                                            }
+                                        } label: {
+                                            VStack(alignment: .leading, spacing: 8) {
+                                                Text(set.name)
+                                                    .font(.system(size: 18, weight: .semibold))
+                                                    .foregroundColor(.primary)
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                                Text("\(set.questions.count) Questions")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                            .frame(width: 230)
+                                            .padding(16)
+                                            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
+                                            .cornerRadius(12)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(Color.gray.opacity(0.1), lineWidth: 3)
+                                            )
+                                            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal, 24)
+                            }
+                        }
                     }
                     
-                    // 메인 액션 버튼
-                    CreateQuestionsButton(action: {
-                        selectedSubject = .generalKnowledge
-                        showQuestionSettings = true
-                    })
+                    // Library Section
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "square.stack.3d.up.fill")
+                                .foregroundColor(.blue)
+                                .font(.system(size: 24))
+                            Text("Library")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                        .padding(.horizontal, 24)
+                        
+                        Button {
+                            showStudySets = true
+                        } label: {
+                            HStack {
+                                Text("View library question sets")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text("\(viewModel.remoteSets.count) Sets")
+                                    .foregroundColor(.secondary)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(20)
+                            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
+                            .cornerRadius(12)
+                            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                        }
+                        .padding(.horizontal, 24)
+                    }
                 }
                 .padding(.vertical, 32)
             }
-            .navigationTitle("AI Study")
+            .background(colorScheme == .dark ? Color.black : Color(.systemBackground))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack {
+                        Text("AI Study")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(colorScheme == .dark ? .white : .black)
+                        Spacer()
+                        if !storeService.subscriptionStatus.isPremium {
+                            Button(action: { showUpgradeView = true }) {
+                                Text("Upgrade")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(Color.yellow)
+                                    .cornerRadius(20)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
+            }
         }
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
@@ -7707,6 +8002,319 @@ struct HomeView: View {
         .sheet(isPresented: $showUpgradeView) {
             PremiumUpgradeView()
         }
+        .sheet(isPresented: $showStudySets) {
+            StudySetsView(viewModel: viewModel)
+        }
+    }
+}
+
+
+// MARK: - Section Header
+struct SectionHeader: View {
+    let title: String
+    let icon: String
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+            Text(title)
+                .font(.title3.bold())
+        }
+        .padding(.horizontal)
+    }
+}
+
+// MARK: - Welcome Section
+struct WelcomeSection: View {
+    let isPremium: Bool
+    let remainingQuestions: Int
+    @Binding var showUpgradeView: Bool
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // 환영 메시지 카드
+            CardView {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Welcome Back!")
+                            .font(.title2.bold())
+                        Text("Ready to learn something new?")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 40))
+                        .foregroundColor(.blue)
+                }
+            }
+            
+            // 프리미엄 배너 (무료 사용자만 표시)
+            if !isPremium {
+                Button(action: { showUpgradeView = true }) {
+                    CardView {
+                        HStack {
+                            HStack(spacing: 8) {
+                                Image(systemName: "star.fill")
+                                    .foregroundColor(.yellow)
+                                Text("Upgrade to Premium")
+                                    .fontWeight(.semibold)
+                            }
+                            Spacer()
+                            Text("\(remainingQuestions) questions left")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+// CardView 컴포넌트
+struct CardView<Content: View>: View {
+    let content: Content
+    
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+    }
+}
+
+
+
+
+// MARK: - Favorites List
+struct FavoritesList: View {
+    let problemSets: [ProblemSet]
+    let viewModel: HomeViewModel
+    @Binding var selectedTab: Int
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 16) {
+                ForEach(problemSets) { set in
+                    FavoriteCard(
+                        set: set,
+                        action: {
+                            Task {
+                                await viewModel.setSelectedProblemSet(set)
+                                if let studyViewModel = viewModel.studyViewModel {
+                                    await studyViewModel.resetState()
+                                    selectedTab = 1
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+}
+
+// MARK: - Favorite Card
+// 선택적으로 별도의 FavoriteCard 컴포넌트로 분리할 수도 있습니다
+struct FavoriteCard: View {
+    let set: ProblemSet
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(set.name)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text("\(set.questions.count) Questions")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+            }
+            .frame(width: 280)
+            .padding(16)
+            .background(Color(.systemGray6))
+            .cornerRadius(12)
+        }
+    }
+}
+
+// MARK: - Downloadable Sets List
+struct DownloadableSetsList: View {
+    let remoteSets: [RemoteQuestionSet]
+    let viewModel: HomeViewModel
+    
+    var body: some View {
+        VStack(spacing: 4) { // 리스트의 간격만 줄임
+            ForEach(remoteSets) { set in
+                DownloadableSetCard(
+                    set: set,
+                    action: {
+                        Task {
+                            await viewModel.downloadQuestionSet(set)
+                        }
+                    }
+                )
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+struct DownloadableSetCard: View {
+    let set: RemoteQuestionSet
+    let action: () -> Void
+    
+    @State private var isDownloading = false
+    @State private var isCompleted = false
+    
+    var body: some View {
+        CardView {
+            HStack(spacing: 12) {
+                // 타이틀과 정보
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(set.title)
+                        .font(.headline)
+                    
+                    HStack(spacing: 12) {
+                        // 문제 수
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.text")
+                                .foregroundColor(.blue)
+                            Text("\(set.questionCount)")
+                                .foregroundColor(.secondary)
+                        }
+                        .font(.subheadline)
+                        
+                        // 난이도
+                        HStack(spacing: 4) {
+                            Image(systemName: "chart.bar.fill")
+                                .foregroundColor(.blue)
+                            Text(set.difficulty)
+                                .foregroundColor(.secondary)
+                        }
+                        .font(.subheadline)
+                    }
+                }
+                
+                Spacer()
+                
+                // 다운로드 버튼
+                Button {
+                    withAnimation {
+                        isDownloading = true
+                    }
+                    action()
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        withAnimation {
+                            isDownloading = false
+                            isCompleted = true
+                        }
+                    }
+                } label: {
+                    Group {
+                        if isCompleted {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        } else if isDownloading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .frame(width: 24, height: 24)
+                }
+                .disabled(isDownloading || isCompleted)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 4)
+    }
+}
+
+
+// 원격 문제 세트 섹션 컴포넌트
+struct RemoteQuestionSetsSection: View {
+    let remoteSets: [RemoteQuestionSet]
+    let viewModel: HomeViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Available Question Sets")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(.primary)
+                .padding(.horizontal)
+            
+            ForEach(remoteSets) { remoteSet in
+                RemoteQuestionSetCard(
+                    set: remoteSet,
+                    onDownload: {
+                        Task {
+                            await viewModel.downloadQuestionSet(remoteSet)
+                        }
+                    }
+                )
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// 원격 문제 세트 카드 컴포넌트
+struct RemoteQuestionSetCard: View {
+    let set: RemoteQuestionSet
+    let onDownload: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(set.title)
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            Text(set.description)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+            
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text")
+                        .foregroundColor(.blue)
+                    Text("\(set.questionCount) questions")
+                }
+                .font(.caption)
+                .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: onDownload) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text("Download")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
 }
 
@@ -7739,223 +8347,6 @@ struct PremiumUpgradeButton: View {
     }
 }
 
-// 즐겨찾기 섹션 컴포넌트
-struct FavoritesSection: View {
-    let problemSets: [ProblemSet]
-    let viewModel: HomeViewModel
-    @Binding var selectedTab: Int
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Favorite Sets")  // 더 세련된 텍스트로 변경
-                    .font(.system(size: 20, weight: .semibold))  // 폰트 스타일 수정
-                    .foregroundColor(.primary)
-                Spacer()
-            }
-            .padding(.horizontal)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(problemSets) { problemSet in
-                        FavoriteCard(
-                            problemSet: problemSet,
-                            onTap: {
-                                Task {
-                                    await viewModel.setSelectedProblemSet(problemSet)
-                                    if let studyViewModel = viewModel.studyViewModel {
-                                        await studyViewModel.resetState()
-                                        // 직접 loadQuestions 호출하지 않음
-                                        selectedTab = 1
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-}
-
-// 웰컴 카드 컴포넌트
-struct WelcomeCard: View {
-    @Environment(\.colorScheme) private var colorScheme
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Welcome Back!")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    
-                    Text("Ready to learn something new?")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                Image(systemName: "brain.head.profile")
-                    .font(.system(size: 40))
-                    .foregroundColor(.blue)
-            }
-        }
-        .padding(24)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(colorScheme == .dark ? Color(.systemGray6) : Color.white)
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
-        )
-        .padding(.horizontal)
-    }
-}
-
-// 메인 액션 버튼 컴포넌트
-struct CreateQuestionsButton: View {
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 15) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 24, weight: .medium))
-                
-                Text("Create New Questions")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-            }
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 60)
-            .background(
-                LinearGradient(
-                    gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .cornerRadius(30)
-            .shadow(color: Color.blue.opacity(0.3), radius: 10, x: 0, y: 5)
-        }
-        .padding(.horizontal)
-    }
-}
-
-// SubjectType 확장
-extension DefaultSubject {
-    static var defaultSubject: DefaultSubject {
-        return .generalKnowledge
-    }
-    
-    public var displayName: String {
-        SubjectManager.shared.modifiedDefaultSubjects[self.id] ?? defaultDisplayName
-    }
-    
-    // 원래의 displayName을 defaultDisplayName으로 이동
-    private var defaultDisplayName: String {
-        switch self {
-        case .language:
-            return "Language"
-        case .math:
-            return "Mathematics"
-        case .geography:
-            return "Geography"
-        case .history:
-            return "History"
-        case .science:
-            return "Science"
-        case .generalKnowledge:
-            return "General Knowledge"
-        }
-    }
-}
-
-// 즐겨찾기 카드 컴포넌트
-struct FavoriteCard: View {
-    let problemSet: ProblemSet
-    let onTap: () -> Void
-    
-    var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 16) {
-                // 문제 세트 이름
-                Text(problemSet.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                
-                // 구분선
-                Divider()
-                
-                // 문제 수
-                HStack {
-                    Image(systemName: "doc.text.fill")
-                        .foregroundColor(.blue)
-                        .font(.system(size: 14))
-                    
-                    Text("\(problemSet.questions.count) Questions")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.secondary)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .frame(width: 250)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.systemBackground))
-                    .shadow(
-                        color: Color.black.opacity(0.08),
-                        radius: 8,
-                        x: 0,
-                        y: 4
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.blue.opacity(0.1), lineWidth: 1)
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-}
-
-
-extension HomeView {
-    private var upgradeButton: some View {
-        let storeService = StoreService.shared
-        
-        return Group {
-            if !storeService.subscriptionStatus.isPremium {
-                Button(action: {
-                    showUpgradeView = true
-                }) {
-                    HStack {
-                        Image(systemName: "star.fill")
-                            .foregroundColor(.yellow)
-                        Text("Upgrade to Premium")
-                            .fontWeight(.semibold)
-                        Spacer()
-                        Text("\(storeService.subscriptionStatus.dailyQuestionsRemaining) questions left")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding()
-                    .background(Color(.systemBackground))
-                    .cornerRadius(10)
-                    .shadow(radius: 2)
-                }
-                .sheet(isPresented: $showUpgradeView) {
-                    PremiumUpgradeView()
-                }
-            }
-        }
-    }
-}
 
 
 // ./AISnapStudy/Views/Main/ReviewView.swift
@@ -8036,7 +8427,7 @@ struct ReviewView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Review")
-                        .font(.title)
+                        .font(.system(size: 34, weight: .bold))  // 크기를 키우고 볼드 처리
                         .padding(.bottom, 5)
                 }
                 
@@ -8355,6 +8746,144 @@ private struct DeleteAlertButtons: View {
                 }
             }
         }
+    }
+}
+
+
+// ./AISnapStudy/Views/Main/StudySetsView.swift
+
+import SwiftUI
+
+
+// 정렬 옵션을 위한 enum
+enum SortOption: String, CaseIterable {
+    case name = "Name"
+    case questionCount = "Questions"
+    case difficulty = "Difficulty"
+}
+
+struct StudySetsView: View {
+    let viewModel: HomeViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedSort: SortOption = .name
+    @State private var isAscending = true
+    
+    private var sortedSets: [RemoteQuestionSet] {
+        var sets = viewModel.remoteSets
+        
+        switch selectedSort {
+        case .name:
+            sets.sort { (set1, set2) in
+                isAscending ? set1.title < set2.title : set1.title > set2.title
+            }
+        case .questionCount:
+            sets.sort { (set1, set2) in
+                isAscending ? set1.questionCount < set2.questionCount : set1.questionCount > set2.questionCount
+            }
+        case .difficulty:
+            let difficultyOrder = ["Elementary": 0, "Middle": 1, "Hard": 2]
+            sets.sort { (set1, set2) in
+                let order1 = difficultyOrder[set1.difficulty] ?? 0
+                let order2 = difficultyOrder[set2.difficulty] ?? 0
+                return isAscending ? order1 < order2 : order1 > order2
+            }
+        }
+        
+        return sets
+    }
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(sortedSets) { set in
+                        DownloadableSetCard(
+                            set: set,
+                            action: {
+                                Task {
+                                    await viewModel.downloadQuestionSet(set)
+                                }
+                            }
+                        )
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Text("Study Sets")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.primary)
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 16) {
+                        Menu {
+                            Picker("Sort by", selection: $selectedSort) {
+                                ForEach(SortOption.allCases, id: \.self) { option in
+                                    Text(option.rawValue)
+                                }
+                            }
+                            
+                            Divider()
+                            
+                            Button(action: { isAscending.toggle() }) {
+                                HStack {
+                                    Text(isAscending ? "Ascending" : "Descending")
+                                    Image(systemName: isAscending ? "arrow.up" : "arrow.down")
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                                .foregroundColor(.blue)
+                        }
+                        
+                        Button("Done") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+// LocalSetCard 컴포넌트
+struct LocalSetCard: View {
+    let set: ProblemSet
+    let viewModel: HomeViewModel
+    
+    var body: some View {
+        CardView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(set.name)
+                            .font(.headline)
+                        Text("\(set.questions.count) Questions")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Button {
+                        Task {
+                            await viewModel.toggleFavorite(set)
+                        }
+                    } label: {
+                        Image(systemName: set.isFavorite ? "star.fill" : "star")
+                            .foregroundColor(set.isFavorite ? .yellow : .gray)
+                    }
+                }
+            }
+            .padding()
+        }
+        .padding(.horizontal)
     }
 }
 
@@ -11028,6 +11557,486 @@ class VisionService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         
         return processedText
+    }
+}
+
+
+// ./AISnapStudy/Services/RemoteQuestionService.swift
+
+import Foundation
+import Combine
+import SwiftUI
+
+class RemoteQuestionService {
+    static let shared = RemoteQuestionService()
+    private let baseURL = "https://aistockadvisor.net"
+    private let cache = NSCache<NSString, NSArray>()
+    
+    func fetchFeaturedSets() async throws -> [RemoteQuestionSet] {
+        let url = URL(string: "\(baseURL)/featured-sets")!
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try JSONDecoder().decode([RemoteQuestionSet].self, from: data)
+    }
+    
+    func fetchQuestionSet(_ id: String) async throws -> ProblemSet {
+        print("🌐 Downloading question set with ID: \(id)")
+        let url = URL(string: "\(baseURL)/api/question-sets/\(id)")!
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        
+        print("📡 Response status: \(httpResponse.statusCode)")
+        
+        struct RemoteSet: Codable {
+            let id: String
+            let subject: String
+            let subjectType: String
+            let subjectId: String
+            let subjectName: String
+            let questions: [RemoteQuestion]
+            let createdAt: String
+            let educationLevel: String
+            let name: String
+            
+            struct RemoteQuestion: Codable {
+                let id: String
+                let type: String
+                let question: String
+                let options: [String]
+                let correctAnswer: String
+                let explanation: String
+                let hint: String
+            }
+        }
+        
+        let decoder = JSONDecoder()
+        let remoteSet = try decoder.decode(RemoteSet.self, from: data)
+        
+        // Question 모델로 변환
+        let questions = remoteSet.questions.map { q -> Question in
+            let questionType: QuestionType = {
+                switch q.type.lowercased() {
+                    case "multiple_choice":
+                        return .multipleChoice
+                    case "true_false":
+                        return .trueFalse
+                    default:
+                        return .multipleChoice  // 기본값
+                }
+            }()
+            
+            return Question(
+                id: q.id,
+                type: questionType,
+                subject: DefaultSubject.download,  // DefaultSubject 타입으로 변경
+                question: q.question,
+                options: q.options,
+                correctAnswer: q.correctAnswer,
+                explanation: q.explanation,
+                hint: q.hint,
+                isSaved: false,
+                createdAt: Date()
+            )
+        }
+        
+        // ProblemSet으로 변환
+        return ProblemSet(
+            id: UUID().uuidString,
+            subject: DefaultSubject.download,
+            subjectType: "default",
+            subjectId: DefaultSubject.download.rawValue,
+            subjectName: "Downloaded Sets",
+            questions: questions,
+            createdAt: ISO8601DateFormatter().date(from: remoteSet.createdAt) ?? Date(),
+            educationLevel: EducationLevel(rawValue: remoteSet.educationLevel) ?? .elementary,
+            name: remoteSet.name
+        )
+    }
+    
+    func searchQuestionSets(query: String) async throws -> [RemoteQuestionSet] {
+        let url = URL(string: "\(baseURL)/search?q=\(query)")!
+        let (data, _) = try await URLSession.shared.data(from: url)
+        return try JSONDecoder().decode([RemoteQuestionSet].self, from: data)
+    }
+    
+    func fetchQuestionSets() async throws -> [RemoteQuestionSet] {
+        print("🌐 Fetching remote question sets...")
+        let url = URL(string: "\(baseURL)/api/question-sets")!
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        
+        print("📡 Response status: \(httpResponse.statusCode)")
+        
+        // 받은 JSON 데이터 출력
+        if let jsonString = String(data: data, encoding: .utf8) {
+            print("📥 Received JSON data: \(jsonString)")
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601  // ISO8601 형식의 날짜 처리
+        
+        do {
+            let sets = try decoder.decode([RemoteQuestionSet].self, from: data)
+            print("✅ Fetched \(sets.count) remote sets")
+            return sets
+        } catch {
+            print("🔴 Decoding error: \(error)")
+            throw error
+        }
+    }
+
+}
+
+// MARK: - ViewModels
+class QuestionStoreViewModel: ObservableObject {
+    @Published var featuredSets: [RemoteQuestionSet] = []
+    @Published var popularSets: [RemoteQuestionSet] = []
+    @Published var recentSets: [RemoteQuestionSet] = []
+    @Published var isLoading = false
+    @Published var error: Error?
+    @Published var searchResults: [RemoteQuestionSet] = []
+    @Published var searchQuery = ""
+    
+    private let remoteService = RemoteQuestionService.shared
+    private let homeViewModel: HomeViewModel
+    
+    init(homeViewModel: HomeViewModel) {
+        self.homeViewModel = homeViewModel
+    }
+    
+    @MainActor
+    func loadFeaturedSets() async {
+        isLoading = true
+        do {
+            featuredSets = try await remoteService.fetchFeaturedSets()
+        } catch {
+            self.error = error
+        }
+        isLoading = false
+    }
+    
+    @MainActor
+    func downloadQuestionSet(_ set: RemoteQuestionSet) async {
+        isLoading = true
+        do {
+            let problemSet = try await remoteService.fetchQuestionSet(set.id)
+            // Convert to Download subject
+            let downloadedSet = ProblemSet(
+                subject: DefaultSubject.download,  // New Download subject
+                subjectType: "default",
+                subjectId: DefaultSubject.download.rawValue,
+                subjectName: "Download",
+                questions: problemSet.questions,
+                createdAt: Date(),
+                educationLevel: .high,  // Or determine from set.difficulty
+                name: set.title
+            )
+            await homeViewModel.saveProblemSet(downloadedSet)
+        } catch {
+            self.error = error
+        }
+        isLoading = false
+    }
+}
+
+// MARK: - Views
+struct QuestionStoreView: View {
+    @EnvironmentObject var homeViewModel: HomeViewModel
+    @State private var selectedCategory: String?
+    @State private var showingSearch = false
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                if homeViewModel.isLoadingRemote {
+                    ProgressView("Loading question sets...")
+                } else {
+                    ForEach(homeViewModel.remoteSets) { remoteSet in
+                        QuestionSetCard(
+                            set: remoteSet,
+                            onDownload: {
+                                Task {
+                                    await homeViewModel.downloadQuestionSet(remoteSet)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Question Store")
+    }
+}
+
+struct QuestionSetCard: View {
+   let set: RemoteQuestionSet
+   let onDownload: () -> Void
+   @Environment(\.colorScheme) private var colorScheme
+   
+   var body: some View {
+       VStack(alignment: .leading, spacing: 16) {
+           // 상단 영역
+           HStack(alignment: .top) {
+               // 아이콘
+               Image(systemName: "book.fill")
+                   .font(.system(size: 24))
+                   .foregroundColor(.blue)
+                   .frame(width: 40, height: 40)
+                   .background(Color.blue.opacity(0.1))
+                   .clipShape(Circle())
+               
+               VStack(alignment: .leading, spacing: 4) {
+                   Text(set.title)
+                       .font(.system(size: 18, weight: .semibold))
+                       .foregroundColor(.primary)
+                   
+                   Text(set.description)
+                       .font(.subheadline)
+                       .foregroundColor(.secondary)
+                       .lineLimit(2)
+               }
+           }
+           
+           Divider()
+           
+           // 하단 정보 영역
+           HStack(spacing: 16) {
+               // 문제 수
+               HStack(spacing: 6) {
+                   Image(systemName: "doc.text.fill")
+                       .foregroundColor(.blue)
+                   Text("\(set.questionCount) Questions")
+                       .font(.system(size: 14, weight: .medium))
+               }
+               .foregroundColor(.secondary)
+               
+               // 난이도
+               HStack(spacing: 6) {
+                   Image(systemName: "chart.bar.fill")
+                       .foregroundColor(.green)
+                   Text(set.difficulty)
+                       .font(.system(size: 14, weight: .medium))
+               }
+               .foregroundColor(.secondary)
+               
+               Spacer()
+               
+               // 다운로드 버튼
+               Button(action: onDownload) {
+                   HStack(spacing: 6) {
+                       Image(systemName: "arrow.down.circle.fill")
+                       Text("Download")
+                   }
+                   .font(.system(size: 14, weight: .medium))
+                   .foregroundColor(.white)
+                   .padding(.horizontal, 16)
+                   .padding(.vertical, 8)
+                   .background(Color.blue)
+                   .cornerRadius(20)
+               }
+           }
+       }
+       .padding(16)
+       .background(colorScheme == .dark ? Color(.systemGray6) : Color.white)
+       .cornerRadius(16)
+       .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+       .overlay(
+           RoundedRectangle(cornerRadius: 16)
+               .stroke(Color.gray.opacity(0.1), lineWidth: 1)
+       )
+       .padding(.horizontal)
+   }
+}
+
+// Featured Section with carousel
+struct FeaturedSection: View {
+    let sets: [RemoteQuestionSet]
+    let onDownload: (RemoteQuestionSet) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Featured")
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 15) {
+                    ForEach(sets) { set in
+                        FeaturedCard(set: set, onDownload: onDownload)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+// Featured Card
+struct FeaturedCard: View {
+    let set: RemoteQuestionSet
+    let onDownload: (RemoteQuestionSet) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            
+            // Content
+            VStack(alignment: .leading, spacing: 8) {
+                Text(set.title)
+                    .font(.headline)
+                
+                Text(set.description)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                
+                HStack {
+                    Label("\(set.questionCount) questions", systemImage: "doc.text")
+                    Spacer()
+                    Button(action: { onDownload(set) }) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .imageScale(.large)
+                    }
+                }
+                .font(.caption)
+            }
+            .padding()
+        }
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 5)
+        .frame(width: 280)
+    }
+}
+
+// Category Section
+struct CategorySection: View {
+    let categories = ["Math", "Science", "Language", "History", "Geography", "General"]
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Categories")
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            LazyVGrid(columns: [
+                GridItem(.flexible()),
+                GridItem(.flexible()),
+                GridItem(.flexible())
+            ], spacing: 15) {
+                ForEach(categories, id: \.self) { category in
+                    CategoryCard(category: category)
+                }
+            }
+        }
+    }
+}
+
+// Category Card
+struct CategoryCard: View {
+    let category: String
+    
+    var body: some View {
+        VStack {
+            Image(systemName: iconName(for: category))
+                .font(.title)
+                .foregroundColor(.blue)
+            Text(category)
+                .font(.caption)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+    
+    private func iconName(for category: String) -> String {
+        switch category.lowercased() {
+        case "math": return "function"
+        case "science": return "flask.fill"
+        case "language": return "textformat"
+        case "history": return "clock.fill"
+        case "geography": return "globe"
+        default: return "book.fill"
+        }
+    }
+}
+
+// Question Set Section
+struct QuestionSetSection: View {
+    let title: String
+    let sets: [RemoteQuestionSet]
+    let onDownload: (RemoteQuestionSet) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(title)
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal)
+            
+            ForEach(sets) { set in
+                QuestionSetRow(set: set, onDownload: onDownload)
+            }
+        }
+    }
+}
+
+// Question Set Row
+struct QuestionSetRow: View {
+    let set: RemoteQuestionSet
+    let onDownload: (RemoteQuestionSet) -> Void
+    
+    var body: some View {
+        HStack {
+            
+            VStack(alignment: .leading) {
+                Text(set.title)
+                    .font(.headline)
+                Text("\(set.questionCount) questions")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Button(action: { onDownload(set) }) {
+                Image(systemName: set.isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                    .imageScale(.large)
+                    .foregroundColor(set.isDownloaded ? .green : .blue)
+            }
+        }
+        .padding()
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(radius: 2)
+    }
+}
+
+extension RemoteQuestionService {
+    private func handleNetworkError(_ error: Error) {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                print("❌ No internet connection")
+            case .timedOut:
+                print("❌ Request timed out")
+            case .cannotFindHost:
+                print("❌ Cannot find host: \(urlError.failingURL?.host ?? "unknown")")
+            default:
+                print("❌ Network error: \(urlError.localizedDescription)")
+            }
+        } else {
+            print("❌ Unknown error: \(error.localizedDescription)")
+        }
     }
 }
 

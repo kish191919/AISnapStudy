@@ -395,6 +395,19 @@ class QuestionSettingsViewModel: ObservableObject {
     @MainActor
     func addImage(_ image: UIImage) async {
        print("📸 Starting addImage processing...")
+        if useTextExtraction && selectedImages.count >= 3 {
+            self.alertTitle = "Image Limit Reached"
+            self.alertMessage = "Speed Up mode allows maximum 3 images at once."
+            self.showAlert = true
+            return
+        }
+        
+        if !useTextExtraction && selectedImages.count >= 1 {
+            self.alertTitle = "Image Limit Reached"
+            self.alertMessage = "When Speed Up is disabled, you can process only one image at a time."
+            self.showAlert = true
+            return
+        }
        do {
            let compressedData = try await Task {
                try ImageService.shared.compressForAPI(image)
