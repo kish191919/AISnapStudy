@@ -58,14 +58,23 @@ class HomeViewModel: ObservableObject {
     }
     
     // 질문 북마크 토글 메서드 추가
+    @MainActor
     func toggleQuestionBookmark(_ question: Question) async {
         var updatedQuestion = question
         updatedQuestion.isSaved.toggle()
         
-        if updatedQuestion.isSaved {
-            await saveQuestion(updatedQuestion)
-        } else {
-            await deleteQuestion(updatedQuestion)
+        do {
+            try await coreDataService.updateQuestionBookmark(question.id, isSaved: updatedQuestion.isSaved)
+            
+            // 북마크 상태 변경 시 savedQuestions 배열 업데이트
+            if updatedQuestion.isSaved {
+                savedQuestions.append(updatedQuestion)
+            } else {
+                savedQuestions.removeAll { $0.id == question.id }
+            }
+            print("✅ Question bookmark toggled: \(question.id)")
+        } catch {
+            print("❌ Failed to toggle question bookmark: \(error)")
         }
     }
 

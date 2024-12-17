@@ -86,6 +86,25 @@ class CoreDataService {
         return container
     }()
     
+    func updateQuestionBookmark(_ questionId: String, isSaved: Bool) throws {
+        let context = viewContext
+        let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", questionId)
+        
+        do {
+            if let question = try context.fetch(request).first {
+                question.isSaved = isSaved
+                try context.save()
+                print("💾 CoreData: Updated bookmark status for question: \(questionId) to \(isSaved)")
+            } else {
+                print("⚠️ CoreData: Question not found with ID: \(questionId)")
+            }
+        } catch {
+            print("❌ Failed to update question bookmark: \(error)")
+            throw error
+        }
+    }
+    
     // MARK: - Question Operations 섹션에 추가
     // MARK: - Question Operations
     public func fetchSavedQuestions() throws -> [Question] {

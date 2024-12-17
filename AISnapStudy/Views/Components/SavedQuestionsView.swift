@@ -72,11 +72,11 @@ struct SavedQuestionsView: View {
         )
 
         Task {
-            // 먼저 새 문제 세트 저장
+            // 새 문제 세트 저장
             await homeViewModel.saveProblemSet(newProblemSet)
             await homeViewModel.setSelectedProblemSet(newProblemSet)
             
-            // 선택된 원본 질문들의 북마크 해제
+            // 선택된 질문들의 북마크 해제
             for questionId in selectedQuestionIds {
                 if let originalQuestion = homeViewModel.savedQuestions.first(where: { $0.id == questionId }) {
                     await homeViewModel.toggleQuestionBookmark(originalQuestion)
