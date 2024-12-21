@@ -41,7 +41,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		98E728422CE1CCCA00C90F73 /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */ = {
+		983EA8A92D1718D0000628AB /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -59,7 +59,7 @@
 		989CC9FF2CE135CA00E25D14 /* AISnapStudy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				98E728422CE1CCCA00C90F73 /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */,
+				983EA8A92D1718D0000628AB /* Exceptions for "AISnapStudy" folder in "AISnapStudy" target */,
 			);
 			path = AISnapStudy;
 			sourceTree = "<group>";
