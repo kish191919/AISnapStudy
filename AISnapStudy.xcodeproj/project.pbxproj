@@ -17,7 +17,18 @@
 		98BCE82C2D04936D000897D9 /* CDDailyStats+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98BCE8292D04936D000897D9 /* CDDailyStats+CoreDataClass.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		983EA8A22D171027000628AB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 989CC9F52CE135CA00E25D14 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 989CC9FC2CE135CA00E25D14;
+			remoteInfo = AISnapStudy;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		983EA89E2D171027000628AB /* AISnapStudyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AISnapStudyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		985606712CF21EA000D2BB60 /* CDProblemSet+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataClass.swift"; sourceTree = "<group>"; };
 		985606722CF21EA000D2BB60 /* CDProblemSet+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDProblemSet+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDProblemSet+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		985606992CF22B4300D2BB60 /* CDQuestion+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDQuestion+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDQuestion+CoreDataClass.swift"; sourceTree = "<group>"; };
@@ -40,6 +51,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		983EA89F2D171027000628AB /* AISnapStudyTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AISnapStudyTests;
+			sourceTree = "<group>";
+		};
 		989CC9FF2CE135CA00E25D14 /* AISnapStudy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -51,6 +67,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		983EA89B2D171027000628AB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		989CC9FA2CE135CA00E25D14 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -73,6 +96,7 @@
 				9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */,
 				9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */,
 				989CC9FF2CE135CA00E25D14 /* AISnapStudy */,
+				983EA89F2D171027000628AB /* AISnapStudyTests */,
 				989CC9FE2CE135CA00E25D14 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -81,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				989CC9FD2CE135CA00E25D14 /* AISnapStudy.app */,
+				983EA89E2D171027000628AB /* AISnapStudyTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -88,6 +113,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		983EA89D2D171027000628AB /* AISnapStudyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 983EA8A42D171027000628AB /* Build configuration list for PBXNativeTarget "AISnapStudyTests" */;
+			buildPhases = (
+				983EA89A2D171027000628AB /* Sources */,
+				983EA89B2D171027000628AB /* Frameworks */,
+				983EA89C2D171027000628AB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				983EA8A32D171027000628AB /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				983EA89F2D171027000628AB /* AISnapStudyTests */,
+			);
+			name = AISnapStudyTests;
+			packageProductDependencies = (
+			);
+			productName = AISnapStudyTests;
+			productReference = 983EA89E2D171027000628AB /* AISnapStudyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		989CC9FC2CE135CA00E25D14 /* AISnapStudy */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 989CCA0B2CE135CA00E25D14 /* Build configuration list for PBXNativeTarget "AISnapStudy" */;
@@ -117,9 +165,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1610;
+				LastSwiftUpdateCheck = 1620;
 				LastUpgradeCheck = 1610;
 				TargetAttributes = {
+					983EA89D2D171027000628AB = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 989CC9FC2CE135CA00E25D14;
+					};
 					989CC9FC2CE135CA00E25D14 = {
 						CreatedOnToolsVersion = 16.1;
 					};
@@ -140,11 +192,19 @@
 			projectRoot = "";
 			targets = (
 				989CC9FC2CE135CA00E25D14 /* AISnapStudy */,
+				983EA89D2D171027000628AB /* AISnapStudyTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		983EA89C2D171027000628AB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		989CC9FB2CE135CA00E25D14 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -155,6 +215,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		983EA89A2D171027000628AB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		989CC9F92CE135CA00E25D14 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -172,7 +239,53 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		983EA8A32D171027000628AB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 989CC9FC2CE135CA00E25D14 /* AISnapStudy */;
+			targetProxy = 983EA8A22D171027000628AB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		983EA8A52D171027000628AB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7F4M4ATHP5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.BrainWave.AISnapStudyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AISnapStudy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AISnapStudy";
+			};
+			name = Debug;
+		};
+		983EA8A62D171027000628AB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7F4M4ATHP5;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.BrainWave.AISnapStudyTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AISnapStudy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AISnapStudy";
+			};
+			name = Release;
+		};
 		989CCA092CE135CA00E25D14 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -313,7 +426,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -348,7 +461,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -365,6 +478,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		983EA8A42D171027000628AB /* Build configuration list for PBXNativeTarget "AISnapStudyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				983EA8A52D171027000628AB /* Debug */,
+				983EA8A62D171027000628AB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		989CC9F82CE135CA00E25D14 /* Build configuration list for PBXProject "AISnapStudy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
