@@ -15,6 +15,7 @@ struct StudyView: View {
    @State private var previewIsCorrect: Bool? = nil        // 추가
     @State private var showDeleteAlert = false  // 추가
     @State private var questionToDelete: Question? = nil  // 추가
+    @State private var showCelebration = false
    
    init(questions: [Question],
         studyViewModel: StudyViewModel,
@@ -23,6 +24,8 @@ struct StudyView: View {
        self._selectedTab = selectedTab
        self.studyViewModel = studyViewModel
    }
+    
+    
    
     var body: some View {
         VStack {
@@ -62,6 +65,21 @@ struct StudyView: View {
                 VStack {
                     Spacer()
                         .frame(height: 20)
+                    // 진행 상태와 스트릭을 함께 표시하는 부분 추가
+                    HStack {
+                        Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        // 스트릭 표시 추가
+                        StreakIndicator(streak: studyViewModel.currentStreak)
+                            .animation(.spring(), value: studyViewModel.currentStreak)
+                    }
+                    .padding(.horizontal)
+                    
                     
                     ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
                                total: Double(studyViewModel.totalQuestions))
@@ -91,6 +109,10 @@ struct StudyView: View {
                                             showExplanation: studyViewModel.showExplanation,
                                             isCorrect: isCorrect
                                         )
+                                        .transition(.asymmetric(
+                                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .move(edge: .leading).combined(with: .opacity)
+                                        ))
                                         
                                     case .trueFalse:
                                         TrueFalseView(
@@ -99,6 +121,10 @@ struct StudyView: View {
                                             showExplanation: studyViewModel.showExplanation,
                                             isCorrect: isCorrect  // 여기 isCorrect 바인딩이 문제일 수 있습니다
                                         )
+                                        .transition(.asymmetric(
+                                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .move(edge: .leading).combined(with: .opacity)
+                                        ))
                                     }
                                     
                                     if showExplanation && studyViewModel.showExplanation {
@@ -107,6 +133,7 @@ struct StudyView: View {
                                 }
                             }
                             .padding()
+                            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: studyViewModel.currentIndex)
                         }
                         
                         VStack {
@@ -129,7 +156,8 @@ struct StudyView: View {
                                     viewModel: studyViewModel,
                                     selectedTab: $selectedTab,
                                     isCorrect: $isCorrect,
-                                    showExplanation: $showExplanation
+                                    showExplanation: $showExplanation,
+                                    showCelebration: $showCelebration  // 추가
                                 )
                             }
                             .padding()
@@ -180,6 +208,7 @@ struct CustomProgressViewStyle: ProgressViewStyle {
                     .fill(Color.blue)
                     .frame(width: CGFloat(configuration.fractionCompleted ?? 0) * geometry.size.width,
                            height: 12)
+                    .animation(.spring(response: 0.45), value: configuration.fractionCompleted)
             }
         }
         .frame(height: 12)
@@ -321,6 +350,7 @@ private struct ActionButton: View {
    @Binding var selectedTab: Int
    @Binding var isCorrect: Bool?
    @Binding var showExplanation: Bool
+    @Binding var showCelebration: Bool  // 추가
    
    var body: some View {
        Button(action: {
@@ -329,15 +359,23 @@ private struct ActionButton: View {
                    viewModel.saveProgress()
                    selectedTab = 3
                } else {
-                   viewModel.nextQuestion()
-                   isCorrect = nil  // 다음 문제로 넘어갈 때 리셋
-                   showExplanation = false
+                   withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                       viewModel.nextQuestion()  // viewModel을 통해 호출
+                       isCorrect = nil
+                       showExplanation = false
+                       showCelebration = false  // 리셋
+                   }
+
                }
            } else {
                viewModel.submitAnswer()
                if let currentQuestion = viewModel.currentQuestion,
                   let selectedAnswer = viewModel.selectedAnswer {
-                   isCorrect = currentQuestion.correctAnswer.lowercased() == selectedAnswer.lowercased()
+                   let correct = currentQuestion.correctAnswer.lowercased() == selectedAnswer.lowercased()
+                   isCorrect = correct
+                   if correct {
+                       showCelebration = true  // 정답일 때 축하 애니메이션 표시
+                   }
                }
            }
        }) {
@@ -502,3 +540,104 @@ struct GeneratedQuestionPreviewCard: View {
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
 }
+
+// 스트릭 인디케이터 컴포넌트 추가
+struct StreakIndicator: View {
+    let streak: Int
+    @State private var isAnimating = false
+    
+    private var streakInfo: (color: Color, icon: String, description: String) {
+        switch streak {
+        case 0:
+            return (.gray, "star", "Start your streak!")
+        case 1...2:
+            return (.orange, "flame", "Good Start!")
+        case 3...4:
+            return (.orange, "flame.fill", "Keep Going!")
+        case 5...6:
+            return (.red, "flame.circle.fill", "On Fire! 🔥")
+        case 7...9:
+            return (.purple, "sparkles", "Unstoppable!")
+        case 10...14:
+            return (.blue, "star.circle.fill", "Perfect! ⭐️")
+        case 15...19:
+            return (.green, "crown.fill", "Champion! 👑")
+        case 20...24:
+            return (.yellow, "medal.fill", "Genius! 🏅")
+        default:
+            return (.pink, "trophy.fill", "Legendary! 🏆")
+        }
+    }
+    
+    private var animation: Animation {
+        Animation.spring(response: 0.5, dampingFraction: 0.6)
+            .repeatCount(1)
+    }
+    
+    var body: some View {
+        if streak > 0 {
+            HStack(spacing: 8) {
+                // 아이콘과 파티클 효과
+                ZStack {
+                    // 파티클 효과
+                    ForEach(0..<3) { i in
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 8))
+                            .foregroundColor(streakInfo.color)
+                            .offset(x: isAnimating ? CGFloat.random(in: -20...20) : 0,
+                                    y: isAnimating ? CGFloat.random(in: -20...20) : 0)
+                            .opacity(isAnimating ? 0 : 1)
+                            .animation(
+                                animation.delay(Double(i) * 0.1),
+                                value: isAnimating
+                            )
+                    }
+                    
+                    // 메인 아이콘
+                    Image(systemName: streakInfo.icon)
+                        .font(.system(size: 24))
+                        .foregroundColor(streakInfo.color)
+                        .scaleEffect(isAnimating ? 1.2 : 1.0)
+                        .animation(animation, value: isAnimating)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(streak) Streak")
+                        .font(.headline)
+                        .foregroundColor(streakInfo.color)
+                    
+                    Text(streakInfo.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(streakInfo.color.opacity(0.15))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(streakInfo.color.opacity(0.3), lineWidth: 1)
+                    )
+            )
+            .onAppear {
+                withAnimation {
+                    isAnimating = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    isAnimating = false
+                }
+            }
+            .onChange(of: streak) { _ in
+                withAnimation {
+                    isAnimating = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    isAnimating = false
+                }
+            }
+        }
+    }
+}
+

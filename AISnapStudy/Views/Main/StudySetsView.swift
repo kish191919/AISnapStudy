@@ -5,7 +5,7 @@ import SwiftUI
 enum SortOption: String, CaseIterable {
     case name = "Name"
     case questionCount = "Questions"
-    case difficulty = "Difficulty"
+    case difficulty = "Education"
 }
 
 struct StudySetsView: View {
@@ -16,29 +16,29 @@ struct StudySetsView: View {
    @State private var isAscending = true
    @Environment(\.colorScheme) var colorScheme
    
-   private var sortedSets: [RemoteQuestionSet] {
-       var sets = viewModel.remoteSets
-       
-       switch selectedSort {
-       case .name:
-           sets.sort { (set1, set2) in
-               isAscending ? set1.title < set2.title : set1.title > set2.title
-           }
-       case .questionCount:
-           sets.sort { (set1, set2) in
-               isAscending ? set1.questionCount < set2.questionCount : set1.questionCount > set2.questionCount
-           }
-       case .difficulty:
-           let difficultyOrder = ["Elementary": 0, "Middle": 1, "Hard": 2]
-           sets.sort { (set1, set2) in
-               let order1 = difficultyOrder[set1.difficulty] ?? 0
-               let order2 = difficultyOrder[set2.difficulty] ?? 0
-               return isAscending ? order1 < order2 : order1 > order2
-           }
-       }
-       
-       return sets
-   }
+    private var sortedSets: [RemoteQuestionSet] {
+        var sets = viewModel.remoteSets
+        
+        switch selectedSort {
+        case .name:
+            sets.sort { (set1, set2) in
+                isAscending ? set1.title < set2.title : set1.title > set2.title
+            }
+        case .questionCount:
+            sets.sort { (set1, set2) in
+                isAscending ? set1.questionCount < set2.questionCount : set1.questionCount > set2.questionCount
+            }
+        case .difficulty:
+            let difficultyOrder = ["Elementary": 0, "Middle": 1, "High": 2, "College": 3]
+            sets.sort { (set1, set2) in
+                let order1 = difficultyOrder[set1.difficulty] ?? 0
+                let order2 = difficultyOrder[set2.difficulty] ?? 0
+                return isAscending ? order1 < order2 : order1 > order2
+            }
+        }
+        
+        return sets
+    }
    
    var body: some View {
        NavigationView {

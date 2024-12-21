@@ -15,7 +15,7 @@ class OpenAIService {
     // 단일 초기화 메서드
     private init() {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForRequest = 180
         configuration.timeoutIntervalForResource = 300
         configuration.waitsForConnectivity = true
         configuration.tlsMinimumSupportedProtocolVersion = .TLSv12

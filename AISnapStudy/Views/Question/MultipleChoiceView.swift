@@ -19,7 +19,12 @@ struct MultipleChoiceView: View {
             // 선택지
             VStack(spacing: 16) {
                 ForEach(question.options, id: \.self) { option in
-                    Button(action: { selectedAnswer = option }) {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedAnswer = option
+                        }
+                        HapticManager.shared.impact(style: .light)
+                    }) {
                         HStack {
                             Text(option)
                                 .font(.body)
@@ -39,8 +44,13 @@ struct MultipleChoiceView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(getBackgroundColor(for: option))
-                                .shadow(color: Color.black.opacity(0.05),
-                                       radius: 4, x: 0, y: 2)
+                        )
+                        .scaleEffect(selectedAnswer == option ? 1.02 : 1.0)
+                        .animation(.spring(response: 0.2), value: selectedAnswer == option)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(selectedAnswer == option ? Color.blue : Color.clear, lineWidth: 2)
+                                .opacity(selectedAnswer == option ? 1 : 0)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())

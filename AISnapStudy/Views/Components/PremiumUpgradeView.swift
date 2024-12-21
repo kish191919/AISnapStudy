@@ -26,6 +26,12 @@ struct PremiumUpgradeView: View {
                             title: "Full Library Access",
                             description: "Download all question sets from our library"
                         )
+                        
+                        FeatureRow(
+                            icon: "xmark.circle.fill",
+                            title: "Ad-Free Experience",
+                            description: "Enjoy learning without any advertisements"
+                        )
                     }
                     .padding()
                     
@@ -85,11 +91,11 @@ struct SubscriptionPlansView: View {
                    PlanCard(
                        type: .annual,
                        title: "Annual",
-                       price: "$107.92",
+                       price: "$99.99",
                        period: "/ year",
                        description: "Recurring billing.",
                        isSelected: selectedPlan == .annual,
-                       discount: "40% off",
+                       discount: "45% off",
                        isBestValue: true,
                        action: { selectedPlan = .annual }
                    )

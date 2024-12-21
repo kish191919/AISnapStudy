@@ -86,6 +86,7 @@ class CoreDataService {
         return container
     }()
     
+    // CoreDataService.swift에서 updateQuestionBookmark 함수 추가 부분에서 오류 발생 가능성
     func updateQuestionBookmark(_ questionId: String, isSaved: Bool) throws {
         let context = viewContext
         let request: NSFetchRequest<CDQuestion> = CDQuestion.fetchRequest()
@@ -95,12 +96,8 @@ class CoreDataService {
             if let question = try context.fetch(request).first {
                 question.isSaved = isSaved
                 try context.save()
-                print("💾 CoreData: Updated bookmark status for question: \(questionId) to \(isSaved)")
-            } else {
-                print("⚠️ CoreData: Question not found with ID: \(questionId)")
             }
         } catch {
-            print("❌ Failed to update question bookmark: \(error)")
             throw error
         }
     }

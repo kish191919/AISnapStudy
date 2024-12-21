@@ -1396,14 +1396,23 @@ class HomeViewModel: ObservableObject {
     }
     
     // 질문 북마크 토글 메서드 추가
+    @MainActor
     func toggleQuestionBookmark(_ question: Question) async {
         var updatedQuestion = question
         updatedQuestion.isSaved.toggle()
         
-        if updatedQuestion.isSaved {
-            await saveQuestion(updatedQuestion)
-        } else {
-            await deleteQuestion(updatedQuestion)
+        do {
+            try await coreDataService.updateQuestionBookmark(question.id, isSaved: updatedQuestion.isSaved)
+            
+            // 북마크 상태 변경 시 savedQuestions 배열 업데이트
+            if updatedQuestion.isSaved {
+                savedQuestions.append(updatedQuestion)
+            } else {
+                savedQuestions.removeAll { $0.id == question.id }
+            }
+            print("✅ Question bookmark toggled: \(question.id)")
+        } catch {
+            print("❌ Failed to toggle question bookmark: \(error)")
         }
     }
 
@@ -2003,6 +2012,7 @@ class StudyViewModel: ObservableObject {
 
     @Published private(set) var loadedQuestions: [Question] = []
     @Published private(set) var loadingProgress = 0
+    @Published private(set) var currentStreak: Int = 0
 
     private let openAIService: OpenAIService
 
@@ -2071,8 +2081,19 @@ class StudyViewModel: ObservableObject {
 
         setupCurrentSession()
     }
-
-
+    
+    private func updateStreak(isCorrect: Bool) {
+        if isCorrect {
+            currentStreak += 1
+            if currentStreak > 2 {
+                // 스트릭 달성 시 특별한 피드백
+                HapticManager.shared.notification(type: .success)
+            }
+        } else {
+            currentStreak = 0
+        }
+    }
+    
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
         isLoadingQuestions = true
         loadingProgress = 0
@@ -2177,8 +2198,20 @@ class StudyViewModel: ObservableObject {
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let isCorrect = trimmedSelected == trimmedCorrect
         
+        // 햅틱 피드백 추가
         if isCorrect {
             correctAnswers += 1
+            currentStreak += 1  // 스트릭 증가
+            
+            // 스트릭에 따른 피드백
+            if currentStreak > 2 {
+                HapticManager.shared.notification(type: .success)
+            } else {
+                HapticManager.shared.impact(style: .medium)
+            }
+        } else {
+            currentStreak = 0  // 스트릭 리셋
+            HapticManager.shared.notification(type: .error)
         }
         
         // StatViewModel 업데이트 및 CoreData 저장
@@ -2187,7 +2220,8 @@ class StudyViewModel: ObservableObject {
             object: nil,
             userInfo: [
                 "currentIndex": currentIndex + 1,
-                "correctAnswers": correctAnswers
+                "correctAnswers": correctAnswers,
+                "currentStreak": currentStreak
             ]
         )
         
@@ -2195,12 +2229,12 @@ class StudyViewModel: ObservableObject {
     }
     
     
-   func nextQuestion() {
-       guard currentIndex < questions.count - 1 else { return }
-       currentIndex += 1
-       currentQuestion = questions[currentIndex]
-       resetAnswers()
-   }
+    func nextQuestion() {
+        guard currentIndex < questions.count - 1 else { return }
+        currentIndex += 1
+        currentQuestion = questions[currentIndex]
+        resetAnswers()
+    }
    
    func saveProgress() {
        print("Saving progress...")
@@ -2264,6 +2298,8 @@ extension StudyViewModel {
        }
    }
 }
+
+
 
 
 // ./AISnapStudy/App/AISnapStudyApp.swift
@@ -3064,13 +3100,17 @@ import Foundation
 struct UserSubscriptionStatus: Codable {
     var isPremium: Bool
     var dailyQuestionsRemaining: Int
+    var downloadedSetsCount: Int  // 추가: 다운로드한 세트 수 추적
     var lastResetDate: Date?
     
     static let defaultStatus = UserSubscriptionStatus(
         isPremium: false,
         dailyQuestionsRemaining: 1,
+        downloadedSetsCount: 0,  // 초기값 0
         lastResetDate: nil
     )
+    
+    static let maxFreeDownloads = 5  // 무료 사용자의 최대 다운로드 수
 }
 
 
@@ -5040,26 +5080,33 @@ struct TrueFalseButton: View {
    let disabled: Bool
    let action: () -> Void
    
-   var body: some View {
-       Button(action: action) {
-           HStack {
-               Text(title)
-                   .font(.body)
-               Spacer()
-           }
-           .padding()
-           .frame(maxWidth: .infinity, alignment: .leading)
-           .background(
-               RoundedRectangle(cornerRadius: 10)
-                   .fill(isSelected ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-           )
-           .overlay(
-               RoundedRectangle(cornerRadius: 10)
-                   .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
-           )
-       }
-       .disabled(disabled)
-   }
+    var body: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                action()
+            }
+            HapticManager.shared.impact(style: .light)
+        }) {
+            HStack {
+                Text(title)
+                    .font(.body)
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+            )
+            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .animation(.spring(response: 0.2), value: isSelected)
+        }
+        .disabled(disabled)
+    }
 }
 
 
@@ -5086,7 +5133,12 @@ struct MultipleChoiceView: View {
             // 선택지
             VStack(spacing: 16) {
                 ForEach(question.options, id: \.self) { option in
-                    Button(action: { selectedAnswer = option }) {
+                    Button(action: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            selectedAnswer = option
+                        }
+                        HapticManager.shared.impact(style: .light)
+                    }) {
                         HStack {
                             Text(option)
                                 .font(.body)
@@ -5106,8 +5158,13 @@ struct MultipleChoiceView: View {
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(getBackgroundColor(for: option))
-                                .shadow(color: Color.black.opacity(0.05),
-                                       radius: 4, x: 0, y: 2)
+                        )
+                        .scaleEffect(selectedAnswer == option ? 1.02 : 1.0)
+                        .animation(.spring(response: 0.2), value: selectedAnswer == option)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(selectedAnswer == option ? Color.blue : Color.clear, lineWidth: 2)
+                                .opacity(selectedAnswer == option ? 1 : 0)
                         )
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -5654,11 +5711,11 @@ struct SavedQuestionsView: View {
         )
 
         Task {
-            // 먼저 새 문제 세트 저장
+            // 새 문제 세트 저장
             await homeViewModel.saveProblemSet(newProblemSet)
             await homeViewModel.setSelectedProblemSet(newProblemSet)
             
-            // 선택된 원본 질문들의 북마크 해제
+            // 선택된 질문들의 북마크 해제
             for questionId in selectedQuestionIds {
                 if let originalQuestion = homeViewModel.savedQuestions.first(where: { $0.id == questionId }) {
                     await homeViewModel.toggleQuestionBookmark(originalQuestion)
@@ -7354,6 +7411,12 @@ struct PremiumUpgradeView: View {
                             title: "Full Library Access",
                             description: "Download all question sets from our library"
                         )
+                        
+                        FeatureRow(
+                            icon: "xmark.circle.fill",
+                            title: "Ad-Free Experience",
+                            description: "Enjoy learning without any advertisements"
+                        )
                     }
                     .padding()
                     
@@ -7413,11 +7476,11 @@ struct SubscriptionPlansView: View {
                    PlanCard(
                        type: .annual,
                        title: "Annual",
-                       price: "$107.92",
+                       price: "$99.99",
                        period: "/ year",
                        description: "Recurring billing.",
                        isSelected: selectedPlan == .annual,
-                       discount: "40% off",
+                       discount: "45% off",
                        isBestValue: true,
                        action: { selectedPlan = .annual }
                    )
@@ -8609,8 +8672,11 @@ struct DownloadableSetCard: View {
     let set: RemoteQuestionSet
     let action: () -> Void
     
+    @StateObject private var storeService = StoreService.shared
     @State private var isDownloading = false
     @State private var isCompleted = false
+    @State private var showUpgradeAlert = false
+    @State private var showUpgradeView = false
     
     var body: some View {
         CardView {
@@ -8645,16 +8711,21 @@ struct DownloadableSetCard: View {
                 
                 // 다운로드 버튼
                 Button {
-                    withAnimation {
-                        isDownloading = true
-                    }
-                    action()
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    if storeService.canDownloadMoreSets() {
                         withAnimation {
-                            isDownloading = false
-                            isCompleted = true
+                            isDownloading = true
                         }
+                        storeService.incrementDownloadCount()
+                        action()
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            withAnimation {
+                                isDownloading = false
+                                isCompleted = true
+                            }
+                        }
+                    } else {
+                        showUpgradeAlert = true
                     }
                 } label: {
                     Group {
@@ -8678,6 +8749,17 @@ struct DownloadableSetCard: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 4)
+        .alert("Upgrade to Premium", isPresented: $showUpgradeAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Upgrade") {
+                showUpgradeView = true
+            }
+        } message: {
+            Text("You've reached the maximum limit of 5 free downloads. Upgrade to Premium for unlimited access to all question sets!")
+        }
+        .sheet(isPresented: $showUpgradeView) {
+            PremiumUpgradeView()
+        }
     }
 }
 
@@ -9194,15 +9276,17 @@ import SwiftUI
 enum SortOption: String, CaseIterable {
     case name = "Name"
     case questionCount = "Questions"
-    case difficulty = "Difficulty"
+    case difficulty = "Education"
 }
 
 struct StudySetsView: View {
-    let viewModel: HomeViewModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedSort: SortOption = .name
-    @State private var isAscending = true
-    
+   @StateObject private var storeService = StoreService.shared
+   let viewModel: HomeViewModel
+   @Environment(\.dismiss) private var dismiss
+   @State private var selectedSort: SortOption = .name
+   @State private var isAscending = true
+   @Environment(\.colorScheme) var colorScheme
+   
     private var sortedSets: [RemoteQuestionSet] {
         var sets = viewModel.remoteSets
         
@@ -9216,7 +9300,7 @@ struct StudySetsView: View {
                 isAscending ? set1.questionCount < set2.questionCount : set1.questionCount > set2.questionCount
             }
         case .difficulty:
-            let difficultyOrder = ["Elementary": 0, "Middle": 1, "Hard": 2]
+            let difficultyOrder = ["Elementary": 0, "Middle": 1, "High": 2, "College": 3]
             sets.sort { (set1, set2) in
                 let order1 = difficultyOrder[set1.difficulty] ?? 0
                 let order2 = difficultyOrder[set2.difficulty] ?? 0
@@ -9226,62 +9310,85 @@ struct StudySetsView: View {
         
         return sets
     }
-    
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(sortedSets) { set in
-                        DownloadableSetCard(
-                            set: set,
-                            action: {
-                                Task {
-                                    await viewModel.downloadQuestionSet(set)
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding(.vertical, 8)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Text("Study Sets")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(.primary)
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 16) {
-                        Menu {
-                            Picker("Sort by", selection: $selectedSort) {
-                                ForEach(SortOption.allCases, id: \.self) { option in
-                                    Text(option.rawValue)
-                                }
-                            }
-                            
-                            Divider()
-                            
-                            Button(action: { isAscending.toggle() }) {
-                                HStack {
-                                    Text(isAscending ? "Ascending" : "Descending")
-                                    Image(systemName: isAscending ? "arrow.up" : "arrow.down")
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "arrow.up.arrow.down")
-                                .foregroundColor(.blue)
-                        }
-                        
-                        Button("Done") {
-                            dismiss()
-                        }
-                    }
-                }
-            }
-        }
-    }
+   
+   var body: some View {
+       NavigationView {
+           ScrollView {
+               VStack(spacing: 20) {
+                   // 무료 사용자를 위한 다운로드 상태 표시
+                   if !storeService.subscriptionStatus.isPremium {
+                       VStack(spacing: 8) {
+                           Text("Free Downloads: \(storeService.subscriptionStatus.downloadedSetsCount)/5")
+                               .font(.subheadline)
+                               .foregroundColor(.secondary)
+                           
+                           if storeService.remainingDownloads > 0 {
+                               Text("\(storeService.remainingDownloads) downloads remaining")
+                                   .font(.caption)
+                                   .foregroundColor(.blue)
+                           }
+                       }
+                       .padding()
+                       .background(colorScheme == .dark ? Color(.systemGray6) : .white)
+                       .cornerRadius(12)
+                       .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                       .padding(.horizontal)
+                   }
+                   
+                   // 정렬된 문제 세트 목록
+                   VStack(spacing: 2) {
+                       ForEach(sortedSets) { set in
+                           DownloadableSetCard(
+                               set: set,
+                               action: {
+                                   Task {
+                                       await viewModel.downloadQuestionSet(set)
+                                   }
+                               }
+                           )
+                       }
+                   }
+                   .padding(.vertical, 8)
+               }
+           }
+           .navigationBarTitleDisplayMode(.inline)
+           .toolbar {
+               ToolbarItem(placement: .navigationBarLeading) {
+                   Text("Study Sets")
+                       .font(.system(size: 22, weight: .semibold))
+                       .foregroundColor(.primary)
+               }
+               
+               ToolbarItem(placement: .navigationBarTrailing) {
+                   HStack(spacing: 16) {
+                       Menu {
+                           Picker("Sort by", selection: $selectedSort) {
+                               ForEach(SortOption.allCases, id: \.self) { option in
+                                   Text(option.rawValue)
+                               }
+                           }
+                           
+                           Divider()
+                           
+                           Button(action: { isAscending.toggle() }) {
+                               HStack {
+                                   Text(isAscending ? "Ascending" : "Descending")
+                                   Image(systemName: isAscending ? "arrow.up" : "arrow.down")
+                               }
+                           }
+                       } label: {
+                           Image(systemName: "arrow.up.arrow.down")
+                               .foregroundColor(.blue)
+                       }
+                       
+                       Button("Done") {
+                           dismiss()
+                       }
+                   }
+               }
+           }
+       }
+   }
 }
 
 
@@ -9342,6 +9449,7 @@ struct StudyView: View {
    @State private var previewIsCorrect: Bool? = nil        // 추가
     @State private var showDeleteAlert = false  // 추가
     @State private var questionToDelete: Question? = nil  // 추가
+    @State private var showCelebration = false
    
    init(questions: [Question],
         studyViewModel: StudyViewModel,
@@ -9350,6 +9458,8 @@ struct StudyView: View {
        self._selectedTab = selectedTab
        self.studyViewModel = studyViewModel
    }
+    
+    
    
     var body: some View {
         VStack {
@@ -9389,6 +9499,21 @@ struct StudyView: View {
                 VStack {
                     Spacer()
                         .frame(height: 20)
+                    // 진행 상태와 스트릭을 함께 표시하는 부분 추가
+                    HStack {
+                        Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        // 스트릭 표시 추가
+                        StreakIndicator(streak: studyViewModel.currentStreak)
+                            .animation(.spring(), value: studyViewModel.currentStreak)
+                    }
+                    .padding(.horizontal)
+                    
                     
                     ProgressView(value: Double(min(studyViewModel.currentIndex + 1, studyViewModel.totalQuestions)),
                                total: Double(studyViewModel.totalQuestions))
@@ -9418,6 +9543,10 @@ struct StudyView: View {
                                             showExplanation: studyViewModel.showExplanation,
                                             isCorrect: isCorrect
                                         )
+                                        .transition(.asymmetric(
+                                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .move(edge: .leading).combined(with: .opacity)
+                                        ))
                                         
                                     case .trueFalse:
                                         TrueFalseView(
@@ -9426,6 +9555,10 @@ struct StudyView: View {
                                             showExplanation: studyViewModel.showExplanation,
                                             isCorrect: isCorrect  // 여기 isCorrect 바인딩이 문제일 수 있습니다
                                         )
+                                        .transition(.asymmetric(
+                                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                                            removal: .move(edge: .leading).combined(with: .opacity)
+                                        ))
                                     }
                                     
                                     if showExplanation && studyViewModel.showExplanation {
@@ -9434,6 +9567,7 @@ struct StudyView: View {
                                 }
                             }
                             .padding()
+                            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: studyViewModel.currentIndex)
                         }
                         
                         VStack {
@@ -9456,7 +9590,8 @@ struct StudyView: View {
                                     viewModel: studyViewModel,
                                     selectedTab: $selectedTab,
                                     isCorrect: $isCorrect,
-                                    showExplanation: $showExplanation
+                                    showExplanation: $showExplanation,
+                                    showCelebration: $showCelebration  // 추가
                                 )
                             }
                             .padding()
@@ -9507,6 +9642,7 @@ struct CustomProgressViewStyle: ProgressViewStyle {
                     .fill(Color.blue)
                     .frame(width: CGFloat(configuration.fractionCompleted ?? 0) * geometry.size.width,
                            height: 12)
+                    .animation(.spring(response: 0.45), value: configuration.fractionCompleted)
             }
         }
         .frame(height: 12)
@@ -9648,6 +9784,7 @@ private struct ActionButton: View {
    @Binding var selectedTab: Int
    @Binding var isCorrect: Bool?
    @Binding var showExplanation: Bool
+    @Binding var showCelebration: Bool  // 추가
    
    var body: some View {
        Button(action: {
@@ -9656,15 +9793,23 @@ private struct ActionButton: View {
                    viewModel.saveProgress()
                    selectedTab = 3
                } else {
-                   viewModel.nextQuestion()
-                   isCorrect = nil  // 다음 문제로 넘어갈 때 리셋
-                   showExplanation = false
+                   withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                       viewModel.nextQuestion()  // viewModel을 통해 호출
+                       isCorrect = nil
+                       showExplanation = false
+                       showCelebration = false  // 리셋
+                   }
+
                }
            } else {
                viewModel.submitAnswer()
                if let currentQuestion = viewModel.currentQuestion,
                   let selectedAnswer = viewModel.selectedAnswer {
-                   isCorrect = currentQuestion.correctAnswer.lowercased() == selectedAnswer.lowercased()
+                   let correct = currentQuestion.correctAnswer.lowercased() == selectedAnswer.lowercased()
+                   isCorrect = correct
+                   if correct {
+                       showCelebration = true  // 정답일 때 축하 애니메이션 표시
+                   }
                }
            }
        }) {
@@ -9829,6 +9974,107 @@ struct GeneratedQuestionPreviewCard: View {
         .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
     }
 }
+
+// 스트릭 인디케이터 컴포넌트 추가
+struct StreakIndicator: View {
+    let streak: Int
+    @State private var isAnimating = false
+    
+    private var streakInfo: (color: Color, icon: String, description: String) {
+        switch streak {
+        case 0:
+            return (.gray, "star", "Start your streak!")
+        case 1...2:
+            return (.orange, "flame", "Good Start!")
+        case 3...4:
+            return (.orange, "flame.fill", "Keep Going!")
+        case 5...6:
+            return (.red, "flame.circle.fill", "On Fire! 🔥")
+        case 7...9:
+            return (.purple, "sparkles", "Unstoppable!")
+        case 10...14:
+            return (.blue, "star.circle.fill", "Perfect! ⭐️")
+        case 15...19:
+            return (.green, "crown.fill", "Champion! 👑")
+        case 20...24:
+            return (.yellow, "medal.fill", "Genius! 🏅")
+        default:
+            return (.pink, "trophy.fill", "Legendary! 🏆")
+        }
+    }
+    
+    private var animation: Animation {
+        Animation.spring(response: 0.5, dampingFraction: 0.6)
+            .repeatCount(1)
+    }
+    
+    var body: some View {
+        if streak > 0 {
+            HStack(spacing: 8) {
+                // 아이콘과 파티클 효과
+                ZStack {
+                    // 파티클 효과
+                    ForEach(0..<3) { i in
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 8))
+                            .foregroundColor(streakInfo.color)
+                            .offset(x: isAnimating ? CGFloat.random(in: -20...20) : 0,
+                                    y: isAnimating ? CGFloat.random(in: -20...20) : 0)
+                            .opacity(isAnimating ? 0 : 1)
+                            .animation(
+                                animation.delay(Double(i) * 0.1),
+                                value: isAnimating
+                            )
+                    }
+                    
+                    // 메인 아이콘
+                    Image(systemName: streakInfo.icon)
+                        .font(.system(size: 24))
+                        .foregroundColor(streakInfo.color)
+                        .scaleEffect(isAnimating ? 1.2 : 1.0)
+                        .animation(animation, value: isAnimating)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(streak) Streak")
+                        .font(.headline)
+                        .foregroundColor(streakInfo.color)
+                    
+                    Text(streakInfo.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(streakInfo.color.opacity(0.15))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(streakInfo.color.opacity(0.3), lineWidth: 1)
+                    )
+            )
+            .onAppear {
+                withAnimation {
+                    isAnimating = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    isAnimating = false
+                }
+            }
+            .onChange(of: streak) { _ in
+                withAnimation {
+                    isAnimating = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    isAnimating = false
+                }
+            }
+        }
+    }
+}
+
 
 
 // ./AISnapStudy/Views/Stats/CalendarStatsView.swift
@@ -11276,7 +11522,7 @@ class OpenAIService {
                 ["role": "user", "content": extractedText]
             ],
             "temperature": 0.7,
-            "max_tokens": 2000
+            "max_tokens": 4000
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -11714,9 +11960,13 @@ class OpenAIService {
         parameters: QuestionParameters,
         apiKey: String  // API 키 매개변수 추가
     ) async throws -> [Question] {
-        print("🤖 OpenAI Prompt Information:")
-        print("\nSystem Prompt:\n-------------\n\(systemPrompt)")
-        print("\nUser Prompt:\n-----------\n\(userPrompt)")
+        print("\n🔍 Debugging Text Input Generation:")
+        print("----------------------------------------")
+        print("📝 Original Text Input:", textInput ?? "None")
+        print("\n🤖 System Prompt:")
+        print(systemPrompt)
+        print("\n👤 User Prompt:")
+        print(userPrompt)
 
         // messages 배열을 미리 선언
         var messages: [[String: Any]]
@@ -11758,6 +12008,10 @@ class OpenAIService {
                     ]
                 ]]
             ]
+            print("textData : \(textData)")
+            print("\n📤 Final Message Structure:")
+            print(try JSONSerialization.data(withJSONObject: messages, options: .prettyPrinted).prettyPrintedJSONString ?? "")
+            
         } else {
             throw NetworkError.invalidData
         }
@@ -11889,6 +12143,15 @@ struct APIKeyResponse: Codable {
     }
 }
 
+extension Data {
+    var prettyPrintedJSONString: String? {
+        guard let object = try? JSONSerialization.jsonObject(with: self, options: []),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted]),
+              let prettyString = String(data: data, encoding: .utf8) else { return nil }
+        
+        return prettyString
+    }
+}
 
 
 // ./AISnapStudy/Services/VisionService.swift
@@ -12518,6 +12781,22 @@ class StoreService: ObservableObject {
     deinit {
         resetTimer?.invalidate()
     }
+    
+    func canDownloadMoreSets() -> Bool {
+        return subscriptionStatus.isPremium || subscriptionStatus.downloadedSetsCount < UserSubscriptionStatus.maxFreeDownloads
+    }
+    
+    func incrementDownloadCount() {
+        guard !subscriptionStatus.isPremium else { return }
+        subscriptionStatus.downloadedSetsCount += 1
+        saveSubscriptionStatus()
+    }
+    
+    var remainingDownloads: Int {
+        guard !subscriptionStatus.isPremium else { return .max }
+        return max(0, UserSubscriptionStatus.maxFreeDownloads - subscriptionStatus.downloadedSetsCount)
+    }
+    
     
     private func setupDailyReset() {
         let calendar = Calendar.current

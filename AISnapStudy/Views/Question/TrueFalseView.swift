@@ -93,24 +93,31 @@ struct TrueFalseButton: View {
    let disabled: Bool
    let action: () -> Void
    
-   var body: some View {
-       Button(action: action) {
-           HStack {
-               Text(title)
-                   .font(.body)
-               Spacer()
-           }
-           .padding()
-           .frame(maxWidth: .infinity, alignment: .leading)
-           .background(
-               RoundedRectangle(cornerRadius: 10)
-                   .fill(isSelected ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
-           )
-           .overlay(
-               RoundedRectangle(cornerRadius: 10)
-                   .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
-           )
-       }
-       .disabled(disabled)
-   }
+    var body: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                action()
+            }
+            HapticManager.shared.impact(style: .light)
+        }) {
+            HStack {
+                Text(title)
+                    .font(.body)
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.blue.opacity(0.2) : Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+            )
+            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .animation(.spring(response: 0.2), value: isSelected)
+        }
+        .disabled(disabled)
+    }
 }

@@ -77,15 +77,31 @@ app.post('/api/openai/chat', async (req, res) => {
 // 모든 질문 세트 메타데이터 조회
 app.get('/api/question-sets', async (req, res) => {
     try {
+        // 파일 존재 여부 먼저 확인
+        try {
+            await fs.access(METADATA_FILE);
+        } catch {
+            console.log('Metadata file not found, creating empty one');
+            await fs.writeFile(METADATA_FILE, JSON.stringify([], null, 2));
+            return res.json([]);
+        }
+
         const metadata = await fs.readFile(METADATA_FILE, 'utf8');
+        console.log('Raw metadata content:', metadata); // 디버깅용 로그
+
         const questionSets = JSON.parse(metadata);
         console.log(`Retrieved ${questionSets.length} question sets`);
         res.json(questionSets);
     } catch (error) {
-        console.error('Error reading question sets:', error);
-        res.status(500).json({ error: 'Failed to fetch question sets' });
+        console.error('Detailed error in /api/question-sets:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch question sets',
+            details: error.message 
+        });
     }
 });
+
+
 
 // 특정 질문 세트 다운로드
 app.get('/api/question-sets/:id', async (req, res) => {
@@ -164,6 +180,212 @@ app.get('/api/question-sets/featured/popular', async (req, res) => {
         console.error('Error fetching popular sets:', error);
         res.status(500).json({ error: 'Failed to fetch popular sets' });
     }
+});
+
+const privacyPolicyHTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AISnapStudy Privacy Policy</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AISnapStudy Privacy Policy</h1>
+    <p>Last updated: ${new Date().toISOString().split('T')[0]}</p>
+
+    <div class="section">
+        <h2>1. Data Usage</h2>
+        <p>AISnapStudy is designed with privacy in mind:</p>
+        <ul>
+            <li>Images uploaded for question generation are processed immediately and are not stored</li>
+            <li>All study progress and statistics are stored locally on your device only</li>
+            <li>No personal information is collected or stored on our servers</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>2. Image Processing</h2>
+        <p>When you take a photo or upload an image:</p>
+        <ul>
+            <li>The image is temporarily processed to generate study questions</li>
+            <li>Images are immediately deleted after processing</li>
+            <li>No images are stored or retained</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>3. Local Storage</h2>
+        <p>All app data, including:</p>
+        <ul>
+            <li>Generated questions</li>
+            <li>Study progress</li>
+            <li>Performance statistics</li>
+        </ul>
+        <p>is stored locally on your device and is not transmitted to our servers.</p>
+    </div>
+
+    <div class="section">
+        <h2>4. Subscription</h2>
+        <p>All purchases and subscriptions are handled directly through Apple's App Store. We do not collect or store any payment information.</p>
+    </div>
+
+    <div class="section">
+        <h2>5. Third-Party Services</h2>
+        <p>We use OpenAI's API for question generation. Images are temporarily processed through their service following their privacy standards.</p>
+    </div>
+
+    <div class="section">
+        <h2>6. Contact Us</h2>
+        <p>If you have any questions about this Privacy Policy, please contact us at: kish1919@gmail.com </p>
+    </div>
+</body>
+</html>
+`;
+
+// Privacy Policy 엔드포인트 추가
+app.get('/privacy-policy', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(privacyPolicyHTML);
+});
+
+
+// server.js에 추가
+
+const supportPageHTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AISnapStudy Support</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        .question {
+            font-weight: bold;
+            color: #2c5282;
+            margin-bottom: 10px;
+        }
+        .answer {
+            margin-bottom: 20px;
+        }
+        .contact-button {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AISnapStudy Support</h1>
+
+    <div class="section">
+        <h2>Frequently Asked Questions</h2>
+        
+        <div class="question">Q: How do I create questions from my textbook?</div>
+        <div class="answer">
+            A: Simply tap the camera button, take a photo of your textbook page, and our AI will generate study questions instantly.
+        </div>
+
+        <div class="question">Q: What types of questions can be generated?</div>
+        <div class="answer">
+            A: AISnapStudy generates multiple-choice and true/false questions, complete with explanations and hints.
+        </div>
+
+        <div class="question">Q: How can I access my saved questions?</div>
+        <div class="answer">
+            A: Go to the Review tab and tap on "Saved Questions" to access all your bookmarked questions.
+        </div>
+
+        <div class="question">Q: What's included in the Premium subscription?</div>
+        <div class="answer">
+            A: Premium includes:
+            <ul>
+                <li>Generate up to 30 question sets daily</li>
+                <li>Unlimited question set downloads</li>
+                <li>Ad-free experience</li>
+                <li>Advanced statistics</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Common Issues</h2>
+        
+        <div class="question">Camera not working?</div>
+        <div class="answer">
+            Please ensure you've granted camera permissions to AISnapStudy in your device settings:
+            Settings > Privacy > Camera > AISnapStudy
+        </div>
+
+        <div class="question">Questions not generating?</div>
+        <div class="answer">
+            Check your internet connection and ensure your image is clear and well-lit.
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Contact Support</h2>
+        <p>We're here to help! Contact us through any of these channels:</p>
+        
+        <p><strong>Email:</strong> <a href="mailto:kish1919@gmail.com">kish1919@gmail.com</a></p>
+        
+        <p><strong>Response Time:</strong> We typically respond within 24 hours.</p>
+    </div>
+
+    <div class="section">
+        <h2>Subscription Management</h2>
+        <p>To manage your subscription:</p>
+        <ol>
+            <li>Open iPhone Settings</li>
+            <li>Tap your Apple ID at the top</li>
+            <li>Tap Subscriptions</li>
+            <li>Find AISnapStudy in the list</li>
+            <li>Manage your subscription options</li>
+        </ol>
+    </div>
+</body>
+</html>
+`;
+
+// Support 페이지 엔드포인트 추가
+app.get('/support', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(supportPageHTML);
 });
 
 // 서버 초기화 함수

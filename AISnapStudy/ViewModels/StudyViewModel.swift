@@ -11,6 +11,7 @@ class StudyViewModel: ObservableObject {
 
     @Published private(set) var loadedQuestions: [Question] = []
     @Published private(set) var loadingProgress = 0
+    @Published private(set) var currentStreak: Int = 0
 
     private let openAIService: OpenAIService
 
@@ -79,8 +80,19 @@ class StudyViewModel: ObservableObject {
 
         setupCurrentSession()
     }
-
-
+    
+    private func updateStreak(isCorrect: Bool) {
+        if isCorrect {
+            currentStreak += 1
+            if currentStreak > 2 {
+                // 스트릭 달성 시 특별한 피드백
+                HapticManager.shared.notification(type: .success)
+            }
+        } else {
+            currentStreak = 0
+        }
+    }
+    
     func startQuestionGeneration(input: QuestionInput, parameters: QuestionParameters) async {
         isLoadingQuestions = true
         loadingProgress = 0
@@ -185,8 +197,20 @@ class StudyViewModel: ObservableObject {
         let trimmedCorrect = currentQuestion.correctAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let isCorrect = trimmedSelected == trimmedCorrect
         
+        // 햅틱 피드백 추가
         if isCorrect {
             correctAnswers += 1
+            currentStreak += 1  // 스트릭 증가
+            
+            // 스트릭에 따른 피드백
+            if currentStreak > 2 {
+                HapticManager.shared.notification(type: .success)
+            } else {
+                HapticManager.shared.impact(style: .medium)
+            }
+        } else {
+            currentStreak = 0  // 스트릭 리셋
+            HapticManager.shared.notification(type: .error)
         }
         
         // StatViewModel 업데이트 및 CoreData 저장
@@ -195,7 +219,8 @@ class StudyViewModel: ObservableObject {
             object: nil,
             userInfo: [
                 "currentIndex": currentIndex + 1,
-                "correctAnswers": correctAnswers
+                "correctAnswers": correctAnswers,
+                "currentStreak": currentStreak
             ]
         )
         
@@ -203,12 +228,12 @@ class StudyViewModel: ObservableObject {
     }
     
     
-   func nextQuestion() {
-       guard currentIndex < questions.count - 1 else { return }
-       currentIndex += 1
-       currentQuestion = questions[currentIndex]
-       resetAnswers()
-   }
+    func nextQuestion() {
+        guard currentIndex < questions.count - 1 else { return }
+        currentIndex += 1
+        currentQuestion = questions[currentIndex]
+        resetAnswers()
+    }
    
    func saveProgress() {
        print("Saving progress...")
@@ -272,3 +297,5 @@ extension StudyViewModel {
        }
    }
 }
+
+
