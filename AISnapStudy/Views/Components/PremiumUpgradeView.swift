@@ -6,7 +6,7 @@ struct PremiumUpgradeView: View {
     @State private var showPlans = false
     
     var body: some View {
-        NavigationView {
+        NavigationStack {  // NavigationView를 NavigationStack으로 변경
             ScrollView {
                 VStack(spacing: 20) {
                     // Premium features section
@@ -14,26 +14,32 @@ struct PremiumUpgradeView: View {
                         Text("Premium Features")
                             .font(.title2)
                             .fontWeight(.bold)
+                            .padding(.horizontal)
                         
-                        FeatureRow(
-                            icon: "sparkles",
-                            title: "More Daily Questions",
-                            description: "Create up to 30 question sets per day"
-                        )
-                        
-                        FeatureRow(
-                            icon: "square.and.arrow.down",
-                            title: "Full Library Access",
-                            description: "Download all question sets from our library"
-                        )
-                        
-                        FeatureRow(
-                            icon: "xmark.circle.fill",
-                            title: "Ad-Free Experience",
-                            description: "Enjoy learning without any advertisements"
-                        )
+                        // iPad에 맞게 Grid 레이아웃 적용
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 300, maximum: 500))
+                        ], spacing: 16) {
+                            FeatureRow(
+                                icon: "sparkles",
+                                title: "More Daily Questions",
+                                description: "Create up to 30 question sets per day"
+                            )
+                            
+                            FeatureRow(
+                                icon: "square.and.arrow.down",
+                                title: "Full Library Access",
+                                description: "Download all question sets from our library"
+                            )
+                            
+                            FeatureRow(
+                                icon: "xmark.circle.fill",
+                                title: "Ad-Free Experience",
+                                description: "Enjoy learning without any advertisements"
+                            )
+                        }
+                        .padding(.horizontal)
                     }
-                    .padding()
                     
                     // See Plans Button
                     Button {
@@ -42,21 +48,27 @@ struct PremiumUpgradeView: View {
                         Text("See Plans")
                             .font(.headline)
                             .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: min(UIScreen.main.bounds.width - 40, 400))
                             .padding()
                             .background(Color.blue)
                             .cornerRadius(10)
                     }
                     .padding()
                 }
+                .frame(maxWidth: .infinity)
             }
             .navigationTitle("Premium Upgrade")
-            .navigationBarItems(trailing: Button("Close") {
-                dismiss()
-            })
-            .sheet(isPresented: $showPlans) {
-                SubscriptionPlansView()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
             }
+        }
+        .sheet(isPresented: $showPlans) {
+            SubscriptionPlansView()
         }
     }
 }
@@ -79,87 +91,100 @@ struct SubscriptionPlansView: View {
        }
    }
    
-   var body: some View {
-       NavigationView {
-           ScrollView {
-               VStack(spacing: 24) {
-                   Text("Choose your plan")
-                       .font(.title2)
-                       .fontWeight(.bold)
-                   
-                   // Annual Plan
-                   PlanCard(
-                       type: .annual,
-                       title: "Annual",
-                       price: "$99.99",
-                       period: "/ year",
-                       description: "Recurring billing.",
-                       isSelected: selectedPlan == .annual,
-                       discount: "45% off",
-                       isBestValue: true,
-                       action: { selectedPlan = .annual }
-                   )
-                   
-                   // Monthly Plan
-                   PlanCard(
-                       type: .monthly,
-                       title: "Monthly",
-                       price: "$14.99",
-                       period: "/ month",
-                       description: "Recurring billing. Cancel anytime.",
-                       isSelected: selectedPlan == .monthly,
-                       action: { selectedPlan = .monthly }
-                   )
-                   
-                   // How subscriptions work
-                   SubscriptionInfoSection()
-                   
-                   // Terms and conditions link
-                   Button("Terms and conditions") {
-                       showTerms = true
-                   }
-                   .font(.footnote)
-                   .foregroundColor(.blue)
-                   
-                   // Subscribe button
-                   Button(action: {
-                       Task {
-                           await handlePurchase()
-                       }
-                   }) {
-                       if isLoading {
-                           ProgressView()
-                               .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                       } else {
-                           Text("Subscribe")
-                               .font(.headline)
-                               .foregroundColor(.white)
-                       }
-                   }
-                   .frame(maxWidth: .infinity)
-                   .padding()
-                   .background(Color.yellow)
-                   .cornerRadius(10)
-                   .disabled(isLoading)
-                   .padding(.horizontal)
-               }
-               .padding()
-           }
-           .navigationBarItems(leading: Button("Cancel") { dismiss() })
-           .sheet(isPresented: $showTerms) {
-               TermsAndConditionsView()
-           }
-           .alert("구매 오류", isPresented: $showAlert) {
-               Button("확인", role: .cancel) { }
-           } message: {
-               Text(alertMessage)
-           }
-       }
-       .task {
-           // 상품 정보 로드
-           await storeService.loadProducts()
-       }
-   }
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("Choose your plan")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    // Plans Grid for iPad
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 300, maximum: 400))
+                    ], spacing: 20) {
+                        // Annual Plan
+                        PlanCard(
+                            type: .annual,
+                            title: "Annual",
+                            price: "$99.99",
+                            period: "/ year",
+                            description: "Recurring billing.",
+                            isSelected: selectedPlan == .annual,
+                            discount: "45% off",
+                            isBestValue: true,
+                            action: { selectedPlan = .annual }
+                        )
+                        
+                        // Monthly Plan
+                        PlanCard(
+                            type: .monthly,
+                            title: "Monthly",
+                            price: "$14.99",
+                            period: "/ month",
+                            description: "Recurring billing. Cancel anytime.",
+                            isSelected: selectedPlan == .monthly,
+                            action: { selectedPlan = .monthly }
+                        )
+                    }
+                    
+                    // Subscription Info with adjusted width
+                    SubscriptionInfoSection()
+                        .frame(maxWidth: 600)
+                    
+                    // Terms and Subscribe buttons
+                    VStack(spacing: 16) {
+                        Button("Terms and conditions") {
+                            showTerms = true
+                        }
+                        .font(.footnote)
+                        .foregroundColor(.blue)
+                        
+                        Button(action: {
+                            Task {
+                                await handlePurchase()
+                            }
+                        }) {
+                            if isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Text("Subscribe")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .frame(maxWidth: min(UIScreen.main.bounds.width - 40, 400))
+                        .padding()
+                        .background(Color.yellow)
+                        .cornerRadius(10)
+                        .disabled(isLoading)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showTerms) {
+            TermsAndConditionsView()
+        }
+        .alert("Purchase Error", isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
+        }
+        .task {
+            await storeService.loadProducts()
+        }
+    }
    
    private func handlePurchase() async {
        isLoading = true
@@ -308,9 +333,11 @@ struct PlanCard: View {
                 Text(description)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                
+                Spacer() // 남은 공간을 채워서 높이를 동일하게 만듭니다
             }
             .padding()
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 200) // 최소 높이를 지정하여 카드 크기를 통일
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(.systemBackground))
