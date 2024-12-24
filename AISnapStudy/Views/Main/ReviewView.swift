@@ -72,20 +72,20 @@ struct ReviewView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // 새로운 툴바 아이템 구성
                 ToolbarItem(placement: .principal) {
-                    Text("Review")
-                        .font(.system(size: 34, weight: .bold))  // 크기를 키우고 볼드 처리
-                        .padding(.bottom, 5)
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showSubjectManagement = true
-                    }) {
-                        Image(systemName: "slider.horizontal.3")
-                            .foregroundColor(.blue)
-                            .imageScale(.large)
+                    HStack(spacing: 0) {
+                        Text("Review")
+                            .font(.system(size: 34, weight: .bold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading)
+                        
+                        Spacer()
+                        
+                        ReviewToolbarButtons(showSubjectManagement: $showSubjectManagement)
+                            .padding(.trailing)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .sheet(isPresented: $showSubjectManagement) {
@@ -100,6 +100,7 @@ struct ReviewView: View {
                 }
             }
         }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
     
     private func filterProblemSets(subject: SubjectType) -> [ProblemSet] {
@@ -112,6 +113,70 @@ struct ReviewView: View {
                        problemSet.subjectId == customSubject.id
             }
             return false
+        }
+    }
+}
+
+// 분리된 툴바 버튼 컴포넌트
+struct ReviewToolbarButtons: View {
+    @Binding var showSubjectManagement: Bool
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    
+    private var buttonSpacing: CGFloat {
+        horizontalSizeClass == .regular ? 24 : 16  // iPad에서는 더 큰 간격
+    }
+    
+    var body: some View {
+        HStack(spacing: buttonSpacing) {
+            Button(action: {}) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
+                    .foregroundColor(.blue)
+            }
+            
+            Button(action: {
+                showSubjectManagement = true
+            }) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding(.vertical, horizontalSizeClass == .regular ? 12 : 8)
+    }
+}
+
+// Navigation Bar에서의 제목 컴포넌트도 분리
+struct ReviewNavigationTitle: View {
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    
+    var body: some View {
+        Text("Review")
+            .font(.system(
+                size: horizontalSizeClass == .regular ? 38 : 34,
+                weight: .bold
+            ))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 16)
+    }
+}
+
+// 너비 제한을 위한 래퍼 뷰
+struct ContentWidthWrapper<Content: View>: View {
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    let content: Content
+    
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+    
+    var body: some View {
+        if horizontalSizeClass == .regular {
+            content
+                .frame(maxWidth: 800)
+                .frame(maxWidth: .infinity)
+        } else {
+            content
         }
     }
 }

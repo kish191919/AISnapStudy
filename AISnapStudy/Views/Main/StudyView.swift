@@ -87,12 +87,6 @@ struct StudyView: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 10)
                     
-                    Text("\(studyViewModel.currentIndex + 1) / \(studyViewModel.totalQuestions)")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
-                        .padding(.bottom, 20)
-                    
                     if !studyViewModel.hasQuestions {
                         Text("No questions available")
                             .font(.title3)

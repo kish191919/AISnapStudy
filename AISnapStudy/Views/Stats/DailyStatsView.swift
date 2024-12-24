@@ -12,6 +12,7 @@ struct DailyStatsView: View {
     @State private var selectedTimeRange: TimeRange = .week
     @State private var selectedDate = Date()
     @State private var showingDatePicker = false
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     private var todayStats: DailyProgress? {
         let calendar = Calendar.current
@@ -111,7 +112,7 @@ struct DailyStatsView: View {
                     .foregroundStyle(.green)
                 }
             }
-            .frame(height: 200)
+            .frame(height: horizontalSizeClass == .regular ? 250 : 200)
             .padding(.horizontal, 20)
             .chartLegend(position: .top)
             .chartForegroundStyleScale([
@@ -236,18 +237,38 @@ struct CalendarDay: Identifiable, Hashable {
 
 struct MonthCalendarView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     let month: Date
     let monthlyData: [DailyProgress]
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     
+    // 디바이스 크기에 따른 셀 크기 조정
+    private var cellSize: CGFloat {
+        horizontalSizeClass == .regular ? 50 : 35  // iPad는 50, iPhone은 35
+    }
+    
+    // 폰트 크기 조정
+    private var dayFontSize: CGFloat {
+        horizontalSizeClass == .regular ? 16 : 12
+    }
+    
+    private var dateFontSize: CGFloat {
+        horizontalSizeClass == .regular ? 16 : 14
+    }
+    
+    
+    
     var body: some View {
-        VStack(spacing: 15) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
+        VStack(spacing: horizontalSizeClass == .regular ? 15 : 8) {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: horizontalSizeClass == .regular ? 8 : 4), count: 7),
+                spacing: horizontalSizeClass == .regular ? 8 : 4
+            ) {
                 // 요일 헤더
                 ForEach(daysInWeek, id: \.self) { day in
                     Text(day)
-                        .font(.caption)
+                        .font(.system(size: dayFontSize))
                         .foregroundColor(.gray)
                         .frame(maxWidth: .infinity)
                 }
@@ -255,20 +276,25 @@ struct MonthCalendarView: View {
                 // 빈 셀 채우기
                 ForEach(0..<firstWeekdayOfMonth, id: \.self) { _ in
                     Color.clear
-                        .frame(height: 40)
+                        .frame(height: cellSize)
                 }
                 
                 // 날짜 그리드
                 ForEach(calendarDays, id: \.id) { calendarDay in
                     if let progress = progressForDate(calendarDay.date),
                        progress.questionsCompleted > 0 {
-                        DayCellView(date: calendarDay.date, progress: progress)
+                        DayCellView(
+                            date: calendarDay.date,
+                            progress: progress,
+                            size: cellSize,
+                            fontSize: dateFontSize
+                        )
                     } else {
                         Text(String(calendar.component(.day, from: calendarDay.date)))
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: dateFontSize, weight: .medium))
                             .foregroundColor(colorScheme == .dark ? .white : .primary)
+                            .frame(height: cellSize)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 40)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6))
@@ -277,12 +303,11 @@ struct MonthCalendarView: View {
                 }
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 12)
+        .padding(.horizontal, horizontalSizeClass == .regular ? 8 : 4)
+        .padding(.vertical, horizontalSizeClass == .regular ? 12 : 8)
         .background(colorScheme == .dark ? Color(.systemGray5) : Color(.systemBackground))
         .cornerRadius(16)
     }
-
     // 월의 첫 번째 날의 요일 (0 = 일요일, 6 = 토요일)
     private var firstWeekdayOfMonth: Int {
         guard let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) else {
@@ -329,12 +354,30 @@ struct MonthCalendarView: View {
     }
 }
 
+
 struct StatsCircleContainer: View {
     let todayStats: DailyProgress?
     let weeklyStats: [DailyProgress]
     let monthlyProgress: [DailyProgress]  // 추가
     let selectedTimeRange: TimeRange      // 추가
     let currentMonthDate: Date           // 추가
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    
+    private var containerSpacing: CGFloat {
+        // iPad에서는 더 큰 간격 사용
+        horizontalSizeClass == .regular ? 120 : 30  // 간격 증가
+    }
+    
+    private var verticalPadding: CGFloat {
+        // iPad에서는 더 큰 패딩 사용
+        horizontalSizeClass == .regular ? 60 : 20  // 패딩 증가
+    }
+    
+    private var circleSize: CGFloat {
+        // 크기 약간 축소
+        horizontalSizeClass == .regular ? 200 : 150
+    }
+
     
     private var monthlyStats: (total: Int, correct: Int, incorrect: Int) {
         let calendar = Calendar.current
@@ -353,38 +396,40 @@ struct StatsCircleContainer: View {
     }
     
     var body: some View {
-        HStack {
-            CircleProgressView(
-                progress: Double(todayStats?.correctAnswers ?? 0) / Double(max(1, todayStats?.questionsCompleted ?? 1)),
-                title: "Today's Accuracy",
-                total: todayStats?.questionsCompleted ?? 0,
-                correct: todayStats?.correctAnswers ?? 0,
-                incorrect: (todayStats?.questionsCompleted ?? 0) - (todayStats?.correctAnswers ?? 0)
-            )
-            
-            Spacer(minLength: 30)
-            
-            if selectedTimeRange == .month {
-                // 월별 통계
+        VStack(spacing: verticalPadding) {
+            HStack(spacing: containerSpacing) {
                 CircleProgressView(
-                    progress: monthlyStats.total > 0 ? Double(monthlyStats.correct) / Double(monthlyStats.total) : 0,
-                    title: "Monthly Accuracy",
-                    total: monthlyStats.total,
-                    correct: monthlyStats.correct,
-                    incorrect: monthlyStats.incorrect
+                    progress: Double(todayStats?.correctAnswers ?? 0) / Double(max(1, todayStats?.questionsCompleted ?? 1)),
+                    title: "Today's Accuracy",
+                    total: todayStats?.questionsCompleted ?? 0,
+                    correct: todayStats?.correctAnswers ?? 0,
+                    incorrect: (todayStats?.questionsCompleted ?? 0) - (todayStats?.correctAnswers ?? 0),
+                    size: circleSize  // size 파라미터 추가
                 )
-            } else {
-                // 주간 통계
-                CircleProgressView(
-                    progress: calculateWeeklyProgress(),
-                    title: "Weekly Accuracy",
-                    total: calculateWeeklyTotal(),
-                    correct: calculateWeeklyCorrect(),
-                    incorrect: calculateWeeklyIncorrect()
-                )
+                
+                if selectedTimeRange == .month {
+                    CircleProgressView(
+                        progress: monthlyStats.total > 0 ? Double(monthlyStats.correct) / Double(monthlyStats.total) : 0,
+                        title: "Monthly Accuracy",
+                        total: monthlyStats.total,
+                        correct: monthlyStats.correct,
+                        incorrect: monthlyStats.incorrect,
+                        size: circleSize  // size 파라미터 추가
+                    )
+                } else {
+                    CircleProgressView(
+                        progress: calculateWeeklyProgress(),
+                        title: "Weekly Accuracy",
+                        total: calculateWeeklyTotal(),
+                        correct: calculateWeeklyCorrect(),
+                        incorrect: calculateWeeklyIncorrect(),
+                        size: circleSize  // size 파라미터 추가
+                    )
+                }
             }
+            .padding(.horizontal, horizontalSizeClass == .regular ? 50 : 20)
         }
-        .padding(.top)
+        .padding(.vertical, verticalPadding)
     }
     
     private func calculateWeeklyProgress() -> Double {
@@ -414,55 +459,107 @@ struct CircleProgressView: View {
     let total: Int
     let correct: Int
     let incorrect: Int
+    let size: CGFloat
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    
+    
+    private var titleFontSize: CGFloat {
+        horizontalSizeClass == .regular ? size * 0.08 : size * 0.1
+    }
+    
+    private var percentageFontSize: CGFloat {
+        horizontalSizeClass == .regular ? size * 0.15 : size * 0.2
+    }
+    
+    private var statsFontSize: CGFloat {
+        horizontalSizeClass == .regular ? size * 0.08 : size * 0.1
+    }
+    
+    private var statsSpacing: CGFloat {
+        horizontalSizeClass == .regular ? 24 : 16
+    }
+    
+    
+    
+    private var circleSize: CGFloat {
+        // iPad에서는 더 큰 원형 프로그레스
+        horizontalSizeClass == .regular ? 200 : 150
+    }
+    
+    private var fontScale: CGFloat {
+        // iPad에서는 더 큰 폰트 사이즈
+        horizontalSizeClass == .regular ? 1.2 : 1.0
+    }
+    
     
     var body: some View {
-        VStack {
+        VStack(spacing: statsSpacing) {
+            // 원형 프로그레스
             ZStack {
                 Circle()
-                    .stroke(lineWidth: 20)
+                    .stroke(lineWidth: size * 0.1)
                     .opacity(0.3)
                     .foregroundColor(.blue)
                 
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(style: StrokeStyle(lineWidth: 25, lineCap: .round))
+                    .stroke(style: StrokeStyle(lineWidth: size * 0.1, lineCap: .round))
                     .foregroundColor(.green)
                     .rotationEffect(.degrees(-90))
                     .animation(.linear, value: progress)
                 
-                VStack {
+                VStack(spacing: 4) {
                     Text("\(Int(progress * 100))%")
-                        .font(.headline)
-                        .bold()
+                        .font(.system(size: percentageFontSize, weight: .bold))
                     Text(title)
-                        .font(.caption2)
+                        .font(.system(size: titleFontSize))
+                        .multilineTextAlignment(.center)
                 }
             }
-            .frame(width: 150, height: 150)
+            .frame(width: size, height: size)
             
+            // 통계 정보
             VStack(alignment: .leading, spacing: 8) {
-                VStack {
-                    Text("Correct: \(correct)")
-                        .font(.subheadline)
-                        .foregroundColor(.green)
-                }
-                
-                VStack {
-                    Text("Incorrect: \(incorrect)")
-                        .font(.subheadline)
-                        .foregroundColor(.red)
-                }
-                
-                VStack {
-                    Text("Total: \(total)")
-                        .font(.subheadline)
-                }
+                statRow("Correct:", value: correct, color: .green)
+                statRow("Incorrect:", value: incorrect, color: .red)
+                statRow("Total:", value: total, color: .primary)
             }
-            .padding(.top)
+            .font(.system(size: statsFontSize))
+            .padding(.top, horizontalSizeClass == .regular ? 20 : 12)  // 상단 여백 추가
         }
         .padding()
     }
+    
+    private func statRow(_ title: String, value: Int, color: Color) -> some View {
+        HStack {
+            Text(title)
+                .foregroundColor(.secondary)
+            Text("\(value)")
+                .foregroundColor(color)
+                .fontWeight(.semibold)
+        }
+    }
+    
+    private func statsLabel(_ title: String, value: Int, color: Color) -> some View {
+        HStack {
+            Text("\(title):")
+            Text("\(value)")
+                .foregroundColor(color)
+                .fontWeight(.semibold)
+        }
+    }
+    
+    private func statRow(title: String, value: Int, color: Color) -> some View {
+        HStack {
+            Text("\(title):")
+                .font(.system(size: size * 0.12))
+            Text("\(value)")
+                .font(.system(size: size * 0.12, weight: .semibold))
+                .foregroundColor(color)
+        }
+    }
 }
+
 
 struct ActivityRow: View {
    let title: String
@@ -526,6 +623,8 @@ struct DayCellView: View {
     @Environment(\.colorScheme) private var colorScheme
     let date: Date
     let progress: DailyProgress
+    let size: CGFloat  // 크기 파라미터 추가
+    let fontSize: CGFloat  // 폰트 크기 파라미터 추가
     
     private var activityColor: Color {
         let questionCount = progress.questionsCompleted
@@ -542,17 +641,18 @@ struct DayCellView: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(activityColor)
                 .frame(maxWidth: .infinity)
-                .frame(height: 40)
+                .frame(height: size)  // 높이 파라미터 사용
             
             VStack(spacing: 2) {
                 Text("\(Calendar.current.component(.day, from: date))")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: fontSize, weight: .medium))  // 폰트 크기 파라미터 사용
                     .foregroundColor(.white)
                 Text("\(progress.questionsCompleted)")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: fontSize - 2, weight: .medium))  // 작은 폰트 크기
                     .foregroundColor(.white)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

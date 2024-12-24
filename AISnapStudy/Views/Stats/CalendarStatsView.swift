@@ -3,10 +3,26 @@ import SwiftUI
 
 
 struct CalendarStatsView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @State private var selectedMonth = Date()  // 내부에서 상태 관리
     let monthlyData: [Date: [DailyStats]]
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    
+    // 셀 크기와 폰트 크기를 위한 계산 프로퍼티 추가
+    private var cellSize: CGFloat {
+        horizontalSizeClass == .regular ? 50 : 35
+    }
+    
+    private var dayFontSize: CGFloat {
+        horizontalSizeClass == .regular ? 16 : 12
+    }
+    
+    private var dateFontSize: CGFloat {
+        horizontalSizeClass == .regular ? 16 : 14
+    }
+    
     
     private var calendarDays: [CalendarDay] {
         guard let monthInterval = calendar.dateInterval(of: .month, for: selectedMonth),
@@ -48,25 +64,27 @@ struct CalendarStatsView: View {
             .padding(.bottom)
             
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7)) {
-                 // 요일 헤더
-                 ForEach(daysInWeek, id: \.self) { day in
-                     Text(day)
-                         .font(.caption)
-                         .foregroundColor(.secondary)
-                 }
-                 
-                 // 날짜 그리드
-                 ForEach(calendarDays, id: \.id) { calendarDay in
-                     if let stats = statsFor(date: calendarDay.date) {
-                         DayCellView(
-                             date: calendarDay.date,
-                             progress: convertToDailyProgress(stats)
-                         )
-                     } else {
-                         Text(String(calendar.component(.day, from: calendarDay.date)))
-                             .font(.caption)
-                             .foregroundColor(.secondary)
-                             .frame(height: 35)
+                // 요일 헤더
+                ForEach(daysInWeek, id: \.self) { day in
+                    Text(day)
+                        .font(.system(size: dayFontSize))
+                        .foregroundColor(.secondary)
+                }
+                
+                // 날짜 그리드
+                ForEach(calendarDays, id: \.id) { calendarDay in
+                    if let stats = statsFor(date: calendarDay.date) {
+                        DayCellView(
+                            date: calendarDay.date,
+                            progress: convertToDailyProgress(stats),
+                            size: cellSize,           // size 파라미터 추가
+                            fontSize: dateFontSize    // fontSize 파라미터 추가
+                        )
+                    } else {
+                        Text(String(calendar.component(.day, from: calendarDay.date)))
+                            .font(.system(size: dateFontSize))
+                            .foregroundColor(.secondary)
+                            .frame(height: cellSize) // cellSize 사용
                     }
                 }
             }
