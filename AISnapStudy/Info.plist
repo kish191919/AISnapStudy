@@ -62,5 +62,7 @@
     <array>
         <string>merchant.your.identifier</string>
     </array>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>
