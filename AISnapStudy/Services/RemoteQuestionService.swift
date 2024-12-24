@@ -14,81 +14,91 @@ class RemoteQuestionService {
     }
     
     func fetchQuestionSet(_ id: String) async throws -> ProblemSet {
-        print("🌐 Downloading question set with ID: \(id)")
-        let url = URL(string: "\(baseURL)/api/question-sets/\(id)")!
-        
-        let (data, response) = try await URLSession.shared.data(from: url)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-        
-        print("📡 Response status: \(httpResponse.statusCode)")
-        
-        struct RemoteSet: Codable {
-            let id: String
-            let subject: String
-            let subjectType: String
-            let subjectId: String
-            let subjectName: String
-            let questions: [RemoteQuestion]
-            let createdAt: String
-            let educationLevel: String
-            let name: String
-            
-            struct RemoteQuestion: Codable {
-                let id: String
-                let type: String
-                let question: String
-                let options: [String]
-                let correctAnswer: String
-                let explanation: String
-                let hint: String
-            }
-        }
-        
-        let decoder = JSONDecoder()
-        let remoteSet = try decoder.decode(RemoteSet.self, from: data)
-        
-        // Question 모델로 변환
-        let questions = remoteSet.questions.map { q -> Question in
-            let questionType: QuestionType = {
-                switch q.type.lowercased() {
-                    case "multiple_choice":
-                        return .multipleChoice
-                    case "true_false":
-                        return .trueFalse
-                    default:
-                        return .multipleChoice  // 기본값
-                }
-            }()
-            
-            return Question(
-                id: q.id,
-                type: questionType,
-                subject: DefaultSubject.download,  // DefaultSubject 타입으로 변경
-                question: q.question,
-                options: q.options,
-                correctAnswer: q.correctAnswer,
-                explanation: q.explanation,
-                hint: q.hint,
-                isSaved: false,
-                createdAt: Date()
-            )
-        }
-        
-        // ProblemSet으로 변환
-        return ProblemSet(
-            id: UUID().uuidString,
-            subject: DefaultSubject.download,
-            subjectType: "default",
-            subjectId: DefaultSubject.download.rawValue,
-            subjectName: "Downloaded Sets",
-            questions: questions,
-            createdAt: ISO8601DateFormatter().date(from: remoteSet.createdAt) ?? Date(),
-            educationLevel: EducationLevel(rawValue: remoteSet.educationLevel) ?? .elementary,
-            name: remoteSet.name
-        )
+       print("🌐 Downloading question set with ID: \(id)")
+       let url = URL(string: "\(baseURL)/api/question-sets/\(id)")!
+       
+       let (data, response) = try await URLSession.shared.data(from: url)
+       
+       guard let httpResponse = response as? HTTPURLResponse else {
+           throw URLError(.badServerResponse)
+       }
+       
+       print("📡 Response status: \(httpResponse.statusCode)")
+       
+       struct RemoteSet: Codable {
+           let id: String
+           let subject: String
+           let subjectType: String
+           let subjectId: String
+           let subjectName: String
+           let questions: [RemoteQuestion]
+           let createdAt: String
+           let educationLevel: String
+           let name: String
+           
+           struct RemoteQuestion: Codable {
+               let id: String
+               let type: String
+               let question: String
+               let options: [String]
+               let correctAnswer: String
+               let explanation: String
+               let hint: String
+           }
+       }
+       
+       let decoder = JSONDecoder()
+       let remoteSet = try decoder.decode(RemoteSet.self, from: data)
+       
+       // Question 모델로 변환할 때 옵션 섞기 추가
+       let questions = remoteSet.questions.map { q -> Question in
+           let questionType: QuestionType = {
+               switch q.type.lowercased() {
+               case "multiple_choice":
+                   return .multipleChoice
+               case "true_false":
+                   return .trueFalse
+               default:
+                   return .multipleChoice
+               }
+           }()
+           
+           // 객관식 문제의 보기 섞기
+           let (shuffledOptions, correctAnswer) = questionType == .multipleChoice
+               ? {
+                   var options = q.options
+                   options.shuffle()
+                   let newCorrectIndex = options.firstIndex(of: q.correctAnswer) ?? 0
+                   return (options, options[newCorrectIndex])
+               }()
+               : (q.options, q.correctAnswer)
+               
+           return Question(
+               id: q.id,
+               type: questionType,
+               subject: DefaultSubject.download,
+               question: q.question,
+               options: shuffledOptions,
+               correctAnswer: correctAnswer,
+               explanation: q.explanation,
+               hint: q.hint,
+               isSaved: false,
+               createdAt: Date()
+           )
+       }
+       
+       // ProblemSet으로 변환
+       return ProblemSet(
+           id: UUID().uuidString,
+           subject: DefaultSubject.download,
+           subjectType: "default",
+           subjectId: DefaultSubject.download.rawValue,
+           subjectName: "Downloaded Sets",
+           questions: questions,
+           createdAt: ISO8601DateFormatter().date(from: remoteSet.createdAt) ?? Date(),
+           educationLevel: EducationLevel(rawValue: remoteSet.educationLevel) ?? .elementary,
+           name: remoteSet.name
+       )
     }
     
     func searchQuestionSets(query: String) async throws -> [RemoteQuestionSet] {
