@@ -72,21 +72,15 @@ struct ReviewView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // 새로운 툴바 아이템 구성
                 ToolbarItem(placement: .principal) {
-                    HStack(spacing: 0) {
+                    HStack {
                         Text("Review")
                             .font(.system(size: 34, weight: .bold))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading)
-                        
-                        Spacer()
                         
                         ReviewToolbarButtons(showSubjectManagement: $showSubjectManagement)
-                            .padding(.trailing)
                     }
-                    .frame(maxWidth: .infinity)
-                }
+                    .frame(maxWidth: .infinity)                }
             }
             .sheet(isPresented: $showSubjectManagement) {
                 NavigationView {
@@ -120,6 +114,7 @@ struct ReviewView: View {
 // 분리된 툴바 버튼 컴포넌트
 struct ReviewToolbarButtons: View {
     @Binding var showSubjectManagement: Bool
+    @State private var showHelp = false  // 도움말 표시 상태 추가
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     private var buttonSpacing: CGFloat {
@@ -128,7 +123,9 @@ struct ReviewToolbarButtons: View {
     
     var body: some View {
         HStack(spacing: buttonSpacing) {
-            Button(action: {}) {
+            Button(action: {
+                showHelp = true  // 도움말 버튼 클릭 시 showHelp를 true로 설정
+            }) {
                 Image(systemName: "questionmark.circle")
                     .font(.system(size: horizontalSizeClass == .regular ? 24 : 20))
                     .foregroundColor(.blue)
@@ -143,6 +140,59 @@ struct ReviewToolbarButtons: View {
             }
         }
         .padding(.vertical, horizontalSizeClass == .regular ? 12 : 8)
+        .sheet(isPresented: $showHelp) {
+            NavigationStack {
+                ReviewHelpContentView()
+                    .navigationTitle("Review Help")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") {
+                                showHelp = false
+                            }
+                        }
+                    }
+            }
+        }
+    }
+}
+
+struct ReviewHelpContentView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                helpSection(
+                    title: "Question Sets",
+                    content: "• Each subject contains multiple question sets\n• Select a question set to start studying\n• You can favorite sets for quick access\n• Edit mode allows you to rename or delete sets"
+                )
+                
+                helpSection(
+                    title: "Saved Questions",
+                    content: "• Access your saved questions from any set\n• Review specific questions you want to focus on\n• Bookmark important questions while studying"
+                )
+                
+                helpSection(
+                    title: "Subject Management",
+                    content: "• Create custom subjects\n• Organize your study materials"
+                )
+                
+                helpSection(
+                    title: "Tips",
+                    content: "• Use favorites for important sets\n• Create subjects for better organization\n• Save questions you want to review later"
+                )
+            }
+            .padding()
+        }
+    }
+    
+    private func helpSection(title: String, content: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            Text(content)
+                .font(.body)
+                .foregroundColor(.secondary)
+        }
     }
 }
 
@@ -419,11 +469,14 @@ private struct ProblemSetItem: View {
 private struct ProblemSetToolbar: ToolbarContent {
     @Binding var isEditMode: Bool
     @Binding var showHelpAlert: Bool
+    @State private var showAlert = false  // 도움말 알림을 위한 상태 추가
     
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarTrailing) {
             HStack(spacing: 16) {
-                Button(action: { showHelpAlert = true }) {
+                Button(action: {
+                    showAlert = true  // 도움말 버튼 클릭 시 알림 표시
+                }) {
                     Image(systemName: "questionmark.circle")
                         .imageScale(.large)
                         .foregroundColor(.blue)
@@ -439,10 +492,15 @@ private struct ProblemSetToolbar: ToolbarContent {
                         .foregroundColor(isEditMode ? .green : .blue)
                 }
             }
+            .alert("How to Use", isPresented: $showAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("• Tap a problem set to start reviewing\n• Use star icon to mark favorites\n• Edit mode lets you rename or delete sets\n• Drag and drop sets to combine them")
+                    .multilineTextAlignment(.leading)
+            }
         }
     }
 }
-
 private struct DeleteAlertButtons: View {
     let problemSetToDelete: ProblemSet?
     let homeViewModel: HomeViewModel

@@ -37,13 +37,14 @@ struct ReviewProblemSetCard: View {
                             .foregroundColor(.yellow)
                             .imageScale(.large)
                     }
+                    .frame(height: 44) // 버튼 높이 통일
                 }
                 HStack {
                     Text("\(problemSet.questions.count) EA")
                         .font(.headline)
                         .foregroundColor(.primary)
                     
-                    Text("Created on: \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    Text(" \(problemSet.createdAt.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -58,6 +59,7 @@ struct ReviewProblemSetCard: View {
                             .foregroundColor(.blue)
                             .imageScale(.large)
                     }
+                    .frame(height: 44) // 버튼 높이 통일
                     
                     Button(action: {
                         newName = problemSet.name
@@ -67,12 +69,14 @@ struct ReviewProblemSetCard: View {
                             .foregroundColor(.blue)
                             .imageScale(.large)
                     }
+                    .frame(height: 44) // 버튼 높이 통일
                     
                     Button(action: onDelete) {
                         Image(systemName: "trash.circle.fill")
                             .foregroundColor(.red)
                             .imageScale(.large)
                     }
+                    .frame(height: 44) // 버튼 높이 통일
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
