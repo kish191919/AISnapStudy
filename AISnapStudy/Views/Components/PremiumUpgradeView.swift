@@ -183,15 +183,31 @@ struct SubscriptionPlansView: View {
    }
 }
 
+
 enum PurchaseError: LocalizedError {
-   case productNotFound
-   
-   var errorDescription: String? {
-       switch self {
-       case .productNotFound:
-           return "선택한 구독 상품을 찾을 수 없습니다."
-       }
-   }
+    case noActiveAccount
+    case verificationFailed
+    case userCancelled
+    case pending
+    case unknown
+    case productNotFound  // 추가된 case
+    
+    var errorDescription: String? {
+        switch self {
+        case .noActiveAccount:
+            return "No active App Store account found. Please sign in to your Apple ID."
+        case .verificationFailed:
+            return "Unable to verify the purchase. Please try again."
+        case .userCancelled:
+            return "Purchase was cancelled."
+        case .pending:
+            return "Purchase is pending approval."
+        case .unknown:
+            return "An unknown error occurred."
+        case .productNotFound:   // 에러 메시지 추가
+            return "The selected product could not be found."
+        }
+    }
 }
 
 // StoreService의 PurchaseProduct enum 업데이트

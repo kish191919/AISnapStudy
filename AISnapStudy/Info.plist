@@ -58,5 +58,9 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
+    <key>com.apple.developer.in-app-payments</key>
+    <array>
+        <string>merchant.your.identifier</string>
+    </array>
 </dict>
 </plist>

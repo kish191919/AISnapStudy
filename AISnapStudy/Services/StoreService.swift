@@ -26,6 +26,21 @@ class StoreService: ObservableObject {
         // 초기화 시 상태 확인 및 리셋
         checkAndResetDailyQuestions()
         
+        // 트랜잭션 업데이트 리스너 추가
+        Task {
+            // 시작 시 트랜잭션 업데이트 확인
+            for await result in Transaction.updates {
+                do {
+                    guard let transaction = try? result.payloadValue else {
+                        throw PurchaseError.verificationFailed
+                    }
+                    await handleVerifiedTransaction(transaction)
+                } catch {
+                    print("❌ Transaction failed verification: \(error)")
+                }
+            }
+        }
+        
         Task {
             await loadProducts()
             await updatePurchasedProducts()
@@ -34,11 +49,30 @@ class StoreService: ObservableObject {
         
         setupDailyReset()
     }
+
+    // 새로운 트랜잭션 처리 메서드
+    private func handleVerifiedTransaction(_ transaction: Transaction) async {
+        // 구독 상태 업데이트
+        subscriptionStatus.isPremium = true
+        resetDailyQuestions() // 프리미엄 상태에 맞게 일일 질문 수 리셋
+        
+        // 상태 저장
+        saveSubscriptionStatus()
+        
+        // 트랜잭션 완료 처리
+        await transaction.finish()
+        
+        print("✅ Transaction processed successfully - Premium status updated")
+    }
+
+    
+    
     
     deinit {
         resetTimer?.invalidate()
     }
     
+    // MARK: - Public Methods
     func canDownloadMoreSets() -> Bool {
         return subscriptionStatus.isPremium || subscriptionStatus.downloadedSetsCount < UserSubscriptionStatus.maxFreeDownloads
     }
@@ -54,7 +88,97 @@ class StoreService: ObservableObject {
         return max(0, UserSubscriptionStatus.maxFreeDownloads - subscriptionStatus.downloadedSetsCount)
     }
     
+    func loadProducts() async {
+        do {
+            products = try await Product.products(for: productIds)
+            print("✅ Loaded \(products.count) products")
+        } catch {
+            print("❌ Failed to load products: \(error)")
+        }
+    }
     
+    func purchase(_ product: Product) async throws {
+        do {
+            let result = try await product.purchase()
+            
+            switch result {
+            case .success(let verification):
+                guard let transaction = try? verification.payloadValue else {
+                    throw PurchaseError.verificationFailed
+                }
+                
+                // 구독 상태 즉시 업데이트
+                subscriptionStatus.isPremium = true
+                resetDailyQuestions() // 프리미엄 상태로 일일 질문 수 리셋
+                saveSubscriptionStatus()
+                
+                await transaction.finish()
+                
+                // UI 업데이트를 위해 구매 상태 갱신
+                await updatePurchasedProducts()
+                await checkSubscriptionStatus()
+                
+                print("✅ Purchase successful - Premium status activated")
+                
+            case .userCancelled:
+                throw PurchaseError.userCancelled
+            case .pending:
+                throw PurchaseError.pending
+            @unknown default:
+                throw PurchaseError.unknown
+            }
+        } catch {
+            print("🚫 Purchase failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    private func resetDailyQuestions() {
+        // 프리미엄 상태에 따라 적절한 일일 질문 수 설정
+        let maxQuestions = subscriptionStatus.isPremium ? 30 : 1
+        subscriptionStatus.dailyQuestionsRemaining = maxQuestions
+        subscriptionStatus.lastResetDate = Date()
+        
+        saveSubscriptionStatus()
+        defaults.set(Date(), forKey: lastResetDateKey)
+        
+        print("🔄 Daily questions reset - Premium: \(subscriptionStatus.isPremium), Questions: \(maxQuestions)")
+    }
+
+    private func updateSubscriptionStatus() async {
+        var hasActiveSubscription = false
+        
+        // 현재 활성화된 구독 확인
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            
+            // 구독 상품 확인
+            if let product = products.first(where: { $0.id == transaction.productID }) {
+                hasActiveSubscription = true
+                purchasedProducts.append(product)
+            }
+        }
+        
+        // 구독 상태 업데이트
+        let wasPremium = subscriptionStatus.isPremium
+        subscriptionStatus.isPremium = hasActiveSubscription
+        
+        // 프리미엄 상태가 변경되었다면 질문 수 리셋
+        if wasPremium != hasActiveSubscription {
+            resetDailyQuestions()
+        }
+        
+        saveSubscriptionStatus()
+        print("📱 Subscription status updated - Premium: \(hasActiveSubscription)")
+    }
+    
+    func decrementRemainingQuestions() {
+        guard subscriptionStatus.dailyQuestionsRemaining > 0 else { return }
+        subscriptionStatus.dailyQuestionsRemaining -= 1
+        saveSubscriptionStatus()
+    }
+    
+    // MARK: - Private Methods
     private func setupDailyReset() {
         let calendar = Calendar.current
         let now = Date()
@@ -90,36 +214,7 @@ class StoreService: ObservableObject {
         }
     }
     
-    func loadProducts() async {
-        do {
-            products = try await Product.products(for: productIds)
-            print("✅ Loaded \(products.count) products")
-        } catch {
-            print("❌ Failed to load products: \(error)")
-        }
-    }
-    
-    func purchase(_ product: Product) async throws {
-        let result = try await product.purchase()
-        
-        switch result {
-        case .success(let verification):
-            await updatePurchasedProducts()
-            await checkSubscriptionStatus()
-            print("✅ Purchase successful")
-            
-        case .userCancelled:
-            print("ℹ️ Purchase cancelled by user")
-            
-        case .pending:
-            print("⏳ Purchase pending")
-            
-        @unknown default:
-            print("❓ Unknown purchase result")
-        }
-    }
-    
-    func updatePurchasedProducts() async {
+    private func updatePurchasedProducts() async {
         purchasedProducts.removeAll()
         
         for await result in Transaction.currentEntitlements {
@@ -133,48 +228,17 @@ class StoreService: ObservableObject {
         await updateSubscriptionStatus()
     }
     
-    private func updateSubscriptionStatus() async {
-        let isPremium = !purchasedProducts.isEmpty
-        subscriptionStatus.isPremium = isPremium
-        
-        // Premium 상태가 변경되었을 때만 질문 수 리셋
-        if isPremium != subscriptionStatus.isPremium {
-            resetDailyQuestions()
-        }
-        
-        saveSubscriptionStatus()
-    }
-    
-    private func resetDailyQuestions() {
-        let maxQuestions = subscriptionStatus.isPremium ? 30 : 1
-        subscriptionStatus.dailyQuestionsRemaining = maxQuestions
-        subscriptionStatus.lastResetDate = Date()
-        
-        // 상태 저장
-        saveSubscriptionStatus()
-        // 마지막 리셋 날짜 저장
-        defaults.set(Date(), forKey: lastResetDateKey)
-    }
-    
-    func checkSubscriptionStatus() async {
+    private func checkSubscriptionStatus() async {
         if let savedStatus = loadSubscriptionStatus() {
             if savedStatus.isPremium != subscriptionStatus.isPremium {
-                // Premium 상태가 변경된 경우만 업데이트
                 subscriptionStatus = savedStatus
                 resetDailyQuestions()
             } else {
-                // 그 외의 경우 남은 질문 수만 유지
                 subscriptionStatus.dailyQuestionsRemaining = savedStatus.dailyQuestionsRemaining
             }
         }
         
         checkAndResetDailyQuestions()
-    }
-    
-    func decrementRemainingQuestions() {
-        guard subscriptionStatus.dailyQuestionsRemaining > 0 else { return }
-        subscriptionStatus.dailyQuestionsRemaining -= 1
-        saveSubscriptionStatus()
     }
     
     private func saveSubscriptionStatus() {

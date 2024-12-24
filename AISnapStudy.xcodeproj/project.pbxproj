@@ -13,6 +13,7 @@
 		9856069C2CF22B4300D2BB60 /* CDQuestion+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9856069A2CF22B4300D2BB60 /* CDQuestion+CoreDataProperties.swift */; };
 		9858D8A72CE18737000A04C0 /* CDStudySession+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */; };
 		9858D8AA2CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */; };
+		98B2950B2D1AB13D000589CA /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 98B2950A2D1AB13D000589CA /* StoreKit.framework */; };
 		98BCE82B2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98BCE82A2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift */; };
 		98BCE82C2D04936D000897D9 /* CDDailyStats+CoreDataClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98BCE8292D04936D000897D9 /* CDDailyStats+CoreDataClass.swift */; };
 /* End PBXBuildFile section */
@@ -36,6 +37,7 @@
 		9858D8A52CE18737000A04C0 /* CDStudySession+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataClass.swift"; sourceTree = "<group>"; };
 		9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDStudySession+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDStudySession+CoreDataProperties.swift"; sourceTree = "<group>"; };
 		989CC9FD2CE135CA00E25D14 /* AISnapStudy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AISnapStudy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		98B2950A2D1AB13D000589CA /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		98BCE8292D04936D000897D9 /* CDDailyStats+CoreDataClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDDailyStats+CoreDataClass.swift"; path = "AISnapStudy/CoreData/CDDailyStats+CoreDataClass.swift"; sourceTree = "<group>"; };
 		98BCE82A2D04936D000897D9 /* CDDailyStats+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "CDDailyStats+CoreDataProperties.swift"; path = "AISnapStudy/CoreData/CDDailyStats+CoreDataProperties.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -78,6 +80,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				98B2950B2D1AB13D000589CA /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -97,6 +100,7 @@
 				9858D8A62CE18737000A04C0 /* CDStudySession+CoreDataProperties.swift */,
 				989CC9FF2CE135CA00E25D14 /* AISnapStudy */,
 				983EA89F2D171027000628AB /* AISnapStudyTests */,
+				98B295092D1AB13D000589CA /* Frameworks */,
 				989CC9FE2CE135CA00E25D14 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -108,6 +112,14 @@
 				983EA89E2D171027000628AB /* AISnapStudyTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		98B295092D1AB13D000589CA /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				98B2950A2D1AB13D000589CA /* StoreKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
