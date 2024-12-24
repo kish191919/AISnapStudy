@@ -72,15 +72,14 @@ struct ReviewView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack {
-                        Text("Review")
-                            .font(.system(size: 34, weight: .bold))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        ReviewToolbarButtons(showSubjectManagement: $showSubjectManagement)
-                    }
-                    .frame(maxWidth: .infinity)                }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Text("Review")
+                        .font(.system(size: 34, weight: .bold))
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    ReviewToolbarButtons(showSubjectManagement: $showSubjectManagement)
+                }
             }
             .sheet(isPresented: $showSubjectManagement) {
                 NavigationView {
