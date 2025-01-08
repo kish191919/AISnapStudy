@@ -83,11 +83,6 @@ class StoreService: ObservableObject {
         saveSubscriptionStatus()
     }
     
-    var remainingDownloads: Int {
-        guard !subscriptionStatus.isPremium else { return .max }
-        return max(0, UserSubscriptionStatus.maxFreeDownloads - subscriptionStatus.downloadedSetsCount)
-    }
-    
     func loadProducts() async {
         do {
             products = try await Product.products(for: productIds)

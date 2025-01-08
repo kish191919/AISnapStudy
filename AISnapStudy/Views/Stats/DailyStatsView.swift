@@ -36,6 +36,7 @@ struct DailyStatsView: View {
                             Button(action: previousMonth) {
                                 Image(systemName: "chevron.left")
                                     .font(.title3)
+                                    .padding(.horizontal, 40) // 화살표 버튼 좌우 패딩 추가
                             }
                             
                             Text(monthYearString)
@@ -45,6 +46,7 @@ struct DailyStatsView: View {
                             Button(action: nextMonth) {
                                 Image(systemName: "chevron.right")
                                     .font(.title3)
+                                    .padding(.horizontal, 40) // 화살표 버튼 좌우 패딩 추가
                             }
                         }
                         .padding(.horizontal)
@@ -243,71 +245,77 @@ struct MonthCalendarView: View {
     private let calendar = Calendar.current
     private let daysInWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     
-    // 디바이스 크기에 따른 셀 크기 조정
+    // 아이패드에서 더 큰 셀 크기 사용
     private var cellSize: CGFloat {
-        horizontalSizeClass == .regular ? 50 : 35  // iPad는 50, iPhone은 35
+        horizontalSizeClass == .regular ? 80 : 45
     }
     
-    // 폰트 크기 조정
     private var dayFontSize: CGFloat {
-        horizontalSizeClass == .regular ? 16 : 12
+        horizontalSizeClass == .regular ? 18 : 12
     }
     
     private var dateFontSize: CGFloat {
-        horizontalSizeClass == .regular ? 16 : 14
+        horizontalSizeClass == .regular ? 18 : 14
     }
     
-    
-    
     var body: some View {
-        VStack(spacing: horizontalSizeClass == .regular ? 15 : 8) {
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: horizontalSizeClass == .regular ? 8 : 4), count: 7),
-                spacing: horizontalSizeClass == .regular ? 8 : 4
-            ) {
-                // 요일 헤더
-                ForEach(daysInWeek, id: \.self) { day in
-                    Text(day)
-                        .font(.system(size: dayFontSize))
-                        .foregroundColor(.gray)
-                        .frame(maxWidth: .infinity)
-                }
-                
-                // 빈 셀 채우기
-                ForEach(0..<firstWeekdayOfMonth, id: \.self) { _ in
-                    Color.clear
-                        .frame(height: cellSize)
-                }
-                
-                // 날짜 그리드
-                ForEach(calendarDays, id: \.id) { calendarDay in
-                    if let progress = progressForDate(calendarDay.date),
-                       progress.questionsCompleted > 0 {
-                        DayCellView(
-                            date: calendarDay.date,
-                            progress: progress,
-                            size: cellSize,
-                            fontSize: dateFontSize
-                        )
-                    } else {
-                        Text(String(calendar.component(.day, from: calendarDay.date)))
-                            .font(.system(size: dateFontSize, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? .white : .primary)
-                            .frame(height: cellSize)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6))
+        GeometryReader { geometry in
+            let calendarWidth = geometry.size.width * 0.95 // 화면 너비의 95% 사용
+            let cellWidth = (calendarWidth - 40) / 7
+            let adjustedCellSize = min(cellSize, cellWidth)
+            
+            VStack(spacing: 8) {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.fixed(adjustedCellSize), spacing: 4), count: 7),
+                    spacing: 4
+                ) {
+                    // 요일 헤더
+                    ForEach(daysInWeek, id: \.self) { day in
+                        Text(day)
+                            .font(.system(size: dayFontSize))
+                            .foregroundColor(.gray)
+                            .frame(width: adjustedCellSize)
+                    }
+                    
+                    // 빈 셀 채우기
+                    ForEach(0..<firstWeekdayOfMonth, id: \.self) { _ in
+                        Color.clear
+                            .frame(width: adjustedCellSize, height: adjustedCellSize)
+                    }
+                    
+                    // 날짜 그리드
+                    ForEach(calendarDays, id: \.id) { calendarDay in
+                        if let progress = progressForDate(calendarDay.date),
+                           progress.questionsCompleted > 0 {
+                            DayCellView(
+                                date: calendarDay.date,
+                                progress: progress,
+                                size: adjustedCellSize,
+                                fontSize: dateFontSize
                             )
+                        } else {
+                            Text(String(calendar.component(.day, from: calendarDay.date)))
+                                .font(.system(size: dateFontSize, weight: .medium))
+                                .foregroundColor(colorScheme == .dark ? .white : .primary)
+                                .frame(width: adjustedCellSize, height: adjustedCellSize)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6))
+                                )
+                        }
                     }
                 }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 12)
+            .frame(width: calendarWidth)
+            .background(colorScheme == .dark ? Color(.systemGray5) : Color(.systemBackground))
+            .cornerRadius(16)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, horizontalSizeClass == .regular ? 8 : 4)
-        .padding(.vertical, horizontalSizeClass == .regular ? 12 : 8)
-        .background(colorScheme == .dark ? Color(.systemGray5) : Color(.systemBackground))
-        .cornerRadius(16)
+        .frame(height: horizontalSizeClass == .regular ? 450 : 270)
     }
+
     // 월의 첫 번째 날의 요일 (0 = 일요일, 6 = 토요일)
     private var firstWeekdayOfMonth: Int {
         guard let firstDay = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) else {
@@ -358,23 +366,20 @@ struct MonthCalendarView: View {
 struct StatsCircleContainer: View {
     let todayStats: DailyProgress?
     let weeklyStats: [DailyProgress]
-    let monthlyProgress: [DailyProgress]  // 추가
-    let selectedTimeRange: TimeRange      // 추가
-    let currentMonthDate: Date           // 추가
+    let monthlyProgress: [DailyProgress]
+    let selectedTimeRange: TimeRange
+    let currentMonthDate: Date
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
     private var containerSpacing: CGFloat {
-        // iPad에서는 더 큰 간격 사용
-        horizontalSizeClass == .regular ? 120 : 30  // 간격 증가
+        horizontalSizeClass == .regular ? 80 : 30
     }
     
-    private var verticalPadding: CGFloat {
-        // iPad에서는 더 큰 패딩 사용
-        horizontalSizeClass == .regular ? 60 : 20  // 패딩 증가
+    private var verticalSpacing: CGFloat {
+        horizontalSizeClass == .regular ? 0 : 0
     }
     
     private var circleSize: CGFloat {
-        // 크기 약간 축소
         horizontalSizeClass == .regular ? 200 : 150
     }
 
@@ -396,7 +401,7 @@ struct StatsCircleContainer: View {
     }
     
     var body: some View {
-        VStack(spacing: verticalPadding) {
+        VStack(spacing: verticalSpacing) {
             HStack(spacing: containerSpacing) {
                 CircleProgressView(
                     progress: Double(todayStats?.correctAnswers ?? 0) / Double(max(1, todayStats?.questionsCompleted ?? 1)),
@@ -404,7 +409,7 @@ struct StatsCircleContainer: View {
                     total: todayStats?.questionsCompleted ?? 0,
                     correct: todayStats?.correctAnswers ?? 0,
                     incorrect: (todayStats?.questionsCompleted ?? 0) - (todayStats?.correctAnswers ?? 0),
-                    size: circleSize  // size 파라미터 추가
+                    size: circleSize
                 )
                 
                 if selectedTimeRange == .month {
@@ -414,7 +419,7 @@ struct StatsCircleContainer: View {
                         total: monthlyStats.total,
                         correct: monthlyStats.correct,
                         incorrect: monthlyStats.incorrect,
-                        size: circleSize  // size 파라미터 추가
+                        size: circleSize
                     )
                 } else {
                     CircleProgressView(
@@ -423,13 +428,12 @@ struct StatsCircleContainer: View {
                         total: calculateWeeklyTotal(),
                         correct: calculateWeeklyCorrect(),
                         incorrect: calculateWeeklyIncorrect(),
-                        size: circleSize  // size 파라미터 추가
+                        size: circleSize
                     )
                 }
             }
-            .padding(.horizontal, horizontalSizeClass == .regular ? 50 : 20)
+            .padding(.top, 10)  // 상단 패딩 감소
         }
-        .padding(.vertical, verticalPadding)
     }
     
     private func calculateWeeklyProgress() -> Double {
@@ -621,38 +625,40 @@ struct DailyStatCard: View {
 }
 struct DayCellView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     let date: Date
     let progress: DailyProgress
-    let size: CGFloat  // 크기 파라미터 추가
-    let fontSize: CGFloat  // 폰트 크기 파라미터 추가
-    
-    private var activityColor: Color {
-        let questionCount = progress.questionsCompleted
-        guard questionCount > 0 else { return colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6) }
-        return Color.green
-    }
-    
-    private var textColor: Color {
-        colorScheme == .dark ? .white : .primary
-    }
+    let size: CGFloat
+    let fontSize: CGFloat
     
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(activityColor)
-                .frame(maxWidth: .infinity)
-                .frame(height: size)  // 높이 파라미터 사용
+            RoundedRectangle(cornerRadius: size * 0.15)
+                .fill(getBackgroundColor())
+                .frame(width: size, height: size)
             
-            VStack(spacing: 2) {
+            VStack(spacing: size * 0.1) {
                 Text("\(Calendar.current.component(.day, from: date))")
-                    .font(.system(size: fontSize, weight: .medium))  // 폰트 크기 파라미터 사용
-                    .foregroundColor(.white)
-                Text("\(progress.questionsCompleted)")
-                    .font(.system(size: fontSize - 2, weight: .medium))  // 작은 폰트 크기
-                    .foregroundColor(.white)
+                    .font(.system(size: fontSize, weight: .medium))
+                    .foregroundColor(getTextColor())
+                if progress.questionsCompleted > 0 {
+                    Text("\(progress.questionsCompleted)")
+                        .font(.system(size: fontSize * 0.8))
+                        .foregroundColor(getTextColor())
+                }
             }
         }
-        .frame(maxWidth: .infinity)
+    }
+    
+    private func getBackgroundColor() -> Color {
+        if progress.questionsCompleted > 0 {
+            return Color.green
+        }
+        return colorScheme == .dark ? Color(.systemGray6) : Color(.systemGray6)
+    }
+    
+    private func getTextColor() -> Color {
+        progress.questionsCompleted > 0 ? .white : (colorScheme == .dark ? .white : .primary)
     }
 }
 

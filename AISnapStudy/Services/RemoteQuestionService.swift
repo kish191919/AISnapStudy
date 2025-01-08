@@ -2,141 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 
-class RemoteQuestionService {
-    static let shared = RemoteQuestionService()
-    private let baseURL = "https://aistockadvisor.net"
-    private let cache = NSCache<NSString, NSArray>()
-    
-    func fetchFeaturedSets() async throws -> [RemoteQuestionSet] {
-        let url = URL(string: "\(baseURL)/featured-sets")!
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode([RemoteQuestionSet].self, from: data)
-    }
-    
-    func fetchQuestionSet(_ id: String) async throws -> ProblemSet {
-       print("🌐 Downloading question set with ID: \(id)")
-       let url = URL(string: "\(baseURL)/api/question-sets/\(id)")!
-       
-       let (data, response) = try await URLSession.shared.data(from: url)
-       
-       guard let httpResponse = response as? HTTPURLResponse else {
-           throw URLError(.badServerResponse)
-       }
-       
-       print("📡 Response status: \(httpResponse.statusCode)")
-       
-       struct RemoteSet: Codable {
-           let id: String
-           let subject: String
-           let subjectType: String
-           let subjectId: String
-           let subjectName: String
-           let questions: [RemoteQuestion]
-           let createdAt: String
-           let educationLevel: String
-           let name: String
-           
-           struct RemoteQuestion: Codable {
-               let id: String
-               let type: String
-               let question: String
-               let options: [String]
-               let correctAnswer: String
-               let explanation: String
-               let hint: String
-           }
-       }
-       
-       let decoder = JSONDecoder()
-       let remoteSet = try decoder.decode(RemoteSet.self, from: data)
-       
-       // Question 모델로 변환할 때 옵션 섞기 추가
-       let questions = remoteSet.questions.map { q -> Question in
-           let questionType: QuestionType = {
-               switch q.type.lowercased() {
-               case "multiple_choice":
-                   return .multipleChoice
-               case "true_false":
-                   return .trueFalse
-               default:
-                   return .multipleChoice
-               }
-           }()
-           
-           // 객관식 문제의 보기 섞기
-           let (shuffledOptions, correctAnswer) = questionType == .multipleChoice
-               ? {
-                   var options = q.options
-                   options.shuffle()
-                   let newCorrectIndex = options.firstIndex(of: q.correctAnswer) ?? 0
-                   return (options, options[newCorrectIndex])
-               }()
-               : (q.options, q.correctAnswer)
-               
-           return Question(
-               id: q.id,
-               type: questionType,
-               subject: DefaultSubject.download,
-               question: q.question,
-               options: shuffledOptions,
-               correctAnswer: correctAnswer,
-               explanation: q.explanation,
-               hint: q.hint,
-               isSaved: false,
-               createdAt: Date()
-           )
-       }
-       
-       // ProblemSet으로 변환
-       return ProblemSet(
-           id: UUID().uuidString,
-           subject: DefaultSubject.download,
-           subjectType: "default",
-           subjectId: DefaultSubject.download.rawValue,
-           subjectName: "Downloaded Sets",
-           questions: questions,
-           createdAt: ISO8601DateFormatter().date(from: remoteSet.createdAt) ?? Date(),
-           educationLevel: EducationLevel(rawValue: remoteSet.educationLevel) ?? .elementary,
-           name: remoteSet.name
-       )
-    }
-    
-    func searchQuestionSets(query: String) async throws -> [RemoteQuestionSet] {
-        let url = URL(string: "\(baseURL)/search?q=\(query)")!
-        let (data, _) = try await URLSession.shared.data(from: url)
-        return try JSONDecoder().decode([RemoteQuestionSet].self, from: data)
-    }
-    
-    func fetchQuestionSets() async throws -> [RemoteQuestionSet] {
-        print("🌐 Fetching remote question sets...")
-        let url = URL(string: "\(baseURL)/api/question-sets")!
-        let (data, response) = try await URLSession.shared.data(from: url)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-        
-        print("📡 Response status: \(httpResponse.statusCode)")
-        
-        // 받은 JSON 데이터 출력
-        if let jsonString = String(data: data, encoding: .utf8) {
-            print("📥 Received JSON data: \(jsonString)")
-        }
-        
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601  // ISO8601 형식의 날짜 처리
-        
-        do {
-            let sets = try decoder.decode([RemoteQuestionSet].self, from: data)
-            print("✅ Fetched \(sets.count) remote sets")
-            return sets
-        } catch {
-            print("🔴 Decoding error: \(error)")
-            throw error
-        }
-    }
 
-}
 
 // MARK: - ViewModels
 class QuestionStoreViewModel: ObservableObject {
@@ -148,77 +14,13 @@ class QuestionStoreViewModel: ObservableObject {
     @Published var searchResults: [RemoteQuestionSet] = []
     @Published var searchQuery = ""
     
-    private let remoteService = RemoteQuestionService.shared
     private let homeViewModel: HomeViewModel
     
     init(homeViewModel: HomeViewModel) {
         self.homeViewModel = homeViewModel
     }
-    
-    @MainActor
-    func loadFeaturedSets() async {
-        isLoading = true
-        do {
-            featuredSets = try await remoteService.fetchFeaturedSets()
-        } catch {
-            self.error = error
-        }
-        isLoading = false
-    }
-    
-    @MainActor
-    func downloadQuestionSet(_ set: RemoteQuestionSet) async {
-        isLoading = true
-        do {
-            let problemSet = try await remoteService.fetchQuestionSet(set.id)
-            // Convert to Download subject
-            let downloadedSet = ProblemSet(
-                subject: DefaultSubject.download,  // New Download subject
-                subjectType: "default",
-                subjectId: DefaultSubject.download.rawValue,
-                subjectName: "Download",
-                questions: problemSet.questions,
-                createdAt: Date(),
-                educationLevel: .high,  // Or determine from set.difficulty
-                name: set.title
-            )
-            await homeViewModel.saveProblemSet(downloadedSet)
-        } catch {
-            self.error = error
-        }
-        isLoading = false
-    }
 }
 
-// MARK: - Views
-struct QuestionStoreView: View {
-    @EnvironmentObject var homeViewModel: HomeViewModel
-    @State private var selectedCategory: String?
-    @State private var showingSearch = false
-    
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                if homeViewModel.isLoadingRemote {
-                    ProgressView("Loading question sets...")
-                } else {
-                    ForEach(homeViewModel.remoteSets) { remoteSet in
-                        QuestionSetCard(
-                            set: remoteSet,
-                            onDownload: {
-                                Task {
-                                    await homeViewModel.downloadQuestionSet(remoteSet)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-            .padding()
-        }
-        .navigationTitle("Question Store")
-    }
-}
 
 struct QuestionSetCard: View {
    let set: RemoteQuestionSet
@@ -463,24 +265,5 @@ struct QuestionSetRow: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
         .shadow(radius: 2)
-    }
-}
-
-extension RemoteQuestionService {
-    private func handleNetworkError(_ error: Error) {
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet:
-                print("❌ No internet connection")
-            case .timedOut:
-                print("❌ Request timed out")
-            case .cannotFindHost:
-                print("❌ Cannot find host: \(urlError.failingURL?.host ?? "unknown")")
-            default:
-                print("❌ Network error: \(urlError.localizedDescription)")
-            }
-        } else {
-            print("❌ Unknown error: \(error.localizedDescription)")
-        }
     }
 }

@@ -289,7 +289,7 @@ class QuestionSettingsViewModel: ObservableObject {
         let dateString = dateFormatter.string(from: Date())
         let totalQuestions = multipleChoiceCount + trueFalseCount
         
-        return "\(selectedSubject.displayName)_\(totalQuestions)Q_\(dateString)"
+        return "\(selectedSubject.displayName)_\(dateString)"
     }
      
      // 기존 resetCounts 메서드 수정

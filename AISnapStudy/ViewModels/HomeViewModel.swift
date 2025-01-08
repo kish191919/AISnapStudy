@@ -10,16 +10,12 @@ class HomeViewModel: ObservableObject {
     @Published private(set) var error: Error?
     @Published var selectedProblemSet: ProblemSet?
     @Published var totalQuestions: Int = 0
-    private let remoteService = RemoteQuestionService.shared
-    @Published private(set) var remoteSets: [RemoteQuestionSet] = []  // 추가
-    @Published private(set) var isLoadingRemote = false  // 추가
     private let coreDataService = CoreDataService.shared
     private var cancellables = Set<AnyCancellable>()
     private var hasLoadedData = false
     
     // Singleton instance
     static let shared = HomeViewModel()
-//    @Published private(set) var favoriteProblemSets: [ProblemSet] = []
     
     init() {
         Task {
@@ -78,8 +74,6 @@ class HomeViewModel: ObservableObject {
         }
     }
 
-    
-
     // 현재 세션의 점수 관련 속성 추가
     var currentSessionScore: Int {
         return studyViewModel?.correctAnswers ?? 0
@@ -93,6 +87,9 @@ class HomeViewModel: ObservableObject {
         print("📱 Setting StudyViewModel in HomeViewModel")
         self.studyViewModel = viewModel
     }
+    
+    
+    
     
     @MainActor
     func resetAndSetProblemSet(_ problemSet: ProblemSet) async {
@@ -197,7 +194,7 @@ class HomeViewModel: ObservableObject {
     }
     
     @MainActor
-    func loadInitialData() async {
+    private func loadInitialData() async {
         guard !hasLoadedData else { return }
         
         do {
@@ -207,22 +204,10 @@ class HomeViewModel: ObservableObject {
             self.problemSets = loadedProblemSets
             self.savedQuestions = try coreDataService.fetchSavedQuestions()
             
-            // 원격 메타데이터 로드
-            isLoadingRemote = true
-            do {
-                self.remoteSets = try await remoteService.fetchQuestionSets()
-                print("✅ Successfully loaded remote sets: \(remoteSets.count)")
-            } catch {
-                print("⚠️ Remote data loading failed: \(error.localizedDescription)")
-                self.remoteSets = []
-            }
-            isLoadingRemote = false
-            
             hasLoadedData = true
-            print("✅ Initial data loaded - Local sets: \(loadedProblemSets.count), Remote sets: \(remoteSets.count)")
+            print("✅ Initial data loaded - Local sets: \(loadedProblemSets.count)")
             
         } catch {
-            isLoadingRemote = false
             print("❌ Failed to load initial data: \(error)")
         }
     }
@@ -259,42 +244,7 @@ class HomeViewModel: ObservableObject {
         
         isLoading = false
     }
-    
-    // 원격 세트 다운로드 메서드 추가
-    @MainActor
-    func downloadQuestionSet(_ remoteSet: RemoteQuestionSet) async {
-        do {
-            print("🌐 Downloading question set: \(remoteSet.id)")
-            
-            // 상세 데이터 가져오기
-            let detailedSet = try await remoteService.fetchQuestionSet(remoteSet.id)
-            
-            // ProblemSet으로 변환
-            let problemSet = ProblemSet(
-                subject: DefaultSubject.download,
-                subjectType: "default",
-                subjectId: DefaultSubject.download.rawValue,
-                subjectName: "Downloaded Sets",
-                questions: detailedSet.questions,
-                createdAt: remoteSet.createdAt,
-                educationLevel: determineEducationLevel(from: remoteSet.difficulty),
-                name: remoteSet.title
-            )
-            
-            // CoreData에 저장
-            await saveProblemSet(problemSet)
-            
-            print("✅ Successfully downloaded and saved question set: \(remoteSet.title)")
-            
-            // 다운로드 상태 업데이트
-            if let index = remoteSets.firstIndex(where: { $0.id == remoteSet.id }) {
-                remoteSets[index].isDownloaded = true
-            }
-            
-        } catch {
-            print("❌ Failed to download question set: \(error)")
-        }
-    }
+
     
     private func determineEducationLevel(from difficulty: String) -> EducationLevel {
         switch difficulty.lowercased() {

@@ -1,6 +1,3 @@
-
-
-
 import SwiftUI
 import Combine
 import CoreData
@@ -17,50 +14,65 @@ struct HomeView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     
-    // iPad에서의 최대 컨텐츠 너비
+    // iPad에 맞춘 레이아웃 상수
     private var maxContentWidth: CGFloat {
         horizontalSizeClass == .regular ? 800 : .infinity
     }
     
+    private var titleFontSize: CGFloat {
+        horizontalSizeClass == .regular ? 48 : 32
+    }
+    
+    private var subtitleFontSize: CGFloat {
+        horizontalSizeClass == .regular ? 24 : 16
+    }
+    
+    private var buttonHeight: CGFloat {
+        horizontalSizeClass == .regular ? 120 : 100
+    }
+    
+    private var cardWidth: CGFloat {
+        horizontalSizeClass == .regular ? 400 : 300
+    }
+    
     var body: some View {
         NavigationView {
-            GeometryReader { geometry in
-                ScrollView {
-                    VStack(spacing: 32) {
-                        // Welcome Section
-                        VStack(alignment: .leading, spacing: 24) {
-                            welcomeSection
-                            createQuestionsButton
-                        }
-                        .frame(maxWidth: maxContentWidth)
-                        .padding(.horizontal, geometry.size.width * 0.05)
-                        
-                        // Favorites Section
-                        if !viewModel.favoriteProblemSets.isEmpty {
-                            VStack(alignment: .leading, spacing: 20) {
-                                favoritesHeader
-                                favoritesList(geometry: geometry)
-                            }
-                            .frame(maxWidth: maxContentWidth)
-                        }
-                        
-                        // Library Section
-                        VStack(alignment: .leading, spacing: 20) {
-                            libraryHeader
-                            libraryButton
-                        }
-                        .frame(maxWidth: maxContentWidth)
-                        .padding(.horizontal, geometry.size.width * 0.05)
+            ScrollView {
+                VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 48 : 32) {
+                    // Welcome Section과 Create Questions 버튼
+                    VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 32 : 24) {
+                        welcomeSection
+                        createQuestionsButton
                     }
-                    .padding(.vertical, 32)
+                    .padding(.horizontal, 24)  // 일관된 패딩 적용
+                    
+                    // Favorites Section
+                    if !viewModel.favoriteProblemSets.isEmpty {
+                        VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 32 : 20) {
+                            // Favorites 헤더
+                            HStack(spacing: horizontalSizeClass == .regular ? 16 : 12) {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: horizontalSizeClass == .regular ? 32 : 24))
+                                    .foregroundColor(.yellow)
+                                Text("Favorites")
+                                    .font(.system(size: horizontalSizeClass == .regular ? 32 : 24, weight: .bold))
+                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                            }
+                            .padding(.horizontal, 24)  // Welcome Back!과 동일한 패딩
+                            
+                            // Favorites 리스트
+                            favoritesList
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .background(colorScheme == .dark ? Color.black : Color(.systemBackground))
+                .padding(.vertical, horizontalSizeClass == .regular ? 48 : 32)
             }
+            .frame(maxWidth: maxContentWidth)
+            .background(colorScheme == .dark ? Color.black : Color(.systemBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
         }
-        .navigationViewStyle(StackNavigationViewStyle()) // iPad에서 분할뷰 방지
+        .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: $showQuestionSettings) {
             QuestionSettingsView(
                 subject: selectedSubject,
@@ -71,26 +83,23 @@ struct HomeView: View {
         .sheet(isPresented: $showUpgradeView) {
             PremiumUpgradeView()
         }
-        .sheet(isPresented: $showStudySets) {
-            StudySetsView(viewModel: viewModel)
-        }
     }
     
-    // MARK: - Subviews
     private var welcomeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 16 : 8) {
             Text("Welcome Back!")
-                .font(.system(size: 32, weight: .bold))
+                .font(.system(size: titleFontSize, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
             
             if !storeService.subscriptionStatus.isPremium {
-                HStack(spacing: 8) {
+                HStack(spacing: 12) {
                     Image(systemName: "sparkles")
+                        .font(.system(size: horizontalSizeClass == .regular ? 28 : 20))
                         .foregroundColor(.yellow)
                     Text("\(storeService.subscriptionStatus.dailyQuestionsRemaining) questions remaining")
+                        .font(.system(size: subtitleFontSize))
                         .foregroundColor(.secondary)
                 }
-                .font(.system(size: 16))
             }
         }
     }
@@ -98,20 +107,19 @@ struct HomeView: View {
     private var createQuestionsButton: some View {
         Button(action: {
             if storeService.subscriptionStatus.dailyQuestionsRemaining > 0 {
-                selectedSubject = .generalKnowledge
                 showQuestionSettings = true
             } else {
                 showUpgradeView = true
             }
         }) {
-            HStack(spacing: 12) {
+            HStack(spacing: horizontalSizeClass == .regular ? 20 : 12) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 28))
+                    .font(.system(size: horizontalSizeClass == .regular ? 36 : 28))
                 Text("Create New Questions")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: horizontalSizeClass == .regular ? 28 : 22, weight: .semibold))
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 100)
+            .frame(height: buttonHeight)
             .foregroundColor(.white)
             .background(
                 LinearGradient(
@@ -123,64 +131,31 @@ struct HomeView: View {
                     endPoint: .trailing
                 )
             )
-            .cornerRadius(16)
+            .cornerRadius(horizontalSizeClass == .regular ? 24 : 16)
         }
     }
     
     private var favoritesHeader: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: horizontalSizeClass == .regular ? 16 : 12) {
             Image(systemName: "star.fill")
+                .font(.system(size: horizontalSizeClass == .regular ? 32 : 24))
                 .foregroundColor(.yellow)
-                .font(.system(size: 24))
             Text("Favorites")
-                .font(.system(size: 24, weight: .bold))
+                .font(.system(size: horizontalSizeClass == .regular ? 32 : 24, weight: .bold))
                 .foregroundColor(colorScheme == .dark ? .white : .black)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 24)
     }
     
-    private func favoritesList(geometry: GeometryProxy) -> some View {
+    private var favoritesList: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 16) {
+            HStack(spacing: horizontalSizeClass == .regular ? 24 : 16) {
                 ForEach(viewModel.favoriteProblemSets) { set in
                     FavoriteCard(set: set, viewModel: viewModel, selectedTab: $selectedTab)
-                        .frame(width: min(geometry.size.width * 0.7, 300))
+                        .frame(width: cardWidth)
                 }
             }
-            .padding(.horizontal, 24)
-        }
-    }
-    
-    private var libraryHeader: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "square.stack.3d.up.fill")
-                .foregroundColor(.blue)
-                .font(.system(size: 24))
-            Text("Library")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : .black)
-        }
-    }
-    
-    private var libraryButton: some View {
-        Button {
-            showStudySets = true
-        } label: {
-            HStack {
-                Text("View library question sets")
-                    .font(.system(size: 18))
-                    .foregroundColor(.primary)
-                Spacer()
-                Text("\(viewModel.remoteSets.count) Sets")
-                    .foregroundColor(.secondary)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
-            }
-            .padding(20)
-            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
-            .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+            .padding(.horizontal, horizontalSizeClass == .regular ? 40 : 24)
         }
     }
     
@@ -188,23 +163,114 @@ struct HomeView: View {
         ToolbarItem(placement: .principal) {
             HStack {
                 Text("AI Study")
-                    .font(.system(size: 34, weight: .bold))
+                    .font(.system(size: horizontalSizeClass == .regular ? 42 : 34, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? .white : .black)
                 Spacer()
                 if !storeService.subscriptionStatus.isPremium {
                     Button(action: { showUpgradeView = true }) {
                         Text("Upgrade")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: horizontalSizeClass == .regular ? 20 : 16, weight: .semibold))
                             .foregroundColor(.black)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 16)
+                            .padding(.vertical, horizontalSizeClass == .regular ? 12 : 8)
                             .background(Color.yellow)
-                            .cornerRadius(20)
+                            .cornerRadius(horizontalSizeClass == .regular ? 25 : 20)
                     }
                 }
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, horizontalSizeClass == .regular ? 16 : 8)
         }
+    }
+}
+
+struct FavoriteCard: View {
+    let set: ProblemSet
+    let viewModel: HomeViewModel
+    @Binding var selectedTab: Int
+    @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    
+    var body: some View {
+        Button {
+            Task {
+                await viewModel.setSelectedProblemSet(set)
+                if let studyViewModel = viewModel.studyViewModel {
+                    await studyViewModel.resetState()
+                    selectedTab = 1
+                }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 24 : 16) {
+                // 상단: 제목과 아이콘
+                HStack {
+                    // 과목 아이콘
+                    Image(systemName: getSubjectIcon(for: set.subject))
+                        .font(.system(size: horizontalSizeClass == .regular ? 32 : 24))
+                        .foregroundColor(.blue)
+                        .frame(width: horizontalSizeClass == .regular ? 56 : 40, height: horizontalSizeClass == .regular ? 56 : 40)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(Circle())
+                    
+                    VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 8 : 4) {
+                        Text(set.name)
+                            .font(.system(size: horizontalSizeClass == .regular ? 24 : 18, weight: .bold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text(set.subject.displayName)
+                            .font(.system(size: horizontalSizeClass == .regular ? 18 : 14))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Image(systemName: "star.fill")
+                        .font(.system(size: horizontalSizeClass == .regular ? 28 : 20))
+                        .foregroundColor(.yellow)
+                }
+
+                // 하단: 문제 수와 난이도
+                HStack(spacing: horizontalSizeClass == .regular ? 24 : 16) {
+                    Label(
+                        "\(set.questions.count) Questions",
+                        systemImage: "doc.text.fill"
+                    )
+                    .font(.system(size: horizontalSizeClass == .regular ? 18 : 14))
+                    .foregroundColor(.secondary)
+                    
+                    Label(
+                        set.educationLevel.displayName,
+                        systemImage: "chart.bar.fill"
+                    )
+                    .font(.system(size: horizontalSizeClass == .regular ? 18 : 14))
+                    .foregroundColor(.secondary)
+                }
+            }
+            .padding(horizontalSizeClass == .regular ? 24 : 16)
+            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
+            .cornerRadius(horizontalSizeClass == .regular ? 24 : 16)
+            .shadow(
+                color: Color.black.opacity(0.1),
+                radius: horizontalSizeClass == .regular ? 15 : 10,
+                x: 0,
+                y: 4
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func getSubjectIcon(for subject: SubjectType) -> String {
+        if let defaultSubject = subject as? DefaultSubject {
+            switch defaultSubject {
+            case .language: return "textformat"
+            case .math: return "function"
+            case .geography: return "globe"
+            case .history: return "clock.fill"
+            case .science: return "atom"
+            case .generalKnowledge: return "book.fill"
+            }
+        }
+        return "book.fill"
     }
 }
 
@@ -290,9 +356,6 @@ struct CardView<Content: View>: View {
     }
 }
 
-
-
-
 // MARK: - Favorites List
 struct FavoritesList: View {
     let problemSets: [ProblemSet]
@@ -314,233 +377,7 @@ struct FavoritesList: View {
         }
     }
 }
-// MARK: - Favorite Card
-struct FavoriteCard: View {
-    let set: ProblemSet
-    let viewModel: HomeViewModel
-    @Binding var selectedTab: Int
-    @Environment(\.colorScheme) var colorScheme
-    
-    var body: some View {
-        Button {
-            Task {
-                await viewModel.setSelectedProblemSet(set)
-                if let studyViewModel = viewModel.studyViewModel {
-                    await studyViewModel.resetState()
-                    selectedTab = 1
-                }
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(set.name)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("\(set.questions.count) Questions")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .background(colorScheme == .dark ? Color(.systemGray6) : .white)
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.gray.opacity(0.1), lineWidth: 3)
-            )
-            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-        }
-    }
-}
 
-// MARK: - Downloadable Sets List
-struct DownloadableSetsList: View {
-    let remoteSets: [RemoteQuestionSet]
-    let viewModel: HomeViewModel
-    
-    var body: some View {
-        VStack(spacing: 4) { // 리스트의 간격만 줄임
-            ForEach(remoteSets) { set in
-                DownloadableSetCard(
-                    set: set,
-                    action: {
-                        Task {
-                            await viewModel.downloadQuestionSet(set)
-                        }
-                    }
-                )
-            }
-        }
-        .padding(.horizontal)
-    }
-}
-
-struct DownloadableSetCard: View {
-    let set: RemoteQuestionSet
-    let action: () -> Void
-    
-    @StateObject private var storeService = StoreService.shared
-    @State private var isDownloading = false
-    @State private var isCompleted = false
-    @State private var showUpgradeAlert = false
-    @State private var showUpgradeView = false
-    
-    var body: some View {
-        CardView {
-            HStack(spacing: 12) {
-                // 타이틀과 정보
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(set.title)
-                        .font(.headline)
-                    
-                    HStack(spacing: 12) {
-                        // 문제 수
-                        HStack(spacing: 4) {
-                            Image(systemName: "doc.text")
-                                .foregroundColor(.blue)
-                            Text("\(set.questionCount)")
-                                .foregroundColor(.secondary)
-                        }
-                        .font(.subheadline)
-                        
-                        // 난이도
-                        HStack(spacing: 4) {
-                            Image(systemName: "chart.bar.fill")
-                                .foregroundColor(.blue)
-                            Text(set.difficulty)
-                                .foregroundColor(.secondary)
-                        }
-                        .font(.subheadline)
-                    }
-                }
-                
-                Spacer()
-                
-                // 다운로드 버튼
-                Button {
-                    if storeService.canDownloadMoreSets() {
-                        withAnimation {
-                            isDownloading = true
-                        }
-                        storeService.incrementDownloadCount()
-                        action()
-                        
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            withAnimation {
-                                isDownloading = false
-                                isCompleted = true
-                            }
-                        }
-                    } else {
-                        showUpgradeAlert = true
-                    }
-                } label: {
-                    Group {
-                        if isCompleted {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                        } else if isDownloading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle())
-                        } else {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .foregroundColor(.blue)
-                        }
-                    }
-                    .frame(width: 24, height: 24)
-                }
-                .disabled(isDownloading || isCompleted)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 4)
-        .alert("Upgrade to Premium", isPresented: $showUpgradeAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Upgrade") {
-                showUpgradeView = true
-            }
-        } message: {
-            Text("You've reached the maximum limit of 5 free downloads. Upgrade to Premium for unlimited access to all question sets!")
-        }
-        .sheet(isPresented: $showUpgradeView) {
-            PremiumUpgradeView()
-        }
-    }
-}
-
-
-// 원격 문제 세트 섹션 컴포넌트
-struct RemoteQuestionSetsSection: View {
-    let remoteSets: [RemoteQuestionSet]
-    let viewModel: HomeViewModel
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Available Question Sets")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.primary)
-                .padding(.horizontal)
-            
-            ForEach(remoteSets) { remoteSet in
-                RemoteQuestionSetCard(
-                    set: remoteSet,
-                    onDownload: {
-                        Task {
-                            await viewModel.downloadQuestionSet(remoteSet)
-                        }
-                    }
-                )
-                .padding(.horizontal)
-            }
-        }
-    }
-}
-
-// 원격 문제 세트 카드 컴포넌트
-struct RemoteQuestionSetCard: View {
-    let set: RemoteQuestionSet
-    let onDownload: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(set.title)
-                .font(.headline)
-                .foregroundColor(.primary)
-            
-            Text(set.description)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-            
-            HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.text")
-                        .foregroundColor(.blue)
-                    Text("\(set.questionCount) questions")
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                
-                Spacer()
-                
-                Button(action: onDownload) {
-                    HStack {
-                        Image(systemName: "arrow.down.circle.fill")
-                        Text("Download")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.blue)
-                }
-            }
-        }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-    }
-}
 
 // Premium 업그레이드 버튼 컴포넌트
 struct PremiumUpgradeButton: View {

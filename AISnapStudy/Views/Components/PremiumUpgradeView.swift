@@ -20,11 +20,6 @@ struct PremiumUpgradeView: View {
                         LazyVGrid(columns: [
                             GridItem(.adaptive(minimum: 300, maximum: 500))
                         ], spacing: 16) {
-                            FeatureRow(
-                                icon: "sparkles",
-                                title: "More Daily Questions",
-                                description: "Create up to 30 question sets per day"
-                            )
                             
                             FeatureRow(
                                 icon: "square.and.arrow.down",
@@ -33,10 +28,18 @@ struct PremiumUpgradeView: View {
                             )
                             
                             FeatureRow(
+                               icon: "calendar.badge.plus",
+                               title: "More Daily Questions",
+                               description: "Create up to 30 question sets per day"
+                            )
+                            
+                            FeatureRow(
                                 icon: "xmark.circle.fill",
                                 title: "Ad-Free Experience",
                                 description: "Enjoy learning without any advertisements"
                             )
+                            
+
                         }
                         .padding(.horizontal)
                     }
@@ -74,6 +77,7 @@ struct PremiumUpgradeView: View {
 }
 
 struct SubscriptionPlansView: View {
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
    @Environment(\.dismiss) private var dismiss
    @StateObject private var storeService = StoreService.shared
    @State private var showTerms = false
@@ -94,42 +98,72 @@ struct SubscriptionPlansView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: 20) {
                     Text("Choose your plan")
                         .font(.title2)
                         .fontWeight(.bold)
                     
-                    // Plans Grid for iPad
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 300, maximum: 400))
-                    ], spacing: 20) {
-                        // Annual Plan
-                        PlanCard(
-                            type: .annual,
-                            title: "Annual",
-                            price: "$99.99",
-                            period: "/ year",
-                            description: "Recurring billing.",
-                            isSelected: selectedPlan == .annual,
-                            discount: "45% off",
-                            isBestValue: true,
-                            action: { selectedPlan = .annual }
-                        )
-                        
-                        // Monthly Plan
-                        PlanCard(
-                            type: .monthly,
-                            title: "Monthly",
-                            price: "$14.99",
-                            period: "/ month",
-                            description: "Recurring billing. Cancel anytime.",
-                            isSelected: selectedPlan == .monthly,
-                            action: { selectedPlan = .monthly }
-                        )
+                    // LazyVGrid 대신 조건부 레이아웃 사용
+                    if horizontalSizeClass == .regular {
+                        // 아이패드용 레이아웃 - 나란히 배치
+                        HStack(spacing: 20) {
+                            // Annual Plan
+                            PlanCard(
+                                type: .annual,
+                                title: "Annual",
+                                price: "$99.99",
+                                period: "/ year",
+                                description: "Recurring billing.",
+                                isSelected: selectedPlan == .annual,
+                                discount: "45% off",
+                                isBestValue: true,
+                                action: { selectedPlan = .annual }
+                            )
+                            
+                            // Monthly Plan
+                            PlanCard(
+                                type: .monthly,
+                                title: "Monthly",
+                                price: "$14.99",
+                                period: "/ month",
+                                description: "Recurring billing. Cancel anytime.",
+                                isSelected: selectedPlan == .monthly,
+                                action: { selectedPlan = .monthly }
+                            )
+                        }
+                    } else {
+                        // 핸드폰용 레이아웃 - 세로로 배치
+                        VStack(spacing: 12) { // 간격 축소
+                            // Annual Plan - 높이 줄임
+                            PlanCard(
+                                type: .annual,
+                                title: "Annual",
+                                price: "$99.99",
+                                period: "/ year",
+                                description: "Recurring billing.",
+                                isSelected: selectedPlan == .annual,
+                                discount: "45% off",
+                                isBestValue: true,
+                                action: { selectedPlan = .annual }
+                            )
+                            .frame(height: 150) // 고정 높이 설정
+                            
+                            // Monthly Plan - 높이 줄임
+                            PlanCard(
+                                type: .monthly,
+                                title: "Monthly",
+                                price: "$14.99",
+                                period: "/ month",
+                                description: "Recurring billing. Cancel anytime.",
+                                isSelected: selectedPlan == .monthly,
+                                action: { selectedPlan = .monthly }
+                            )
+                            .frame(height: 150) // 고정 높이 설정
+                        }
                     }
                     
                     // Subscription Info with adjusted width
-                    SubscriptionInfoSection()
+                    SubscriptionInfoSection(selectedPlan: selectedPlan)
                         .frame(maxWidth: 600)
                     
                     // Terms and Subscribe buttons
@@ -294,7 +328,7 @@ struct PlanCard: View {
     
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     if isBestValue {
                         Text("Best Value")
@@ -312,9 +346,22 @@ struct PlanCard: View {
                     }
                 }
                 
-                Text(title)
-                    .font(.title2)
-                    .fontWeight(.bold)
+                HStack(alignment: .center, spacing: 8) {  // 여기를 수정
+                    Text(title)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    if let discount = discount {
+                        Text(discount)
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                }
                 
                 HStack(alignment: .firstTextBaseline) {
                     Text(price)
@@ -324,20 +371,14 @@ struct PlanCard: View {
                         .foregroundColor(.secondary)
                 }
                 
-                if let discount = discount {
-                    Text(discount)
-                        .font(.subheadline)
-                        .foregroundColor(.green)
-                }
-                
                 Text(description)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                 
                 Spacer() // 남은 공간을 채워서 높이를 동일하게 만듭니다
             }
-            .padding()
-            .frame(maxWidth: .infinity, minHeight: 200) // 최소 높이를 지정하여 카드 크기를 통일
+            .padding(12)
+            .frame(maxWidth: .infinity) // 최소 높이를 지정하여 카드 크기를 통일
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(.systemBackground))
@@ -352,9 +393,30 @@ struct PlanCard: View {
 }
 
 struct SubscriptionInfoSection: View {
+    let selectedPlan: SubscriptionPlansView.PlanType  // 선택된 플랜 전달받기
+    
+    private var renewalDate: Date {
+        let calendar = Calendar.current
+        let today = Date()
+        
+        // 선택된 플랜에 따라 갱신 기간 설정
+        switch selectedPlan {
+        case .annual:
+            return calendar.date(byAdding: .year, value: 1, to: today) ?? today
+        case .monthly:
+            return calendar.date(byAdding: .month, value: 1, to: today) ?? today
+        }
+    }
+    
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        return formatter
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("How annual subscriptions work")
+            Text("How \(selectedPlan == .annual ? "annual" : "monthly") subscriptions work")
                 .font(.headline)
             
             HStack(spacing: 16) {
@@ -366,7 +428,7 @@ struct SubscriptionInfoSection: View {
                     Text("Today: Get instant access")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                    Text("You are billed for one year")
+                    Text("You are billed for one \(selectedPlan == .annual ? "year" : "month")")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -377,10 +439,10 @@ struct SubscriptionInfoSection: View {
                     .frame(width: 30)
                 
                 VStack(alignment: .leading) {
-                    Text("December 16, 2025: Renewal")
+                    Text("\(dateFormatter.string(from: renewalDate)): Renewal")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                    Text("Your subscription is renewed for another year unless you cancel before this date.")
+                    Text("Your subscription is renewed for another \(selectedPlan == .annual ? "year" : "month") unless you cancel before this date.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -393,28 +455,31 @@ struct SubscriptionInfoSection: View {
 }
 
 struct FeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.blue)
-                .frame(width: 30)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
+   let icon: String
+   let title: String
+   let description: String
+   
+   var body: some View {
+       HStack(alignment: .top, spacing: 12) {
+           Image(systemName: icon)
+               .font(.title2)
+               .foregroundColor(.blue)
+               .frame(width: 24)
+               
+           VStack(alignment: .leading, spacing: 4) {
+               Text(title)
+                   .font(.headline)
+                   .frame(maxWidth: .infinity, alignment: .leading)
+               Text(description)
+                   .font(.subheadline)
+                   .foregroundColor(.secondary)
+                   .frame(maxWidth: .infinity, alignment: .leading)
+           }
+       }
+       .frame(maxWidth: .infinity, alignment: .leading)
+       .padding(.horizontal)
+   }
 }
-
 
 // View에서 사용할 수 있는 Premium 상태 표시 컴포넌트
 struct SubscriptionStatusView: View {
