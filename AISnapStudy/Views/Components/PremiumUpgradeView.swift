@@ -22,12 +22,6 @@ struct PremiumUpgradeView: View {
                         ], spacing: 16) {
                             
                             FeatureRow(
-                                icon: "square.and.arrow.down",
-                                title: "Full Library Access",
-                                description: "Download all question sets from our library"
-                            )
-                            
-                            FeatureRow(
                                icon: "calendar.badge.plus",
                                title: "More Daily Questions",
                                description: "Create up to 30 question sets per day"
@@ -38,7 +32,6 @@ struct PremiumUpgradeView: View {
                                 title: "Ad-Free Experience",
                                 description: "Enjoy learning without any advertisements"
                             )
-                            
 
                         }
                         .padding(.horizontal)

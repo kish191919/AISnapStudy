@@ -64,5 +64,9 @@
     </array>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Permission is required for speech recognition to input answers</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Permission is required to record voice answers using the microphone</string>
 </dict>
 </plist>

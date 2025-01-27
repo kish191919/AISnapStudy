@@ -46,21 +46,35 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 24)  // 일관된 패딩 적용
                     
-                    // Favorites Section
-                    if !viewModel.favoriteProblemSets.isEmpty {
-                        VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 32 : 20) {
-                            // Favorites 헤더
-                            HStack(spacing: horizontalSizeClass == .regular ? 16 : 12) {
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: horizontalSizeClass == .regular ? 32 : 24))
-                                    .foregroundColor(.yellow)
-                                Text("Favorites")
-                                    .font(.system(size: horizontalSizeClass == .regular ? 32 : 24, weight: .bold))
-                                    .foregroundColor(colorScheme == .dark ? .white : .black)
+                    // Favorites Section - 항상 표시
+                    VStack(alignment: .leading, spacing: horizontalSizeClass == .regular ? 32 : 20) {
+                        // Favorites 헤더
+                        HStack(spacing: horizontalSizeClass == .regular ? 16 : 12) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: horizontalSizeClass == .regular ? 32 : 24))
+                                .foregroundColor(.yellow)
+                            Text("Favorites")
+                                .font(.system(size: horizontalSizeClass == .regular ? 32 : 24, weight: .bold))
+                                .foregroundColor(colorScheme == .dark ? .white : .black)
+                        }
+                        .padding(.horizontal, 24)
+                        
+                        // Favorites 리스트 또는 빈 상태 메시지
+                        if viewModel.favoriteProblemSets.isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "star")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(.gray)
+                                Text("No favorites yet")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.secondary)
+                                Text("Your favorite study sets will appear here")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.secondary)
                             }
-                            .padding(.horizontal, 24)  // Welcome Back!과 동일한 패딩
-                            
-                            // Favorites 리스트
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                        } else {
                             favoritesList
                         }
                     }
@@ -407,4 +421,3 @@ struct PremiumUpgradeButton: View {
         .padding(.horizontal)
     }
 }
-

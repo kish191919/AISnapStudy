@@ -10,7 +10,7 @@ struct UserSubscriptionStatus: Codable {
     
     static let defaultStatus = UserSubscriptionStatus(
         isPremium: false,
-        dailyQuestionsRemaining: 1,
+        dailyQuestionsRemaining: 2,
         downloadedSetsCount: 0,  // 초기값 0
         lastResetDate: nil
     )

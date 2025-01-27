@@ -130,7 +130,7 @@ class StoreService: ObservableObject {
 
     private func resetDailyQuestions() {
         // 프리미엄 상태에 따라 적절한 일일 질문 수 설정
-        let maxQuestions = subscriptionStatus.isPremium ? 30 : 1
+        let maxQuestions = subscriptionStatus.isPremium ? 30 : 2
         subscriptionStatus.dailyQuestionsRemaining = maxQuestions
         subscriptionStatus.lastResetDate = Date()
         
