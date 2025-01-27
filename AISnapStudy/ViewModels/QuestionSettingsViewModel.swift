@@ -24,7 +24,7 @@ class QuestionSettingsViewModel: ObservableObject {
         }
     }
     
-    @Published var selectedLanguage: Language = .auto {
+    @Published var selectedLanguage: Language = .english {
         didSet {
             UserDefaults.standard.set(selectedLanguage.rawValue, forKey: "selectedLanguage")
         }
@@ -139,7 +139,7 @@ class QuestionSettingsViewModel: ObservableObject {
         self.studyViewModel = homeViewModel.studyViewModel
         
         // 3. @Published 프로퍼티들 초기화
-        self.selectedLanguage = .auto
+        self.selectedLanguage = .english
         self.useTextExtraction = UserDefaults.standard.bool(forKey: "useTextExtraction")
         self.educationLevel = EducationLevel(rawValue: UserDefaults.standard.string(forKey: UserDefaultsKeys.lastEducationLevel) ?? "") ?? .elementary
         self.multipleChoiceCount = UserDefaults.standard.integer(forKey: UserDefaultsKeys.lastMultipleChoiceCount)

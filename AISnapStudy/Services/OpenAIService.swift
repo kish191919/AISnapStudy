@@ -174,7 +174,25 @@ class OpenAIService {
             self.language = language
         }
     }
-    private func buildMessages(input: QuestionInput, prompts: (system: String, user: String)) -> [[String: Any]] {
+    private func buildMessages(
+        input: QuestionInput,
+        parameters: QuestionParameters,
+        prompts: (system: String, user: String)
+    ) -> [[String: Any]] {
+        let languageInstruction = """
+        CRITICAL LANGUAGE REQUIREMENT:
+        1. GENERATE ALL CONTENT IN \(parameters.language.displayName.uppercased()) ONLY
+        2. This includes:
+           - All questions
+           - All answer choices
+           - All explanations
+           - All hints
+        3. DO NOT use any other language
+        4. Translate all concepts while preserving technical terms
+        """
+        
+        let enhancedSystemPrompt = prompts.system + "\n\n" + languageInstruction
+
         if input.isImage {
             do {
                 guard let image = UIImage(data: input.content) else {
@@ -209,11 +227,15 @@ class OpenAIService {
         } else {
             if let textContent = String(data: input.content, encoding: .utf8) {
                 return [
-                    ["role": "system", "content": prompts.system],
+                    ["role": "system", "content": enhancedSystemPrompt],
                     ["role": "user", "content": [
                         [
                             "type": "text",
-                            "text": "\(prompts.user)\n\nText data: \(textContent)"
+                            "text": """
+                            \(prompts.user)
+                            Language: \(parameters.language.codeName)
+                            Text data: \(textContent)
+                            """
                         ]
                     ]]
                 ]
@@ -337,14 +359,14 @@ class OpenAIService {
             subject.displayName
         }
         
-        let languageInstructionText = language == .auto ?
+        let languageInstructionText = language == .english ?
             "Generate questions in the exact same language as the input text." :
             """
             IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.codeName).
             DO NOT use the input text's language. Even if the input is in another language, the output must be in \(language.codeName) only.
             """
         
-        let languageInstructionImage = language == .auto ?
+        let languageInstructionImage = language == .english ?
             "Generate questions in the same language as any visible text in the image." :
             """
             IMPORTANT: All generated questions, answers, explanations, and hints must be in \(language.codeName).
@@ -358,7 +380,7 @@ class OpenAIService {
                     You are an expert in creating self-contained, image-based questions.
                     
                     STRICT LANGUAGE REQUIREMENTS:
-                    - Output language: \(language == .auto ? "same as visible text in the image" : language.codeName)
+                    - Output language: \(language == .english ? "same as visible text in the image" : language.codeName)
                     - Ensure consistent language usage throughout all content.
                     - Translate concepts accurately without losing meaning.
                     
@@ -392,7 +414,7 @@ class OpenAIService {
                     You are an expert in creating self-contained questions based on extracted text from images.
                     
                     STRICT LANGUAGE REQUIREMENTS:
-                    - Output language: \(language == .auto ? "same as the extracted text" : language.codeName)
+                    - Output language: \(language == .english ? "same as the extracted text" : language.codeName)
                     - Maintain consistent language usage across all questions, answers, and explanations.
                     - Preserve technical terms and proper nouns during translation.
 
@@ -426,7 +448,7 @@ class OpenAIService {
                     You are an expert in creating questions for \(educationLevel.displayName) students.
                     
                     STRICT LANGUAGE REQUIREMENTS:
-                    - Output language: \(language == .auto ? "same as input text" : language.codeName)
+                    - Output language: \(language == .english ? "same as input text" : language.codeName)
                     - Maintain consistent language usage across all questions, answers, and explanations.
                     - Preserve technical terms and proper nouns during translation.
                     
@@ -596,9 +618,11 @@ class OpenAIService {
                     "strict": true,
                     "schema": schema
                 ]
-            ]
+            ],
+            "temperature": 0.7  // 낮은 temperature로 일관성 향상
         ]
-        
+
+
         var request = URLRequest(url: URL(string: baseURL)!)
         request.httpMethod = "POST"
         

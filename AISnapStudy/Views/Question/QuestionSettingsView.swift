@@ -135,7 +135,7 @@ struct QuestionSettingsView: View {
                     
                     // Text Input Field
                     if viewModel.isTextInputActive {
-                        TextField("Enter your question here...", text: $viewModel.questionText)
+                        TextField("Enter subject or topic (e.g., 'World History' or 'French Revolution')", text: $viewModel.questionText)
                             .textFieldStyle(RoundedBorderTextFieldStyle())
                             .focused($isTextFieldFocused)
                             .padding(.horizontal)
