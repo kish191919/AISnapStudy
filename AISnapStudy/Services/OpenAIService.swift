@@ -8,7 +8,9 @@ class OpenAIService {
     private let session: URLSession
     private let cache = NSCache<NSString, NSArray>()
     private let keyServerURL = "https://aisnapstudy.kish1919.workers.dev/openai-key"
-    private let appToken = "21a91823646976752bbd38f9442d27e7be0f7f8e30a449b11f2e47490ba41365"
+    
+    // 하드코딩 대신 Secrets.plist에서 읽기
+    private var appToken: String { Secrets.appToken }
     // 싱글톤 수정
     static let shared = OpenAIService()
     
@@ -26,7 +28,21 @@ class OpenAIService {
             try? await fetchAPIKey()
         }
     }
-    
+    enum Secrets {
+        static var appToken: String {
+            guard
+                let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+                let dict = NSDictionary(contentsOf: url) as? [String: Any],
+                let token = dict["APP_TOKEN"] as? String,
+                !token.isEmpty, token != "__REPLACE_ME__"
+            else {
+                assertionFailure("APP_TOKEN missing in Secrets.plist")
+                return ""
+            }
+            return token
+        }
+    }
+
     private func makeOpenAIRequest(_ request: inout URLRequest) throws {
         guard let apiKey = self.apiKey else {
             print("❌ API key is nil")

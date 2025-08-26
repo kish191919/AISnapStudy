@@ -10,6 +10,9 @@ xcuserdata/
 
 # Configuration files containing sensitive data
 *.plist
+# Secrets
+Secrets.plist
+Info.plist
 
 # Other
 *.log
