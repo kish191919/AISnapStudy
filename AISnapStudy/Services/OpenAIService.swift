@@ -7,8 +7,8 @@ class OpenAIService {
     private let baseURL = "https://api.openai.com/v1/chat/completions"
     private let session: URLSession
     private let cache = NSCache<NSString, NSArray>()
-    private let keyServerURL = "https://aistockadvisor.net/api/get-api-key"
-    
+    private let keyServerURL = "https://aisnapstudy.kish1919.workers.dev/openai-key"
+    private let appToken = "21a91823646976752bbd38f9442d27e7be0f7f8e30a449b11f2e47490ba41365"
     // 싱글톤 수정
     static let shared = OpenAIService()
     
@@ -43,23 +43,15 @@ class OpenAIService {
     
     // fetchAPIKey 함수 수정
     func fetchAPIKey() async throws {
-        let request = URLRequest(url: URL(string: keyServerURL)!)
+        var request = URLRequest(url: URL(string: keyServerURL)!)
+        request.setValue(appToken, forHTTPHeaderField: "X-App-Auth")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw NetworkError.invalidResponse
-        }
-        
-        let decoder = JSONDecoder()
-        let keyResponse = try decoder.decode(APIKeyResponse.self, from: data)
-        
-        // API 키 저장 전 확인
-        print("Debug - Received API Key (first 10 chars):", keyResponse.apiKey.prefix(10))
-        
-        // API 키 저장
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw NetworkError.invalidResponse }
+        let keyResponse = try JSONDecoder().decode(APIKeyResponse.self, from: data)
         self.apiKey = keyResponse.apiKey
     }
+    
     
     // API Key가 없을 경우 가져오는 메서드
     private func ensureValidAPIKey() async throws {
